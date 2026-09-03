@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TradePilot · 智能客户开发 - UI 原型</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background:#f5f7fa; color:#1f2937; font-size:14px; }
+  .topbar { background:#fff; border-bottom:1px solid #e5e7eb; padding:12px 24px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:10; }
+  .topbar h1 { font-size:17px; font-weight:600; }
+  .topbar .logo { color:#2563eb; margin-right:8px; }
+  .container { max-width:1200px; margin:24px auto; padding:0 24px; }
+  .card { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:20px; margin-bottom:16px; }
+  .card h2 { font-size:15px; font-weight:600; margin-bottom:14px; }
+  .stepnav { display:flex; gap:8px; margin-bottom:20px; flex-wrap:wrap; }
+  .stepnav button { padding:8px 16px; border:1px solid #d1d5db; background:#fff; border-radius:20px; cursor:pointer; font-size:13px; color:#4b5563; }
+  .stepnav button.active { background:#2563eb; border-color:#2563eb; color:#fff; font-weight:600; }
+  label { display:block; font-size:13px; color:#6b7280; margin:10px 0 4px; }
+  input[type=text], textarea, select { width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; font-family:inherit; }
+  textarea { resize:vertical; }
+  .btn { display:inline-block; padding:9px 18px; border:none; border-radius:6px; cursor:pointer; font-size:14px; background:#2563eb; color:#fff; font-weight:500; }
+  .btn.secondary { background:#fff; color:#374151; border:1px solid #d1d5db; }
+  .btn.small { padding:5px 12px; font-size:13px; }
+  .row { display:flex; gap:12px; }
+  .row > * { flex:1; }
+  .hint { font-size:12px; color:#9ca3af; margin-top:4px; }
+  /* 线索列表 */
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:12px; color:#6b7280; font-weight:500; padding:8px; border-bottom:1px solid #e5e7eb; }
+  td { padding:10px 8px; border-bottom:1px solid #f3f4f6; vertical-align:middle; }
+  tr:hover td { background:#f8fafc; }
+  .score { display:inline-flex; align-items:center; justify-content:center; width:44px; height:44px; border-radius:8px; color:#fff; font-weight:700; font-size:15px; }
+  .grade { font-size:11px; font-weight:700; padding:2px 8px; border-radius:10px; }
+  .grade.A { background:#dcfce7; color:#15803d; }
+  .grade.B { background:#dbeafe; color:#1d4ed8; }
+  .grade.C { background:#fef9c3; color:#a16207; }
+  .grade.D { background:#fee2e2; color:#b91c1c; }
+  .status { font-size:12px; color:#6b7280; }
+  .status.ok { color:#16a34a; }
+  .status.err { color:#dc2626; }
+  .checkbox { width:16px; height:16px; accent-color:#2563eb; }
+  /* 报告 */
+  .report-grid { display:grid; grid-template-columns:280px 1fr; gap:20px; }
+  .scorecard { background:linear-gradient(135deg,#1e40af,#3b82f6); color:#fff; border-radius:10px; padding:20px; text-align:center; }
+  .scorecard .big { font-size:44px; font-weight:800; }
+  .dim { display:flex; justify-content:space-between; align-items:flex-start; padding:10px 0; border-bottom:1px dashed #e5e7eb; }
+  .dim .name { font-weight:500; }
+  .dim .ev { font-size:12px; color:#6b7280; margin-top:4px; max-width:420px; }
+  .bar { width:120px; height:8px; background:#e5e7eb; border-radius:4px; overflow:hidden; flex-shrink:0; margin-top:4px; }
+  .bar i { display:block; height:100%; background:#2563eb; }
+  .src { font-size:11px; color:#94a3b8; }
+  .facts div { padding:6px 0; border-bottom:1px dashed #f3f4f6; font-size:13px; }
+  .missing { color:#d97706; font-size:12px; }
+  /* 开发信 */
+  .email-preview { background:#fff; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden; }
+  .email-head { padding:12px 16px; border-bottom:1px solid #e5e7eb; background:#f8fafc; font-size:13px; }
+  .email-body { padding:16px; font-size:14px; line-height:1.7; }
+  .email-body p { margin-bottom:10px; }
+  .subj-cands { display:flex; flex-direction:column; gap:6px; margin:8px 0 16px; }
+  .subj-cands label { display:flex; gap:8px; align-items:center; margin:0; color:#374151; font-size:13px; cursor:pointer; }
+  .toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:#111827; color:#fff; padding:10px 20px; border-radius:8px; font-size:13px; display:none; z-index:99; }
+  .actions { display:flex; gap:10px; margin-top:14px; }
+  .badge { font-size:11px; padding:2px 8px; border-radius:10px; background:#eff6ff; color:#2563eb; }
+  .kpi { display:flex; gap:16px; margin-bottom:16px; }
+  .kpi .card { flex:1; margin:0; padding:14px 18px; }
+  .kpi .num { font-size:24px; font-weight:700; color:#1e40af; }
+  .kpi .lbl { font-size:12px; color:#6b7280; margin-top:2px; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1><span class="logo">⚓</span>TradePilot · 智能客户开发</h1>
+  <div>
+    <select style="width:220px" onchange="toast('切换产品档案：'+this.value)">
+      <option>产品档案：不锈钢水杯 / 欧美市场</option>
+      <option>产品档案：LED 台灯 / 中东市场</option>
+      <option>+ 新建产品档案</option>
+    </select>
+  </div>
+</div>
+
+<div class="container">
+  <div class="stepnav">
+    <button class="active" onclick="show('step1',this)">① 产品档案</button>
+    <button onclick="show('step2',this)">② 导入线索</button>
+    <button onclick="show('step3',this)">③ 客户分析 & 评分</button>
+    <button onclick="show('step4',this)">④ 客户报告详情</button>
+    <button onclick="show('step5',this)">⑤ 开发信生成</button>
+  </div>
+
+  <!-- ① 产品档案 -->
+  <div id="step1">
+    <div class="card">
+      <h2>我的产品档案</h2>
+      <div class="row">
+        <div>
+          <label>产品名称与说明</label>
+          <input type="text" value="304 不锈钢真空保温杯，容量 350ml–1L，支持激光刻字定制">
+        </div>
+        <div>
+          <label>目标市场</label>
+          <input type="text" value="美国、德国、英国">
+        </div>
+      </div>
+      <label>产品关键词（用于匹配度评估与 v2 自动搜索）</label>
+      <input type="text" value="insulated water bottle, vacuum tumbler, stainless steel drinkware, promotional mugs">
+      <label>我的差异化优势（选填，用于开发信）</label>
+      <textarea rows="2">自有工厂 15 年，BSCI/ISO9001 认证，MOQ 500 件起，7 天打样</textarea>
+      <div class="actions"><button class="btn" onclick="toast('产品档案已保存')">保存档案</button></div>
+      <div class="hint">档案配置一次，全部客户分析与开发信生成都将基于此档案。</div>
+    </div>
+  </div>
+
+  <!-- ② 导入线索 -->
+  <div id="step2" style="display:none">
+    <div class="card">
+      <h2>自动搜索潜在客户 <span class="badge">主通道 · 基于产品档案</span></h2>
+      <div class="row">
+        <div>
+          <label>搜索关键词（来自产品档案，可临时修改）</label>
+          <input type="text" value="insulated water bottle, vacuum tumbler">
+        </div>
+        <div>
+          <label>目标市场（来自产品档案）</label>
+          <input type="text" value="美国、德国、英国">
+        </div>
+        <div style="flex:0 0 170px">
+          <label>搜索引擎</label>
+          <select>
+            <option>DuckDuckGo（默认·免key）</option>
+            <option>Google CSE（需配置key）</option>
+            <option>SerpAPI（需配置key）</option>
+          </select>
+        </div>
+      </div>
+      <div class="hint">将自动组合查询："{关键词}" wholesale/importer/distributor + 目标市场，过滤电商平台与目录站后生成候选公司。</div>
+      <div class="actions">
+        <button class="btn" onclick="toast('搜索完成：发现 12 条候选线索（已去重、过滤电商站）')">🔍 开始自动搜索</button>
+      </div>
+      <table style="margin-top:10px">
+        <tr><th></th><th>公司</th><th>来源</th><th>状态</th></tr>
+        <tr><td><input type="checkbox" class="checkbox" checked></td><td><b>Alpine Drinkware GmbH</b><br><span class="src">alpinedrinkware.de</span></td><td class="src">"insulated bottle" wholesale germany</td><td class="status">新发现</td></tr>
+        <tr><td><input type="checkbox" class="checkbox" checked></td><td><b>CoolCups US</b><br><span class="src">coolcups-us.com</span></td><td class="src">custom tumbler distributor usa</td><td class="status">新发现</td></tr>
+        <tr><td><input type="checkbox" class="checkbox" checked></td><td><b>ExampleBottle Ltd</b><br><span class="src">examplebottle.com</span></td><td class="src">insulated bottle importer uk</td><td class="status">新发现</td></tr>
+        <tr><td colspan="2" class="src">… 已自动过滤 3 条（amazon.com、目录站、新闻页）</td><td colspan="2"></td></tr>
+      </table>
+      <div class="actions">
+        <button class="btn" onclick="toast('已提交 3 条线索，开始抓取分析…')">✓ 分析选中线索（3）</button>
+      </div>
+    </div>
+    <div class="card" style="border-style:dashed">
+      <h2 style="color:#6b7280">备用：粘贴导入（已找到的公司名/URL，每行一个）</h2>
+      <textarea rows="3" placeholder="https://www.example.com&#10;Alpine Drinkware GmbH"></textarea>
+      <div class="actions"><button class="btn secondary" onclick="toast('已提交，开始抓取分析…')">提交批量分析</button></div>
+    </div>
+  </div>
+
+  <!-- ③ 线索列表 -->
+  <div id="step3" style="display:none">
+    <div class="kpi">
+      <div class="card"><div class="num">5</div><div class="lbl">已分析线索</div></div>
+      <div class="card"><div class="num">2</div><div class="lbl">A 级客户</div></div>
+      <div class="card"><div class="num">2</div><div class="lbl">B 级客户</div></div>
+      <div class="card"><div class="num">1</div><div class="lbl">抓取失败（可重试）</div></div>
+    </div>
+    <div class="card">
+      <h2>线索列表 <span class="badge">按评分排序</span></h2>
+      <table>
+        <tr><th></th><th>评分</th><th>客户</th><th>主营（官网摘要）</th><th>联系方式</th><th>状态</th><th>操作</th></tr>
+        <tr>
+          <td><input type="checkbox" class="checkbox" checked></td>
+          <td><span class="score" style="background:#16a34a">88</span><div class="grade A" style="margin-top:4px;display:inline-block">A</div></td>
+          <td><b>Alpine Drinkware GmbH</b><br><span class="src">alpinedrinkware.de · 德国</span></td>
+          <td>批发分销不锈钢与玻璃水杯，服务欧洲零售连锁</td>
+          <td>info@alpinedrinkware.de<br><span class="src">采购联系人：M. Weber</span></td>
+          <td class="status ok">已完成</td>
+          <td><button class="btn small secondary" onclick="show('step4',document.querySelectorAll('.stepnav button')[3])">查看报告</button></td>
+        </tr>
+        <tr>
+          <td><input type="checkbox" class="checkbox" checked></td>
+          <td><span class="score" style="background:#16a34a">82</span><div class="grade A" style="margin-top:4px;display:inline-block">A</div></td>
+          <td><b>CoolCups US</b><br><span class="src">coolcups-us.com · 美国</span></td>
+          <td>定制印花保温杯电商 + 企业礼品批发</td>
+          <td>sales@coolcups-us.com</td>
+          <td class="status ok">已完成</td>
+          <td><button class="btn small secondary" onclick="show('step4',document.querySelectorAll('.stepnav button')[3])">查看报告</button></td>
+        </tr>
+        <tr>
+          <td><input type="checkbox" class="checkbox"></td>
+          <td><span class="score" style="background:#2563eb">67</span><div class="grade B" style="margin-top:4px;display:inline-block">B</div></td>
+          <td><b>ExampleBottle Ltd</b><br><span class="src">examplebottle.com · 英国</span></td>
+          <td>家居用品零售，保温杯为其子品类之一</td>
+          <td>仅网站表单</td>
+          <td class="status ok">已完成</td>
+          <td><button class="btn small secondary">查看报告</button></td>
+        </tr>
+        <tr>
+          <td><input type="checkbox" class="checkbox"></td>
+          <td><span class="score" style="background:#ca8a04">45</span><div class="grade C" style="margin-top:4px;display:inline-block">C</div></td>
+          <td><b>KitchPro GmbH</b><br><span class="src">kitchpro.de · 德国</span></td>
+          <td>厨房小家电为主，疑似无水杯业务</td>
+          <td>info@kitchpro.de</td>
+          <td class="status ok">已完成</td>
+          <td><button class="btn small secondary">查看报告</button></td>
+        </tr>
+        <tr>
+          <td><input type="checkbox" class="checkbox"></td>
+          <td><span class="score" style="background:#9ca3af">—</span><div class="grade D" style="margin-top:4px;display:inline-block">失败</div></td>
+          <td><b>Thermos World</b><br><span class="src">thermos-world.co.uk</span></td>
+          <td colspan="2"><span class="missing">官网抓取超时（反爬），可粘贴官网文本人工补充</span></td>
+          <td class="status err">失败</td>
+          <td><button class="btn small secondary">重试</button> <button class="btn small secondary">补充内容</button></td>
+        </tr>
+      </table>
+      <div class="actions">
+        <button class="btn" onclick="toast('已确认 2 个客户，可进入开发信生成')">确认选中客户（2）</button>
+        <button class="btn secondary" onclick="toast('导出 CSV 成功')">导出全部报告</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ④ 客户报告详情 -->
+  <div id="step4" style="display:none">
+    <div class="card report-grid">
+      <div>
+        <div class="scorecard">
+          <div class="big">88</div>
+          <div>综合评级 A · 值得优先开发</div>
+        </div>
+        <div style="margin-top:14px">
+          <div class="dim"><span class="name">产品匹配度 40%</span><span><b>高（34/40）</b></span></div>
+          <div class="bar" style="width:100%"><i style="width:85%"></i></div>
+          <div class="dim"><span class="name">进口商证据 25%</span><span><b>强（22/25）</b></span></div>
+          <div class="bar" style="width:100%"><i style="width:88%"></i></div>
+          <div class="dim"><span class="name">规模资质 15%</span><span><b>（11/15）</b></span></div>
+          <div class="bar" style="width:100%"><i style="width:73%"></i></div>
+          <div class="dim"><span class="name">联系可得性 10%</span><span><b>（10/10）</b></span></div>
+          <div class="bar" style="width:100%"><i style="width:100%"></i></div>
+          <div class="dim"><span class="name">市场匹配 10%</span><span><b>高（11→9/10）</b></span></div>
+          <div class="bar" style="width:100%"><i style="width:90%"></i></div>
+        </div>
+      </div>
+      <div>
+        <h2>Alpine Drinkware GmbH · 客户分析报告</h2>
+        <div class="facts">
+          <div><b>公司概况：</b>德国保温杯与玻璃水杯批发分销商，服务欧洲零售连锁与促销礼品行业 <span class="src">[来源: /about · 抓取 2026-09-03]</span></div>
+          <div><b>产品线：</b>不锈钢保温杯、玻璃水瓶、咖啡随行杯；支持品牌定制 <span class="src">[来源: /products]</span></div>
+          <div><b>业务模式：</b>官网出现 "wholesale" "distribution" "B2B partners" 信号词 → <b style="color:#16a34a">进口商/采购证据强</b> <span class="src">[来源: /partners]</span></div>
+          <div><b>规模与资质：</b>官网显示成立于 2008 年，员工 50–100 人；<span class="missing">未获取到认证信息</span> <span class="src">[来源: /about]</span></div>
+          <div><b>市场覆盖：</b>DACH 地区 + 荷兰、法国 <span class="src">[来源: /contact]</span></div>
+          <div><b>联系方式：</b>info@alpinedrinkware.de · 采购联系人 M. Weber（Head of Sourcing） <span class="src">[来源: /contact]</span></div>
+          <div><b>与我方匹配评估：</b>主营与 304 不锈钢保温杯高度重合，B2B 分销模式适合批量采购；定制服务需求与我方激光刻字能力吻合。<span class="src">[AI 评估 · 依据上述官网证据]</span></div>
+        </div>
+        <div class="actions">
+          <button class="btn" onclick="show('step5',document.querySelectorAll('.stepnav button')[4]);toast('已确认客户，进入开发信生成')">✓ 确认开发此客户</button>
+          <button class="btn secondary">重新分析</button>
+          <button class="btn secondary">导出报告</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ⑤ 开发信 -->
+  <div id="step5" style="display:none">
+    <div class="card">
+      <h2>个性化开发信 · Alpine Drinkware GmbH <span class="badge">基于分析报告证据生成</span></h2>
+      <label>标题候选（选择或自行编辑）</label>
+      <div class="subj-cands">
+        <label><input type="radio" name="subj" checked> Custom insulated bottles for your European retail range</label>
+        <label><input type="radio" name="subj"> 304 stainless tumblers — factory-direct, MOQ 500</label>
+      </div>
+      <label>正文（可编辑，152 词内）</label>
+      <div class="email-preview">
+        <div class="email-body" contenteditable="true" style="min-height:180px">
+          <p>Hi Mr. Weber,</p>
+          <p>I noticed Alpine Drinkware supplies custom stainless steel and glass bottles to European retail chains — including your vacuum tumbler line featured on your partners page.</p>
+          <p>We manufacture 304 stainless insulated bottles (350ml–1L) with laser-engraved branding, factory-direct from our own 15-year facility. BSCI &amp; ISO9001 certified, MOQ from 500 pcs, sampling in 7 days.</p>
+          <p>Would a sample set matching your current tumbler range be helpful for your next season's assortment?</p>
+          <p>Best regards,<br>Kevin<br>TradePilot Export Co., Ltd.</p>
+        </div>
+      </div>
+      <div class="hint" style="margin-top:8px">✓ 客户侧信息全部来自分析报告 · ✓ 我方卖点来自产品档案 · 正文 138 词 · 无垃圾触发词</div>
+      <div class="actions">
+        <button class="btn" onclick="toast('已复制到剪贴板，请粘贴到邮箱发送')">复制开发信</button>
+        <button class="btn secondary" onclick="toast('已导出 .eml')">导出 .eml</button>
+        <button class="btn secondary" onclick="toast('重新生成中…')">重新生成</button>
+        <button class="btn secondary" onclick="toast('切换语种：Deutsch')">切换语种</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+function show(id, btn){
+  document.querySelectorAll('.container > div[id^=step]').forEach(d=>d.style.display='none');
+  document.getElementById(id).style.display='block';
+  document.querySelectorAll('.stepnav button').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  window.scrollTo(0,0);
+}
+function toast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.style.display='block';
+  clearTimeout(t._h); t._h=setTimeout(()=>t.style.display='none',2200);
+}
+</script>
+</body>
+</html>

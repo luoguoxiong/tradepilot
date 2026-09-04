@@ -21,4 +21,10 @@ export const config = {
     timeoutMs: Number(process.env.FETCH_TIMEOUT_MS || 15_000),
     pageDelayMs: 500,
   },
+  order: {
+    // 异常扫描间隔（毫秒），默认 30 分钟
+    scanIntervalMs: Number(process.env.ORDER_SCAN_INTERVAL_MS || 30 * 60_000),
+    // SMTP 密码加密密钥素材；未配置时回退用 LLM_API_KEY 派生
+    appSecret: process.env.APP_SECRET || '',
+  },
 };

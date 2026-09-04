@@ -3,8 +3,10 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { config } from './config.js';
 import { registerRoutes } from './routes.js';
+import { registerOrderRoutes } from './order-routes.js';
+import { startMonitor } from './services/monitor.js';
 
-const app = Fastify({ logger: false, bodyLimit: 2 * 1024 * 1024 });
+const app = Fastify({ logger: false, bodyLimit: 10 * 1024 * 1024 });
 
 await app.register(cors, { origin: ['http://localhost:5173', 'http://127.0.0.1:5173'] });
 
@@ -14,6 +16,8 @@ app.setErrorHandler((err, _req, reply) => {
 });
 
 registerRoutes(app);
+registerOrderRoutes(app);
+startMonitor();
 
 app.listen({ port: config.port, host: '127.0.0.1' })
   .then(() => console.log(`[server] TradePilot 后端已启动: http://localhost:${config.port}`))

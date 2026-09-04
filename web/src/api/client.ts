@@ -184,6 +184,215 @@ export function normalizeEmail(raw: any, leadId: number): EmailDraft {
   }
 }
 
+/* ==================== 二期：订单跟单类型 ==================== */
+
+export type OrderStatus = 'active' | 'closed' | 'cancelled'
+export type DocType = 'pi' | 'invoice' | 'pl'
+export type AnomalyType = 'due_soon' | 'overdue' | 'deposit_pending' | 'stalled'
+
+/** 进度节点（与后端 NODE_LABELS 一致） */
+export const ORDER_NODES: Array<{ value: string; label: string }> = [
+  { value: 'created', label: '订单创建' },
+  { value: 'order_confirmed', label: '订单确认' },
+  { value: 'deposit_received', label: '定金到账' },
+  { value: 'factory_ordered', label: '工厂下单' },
+  { value: 'producing', label: '生产中' },
+  { value: 'inspected', label: '验货完成' },
+  { value: 'shipped', label: '出货' },
+  { value: 'dispatched', label: '发运' },
+  { value: 'balance_received', label: '收尾款' }
+]
+export function nodeLabel(node: string): string {
+  return ORDER_NODES.find((n) => n.value === node)?.label ?? node
+}
+
+export const INCOTERMS_OPTIONS = ['EXW', 'FCA', 'CPT', 'CIP', 'DAP', 'DPU', 'DDP', 'FAS', 'FOB', 'CFR', 'CIF']
+
+export interface OrderPayload {
+  order_no?: string
+  customer_name?: string
+  customer_email?: string
+  order_date?: string
+  delivery_date?: string
+  incoterms?: string
+  payment_terms?: string
+  currency?: string
+  total_amount?: number
+  remarks?: string
+}
+
+export interface OrderItemPayload {
+  name?: string
+  model?: string
+  qty?: number | null
+  unit?: string
+  unit_price?: number | null
+}
+
+export interface Order {
+  id: number
+  order_no: string
+  customer_name: string
+  customer_email: string
+  order_date: string
+  delivery_date: string
+  incoterms: string
+  payment_terms: string
+  currency: string
+  total_amount: number
+  status: OrderStatus
+  remarks: string
+  source_type: string
+  source_file_name: string
+  created_at: string
+  updated_at: string
+}
+
+export interface OrderItemT {
+  id?: number
+  name: string
+  model: string
+  qty: number
+  unit: string
+  unit_price: number
+  amount: number
+}
+
+export interface OrderEventT {
+  id: number
+  order_id: number
+  node: string
+  event_date: string
+  note: string
+  created_at: string
+}
+
+export interface OrderDocMeta {
+  id: number
+  doc_type: DocType
+  doc_no: string
+  version: number
+  overrides_json: string | null
+  note: string
+  created_at: string
+}
+
+export interface OrderMail {
+  id: number
+  order_id: number
+  kind: 'progress' | 'chase' | 'custom'
+  to_addr: string
+  subject: string
+  body: string
+  status: 'draft' | 'sent' | 'failed'
+  error: string | null
+  sent_at: string | null
+  created_at: string
+}
+
+/** GET /api/orders 列表行（含派生字段） */
+export interface OrderRow extends Order {
+  current_node: string
+  days_left: number | null
+  anomaly_types: AnomalyType[]
+}
+
+/** GET /api/orders/:id 详情聚合 */
+export interface OrderDetail extends Order {
+  items: OrderItemT[]
+  events: OrderEventT[]
+  docs: OrderDocMeta[]
+  mails: OrderMail[]
+  nodes: Record<string, string>
+}
+
+/** 解析结果（逐字段置信度） */
+export interface ParsedItemT {
+  name: string | null
+  model: string | null
+  qty: number | null
+  unit: string | null
+  unit_price: number | null
+  amount: number | null
+}
+
+export interface ParsedOrderT {
+  order_no: string | null
+  customer_name: string | null
+  customer_email: string | null
+  order_date: string | null
+  delivery_date: string | null
+  incoterms: string | null
+  payment_terms: string | null
+  currency: string | null
+  total_amount: number | null
+  remarks: string | null
+  items: ParsedItemT[]
+  confidence: Record<string, number>
+}
+
+export interface OrderImportResult {
+  importId: number
+  parsed: ParsedOrderT
+  lowFields: string[]
+}
+
+export interface OrderWithItems extends Order {
+  items: OrderItemT[]
+}
+
+export interface Anomaly {
+  type: AnomalyType
+  level: 'high' | 'medium' | 'low'
+  order_id: number
+  order_no: string
+  customer_name: string
+  delivery_date: string
+  currency: string
+  total_amount: number
+  message: string
+}
+
+export interface DocOverride {
+  seller_name?: string
+  buyer_address?: string
+  consignee?: string
+  marks?: string
+  cartons?: string
+  gross_weight?: string
+  net_weight?: string
+  volume?: string
+  remarks?: string
+}
+
+export interface DocResult {
+  id: number
+  doc_no: string
+  version: number
+  html_url: string
+}
+
+export interface SmtpPayload {
+  host: string
+  port: number
+  secure: boolean
+  user: string
+  sender_name: string
+  /** 仅写入，后端不下发 */
+  pass?: string
+}
+
+export interface ReminderRulesPayload {
+  days_before: number[]
+  deposit_days: number
+  stalled_days: number
+}
+
+export interface SettingsData {
+  smtp: (Omit<SmtpPayload, 'pass'> & { has_password: boolean }) | null
+  reminder_rules: ReminderRulesPayload
+}
+
 /* ==================== axios 实例与拦截器 ==================== */
 
 const client: AxiosInstance = axios.create({
@@ -277,5 +486,82 @@ export const api = {
     return normalizeList<unknown>(await client.get<unknown, unknown>(`/api/leads/${id}/emails`)).map(
       (e) => normalizeEmail(e, id)
     )
+  },
+
+  /* ==================== 二期：订单跟单（order-followup） ==================== */
+
+  /* ---- 类型 ---- */
+  // (类型定义见下方 Order 命名空间)
+
+  /* ---- 导入与建单 ---- */
+  /** POST /api/orders/import：上传文件(base64)或粘贴文本 → AI 解析（暂存，不建单） */
+  async importOrder(payload: { fileName?: string; contentBase64?: string; text?: string }): Promise<OrderImportResult> {
+    return client.post<OrderImportResult, OrderImportResult>('/api/orders/import', payload)
+  },
+  /** POST /api/orders：确认建单（importId 可选） */
+  async createOrder(payload: { importId?: number; order: OrderPayload; items: OrderItemPayload[] }): Promise<OrderWithItems> {
+    return client.post('/api/orders', payload)
+  },
+  /** PUT /api/orders/:id：编辑订单与产品行 */
+  async updateOrder(id: number, payload: { order: OrderPayload; items: OrderItemPayload[] }): Promise<OrderWithItems> {
+    return client.put(`/api/orders/${id}`, payload)
+  },
+  /** POST /api/orders/:id/status：关闭/取消/恢复 */
+  async setOrderStatus(id: number, status: 'active' | 'closed' | 'cancelled'): Promise<void> {
+    await client.post(`/api/orders/${id}/status`, { status })
+  },
+
+  /* ---- 订单查询 ---- */
+  /** GET /api/orders：台账列表（含当前节点/剩余天数/异常标记） */
+  async listOrders(params?: { status?: string }): Promise<OrderRow[]> {
+    return normalizeList<OrderRow>(await client.get('/api/orders', { params }))
+  },
+  /** GET /api/orders/:id：详情聚合 */
+  async getOrder(id: number | string): Promise<OrderDetail> {
+    return client.get(`/api/orders/${id}`)
+  },
+  /** POST /api/orders/:id/events：更新进度节点 */
+  async addOrderEvent(id: number, payload: { node: string; event_date?: string; note?: string }): Promise<OrderEventT[]> {
+    return client.post(`/api/orders/${id}/events`, payload)
+  },
+
+  /* ---- 单证 ---- */
+  /** POST /api/orders/:id/docs：生成单证（确定性模板+校验） */
+  async generateDoc(id: number, payload: { doc_type: DocType; overrides?: DocOverride; note?: string }): Promise<DocResult> {
+    return client.post(`/api/orders/${id}/docs`, payload)
+  },
+  /** 单证 HTML 预览地址（新窗口打开，浏览器打印存 PDF） */
+  docHtmlUrl(docId: number): string {
+    return `/api/docs/${docId}/html`
+  },
+
+  /* ---- 异常看板 ---- */
+  async listAnomalies(): Promise<Anomaly[]> {
+    return normalizeList<Anomaly>(await client.get('/api/anomalies'))
+  },
+
+  /* ---- 邮件 ---- */
+  /** POST /api/orders/:id/mail：AI 生成邮件草稿 */
+  async generateMailDraft(id: number, payload: { kind: 'progress' | 'chase' | 'custom'; to?: string; tone?: 'gentle' | 'formal'; language?: string; extraNote?: string; anomalyMessage?: string }): Promise<OrderMail> {
+    return client.post(`/api/orders/${id}/mail`, payload)
+  },
+  /** PUT /api/mails/:id：编辑草稿 */
+  async updateMail(id: number, payload: { subject: string; body: string }): Promise<OrderMail> {
+    return client.put(`/api/mails/${id}`, payload)
+  },
+  /** POST /api/mails/:id/send：确认发送（SMTP） */
+  async sendMail(id: number): Promise<{ message_id: string }> {
+    return client.post(`/api/mails/${id}/send`)
+  },
+
+  /* ---- 设置 ---- */
+  async getSettings(): Promise<SettingsData> {
+    return client.get('/api/settings')
+  },
+  async saveSettings(payload: { smtp?: SmtpPayload; reminder_rules?: ReminderRulesPayload }): Promise<void> {
+    await client.put('/api/settings', payload)
+  },
+  async testSmtp(): Promise<void> {
+    await client.post('/api/settings/smtp/test')
   }
 }

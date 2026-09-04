@@ -35,6 +35,32 @@ const router = createRouter({
       component: () => import('./views/EmailView.vue'),
       props: true,
       meta: { title: '开发信' }
+    },
+    // ===== 二期：订单跟单 =====
+    {
+      path: '/anomalies',
+      name: 'anomalies',
+      component: () => import('./views/Anomalies.vue'),
+      meta: { title: '异常看板' }
+    },
+    {
+      path: '/orders',
+      name: 'orders',
+      component: () => import('./views/Orders.vue'),
+      meta: { title: '订单台账' }
+    },
+    {
+      path: '/orders/:id',
+      name: 'order-detail',
+      component: () => import('./views/OrderDetail.vue'),
+      props: true,
+      meta: { title: '订单详情' }
+    },
+    {
+      path: '/settings',
+      name: 'settings',
+      component: () => import('./views/Settings.vue'),
+      meta: { title: '设置' }
     }
   ],
   scrollBehavior: () => ({ top: 0 })

@@ -316,3 +316,48 @@ body {
 .page-back {
   margin-bottom: 12px;
 }
+
+/* ==================== 二期：订单跟单 ==================== */
+.nav-divider {
+  display: inline-block;
+  width: 1px;
+  height: 20px;
+  background: #d1d5db;
+  margin: 0 8px;
+  vertical-align: middle;
+}
+
+/* 异常看板 KPI 卡 */
+.anomaly-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin: 16px 0;
+}
+.anomaly-card {
+  border-radius: 10px;
+  padding: 14px 16px;
+  color: #fff;
+}
+.anomaly-card h3 { font-size: 13px; font-weight: 500; opacity: 0.9; }
+.anomaly-card .count { font-size: 28px; font-weight: 700; margin-top: 4px; }
+.anomaly-card.high { background: #dc2626; }
+.anomaly-card.medium { background: #ea580c; }
+.anomaly-card.low { background: #ca8a04; }
+.anomaly-card.ok { background: #16a34a; }
+
+/* 低置信度字段标黄 */
+.field-low :deep(.el-input__wrapper),
+.field-low :deep(.el-textarea__inner) {
+  background: #fef9c3;
+}
+
+/* 邮件草稿预览 */
+.mail-body-preview {
+  white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.6;
+  background: #f9fafb;
+  border-radius: 8px;
+  padding: 12px;
+}

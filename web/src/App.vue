@@ -16,8 +16,11 @@ onMounted(() => {
   void store.fetch()
 })
 
-/** 当前激活的步骤：1=产品档案 2=找客户 3=线索列表（详情/开发信页归入 ③） */
+/** 当前激活的步骤：1=产品档案 2=找客户 3=线索列表（详情/开发信页归入 ③）；4=异常看板 5=订单台账 6=设置 */
 const activeStep = computed(() => {
+  if (route.path.startsWith('/anomalies')) return 4
+  if (route.path.startsWith('/orders')) return 5
+  if (route.path.startsWith('/settings')) return 6
   if (route.path.startsWith('/prospecting')) return 2
   if (route.path.startsWith('/leads')) return 3
   return 1
@@ -67,6 +70,16 @@ const selectedProfileId = computed<number | undefined>({
         </button>
         <button :class="{ active: activeStep === 3 }" @click="router.push('/leads')">
           ③ 线索列表
+        </button>
+        <span class="nav-divider"></span>
+        <button :class="{ active: activeStep === 4 }" @click="router.push('/anomalies')">
+          ④ 异常看板
+        </button>
+        <button :class="{ active: activeStep === 5 }" @click="router.push('/orders')">
+          ⑤ 订单台账
+        </button>
+        <button :class="{ active: activeStep === 6 }" @click="router.push('/settings')">
+          ⑥ 设置
         </button>
       </nav>
 

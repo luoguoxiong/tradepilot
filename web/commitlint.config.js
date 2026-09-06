@@ -1,7 +1,7 @@
 export default {
   extends: ['@commitlint/config-conventional'],
   rules: {
-    // scope 取模块名，见技术方案 01 §4（feat(crm): ...）
+    // scope 取模块名，见技术方案 01 §4（feat(crm): ...）；server 系列为后端 monorepo
     'scope-enum': [
       2,
       'always',
@@ -29,6 +29,7 @@ export default {
         'ci',
         'deps',
         'config',
+        'server',
       ],
     ],
   },

@@ -1,1 +1,2 @@
 pnpm -C web exec lint-staged
+pnpm -C server -w exec lint-staged

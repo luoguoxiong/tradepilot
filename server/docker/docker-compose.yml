@@ -1,0 +1,74 @@
+# TradePilot 后端本地开发环境（后端技术方案 09 §1/§3）
+# 用法：在 server/ 目录执行 `pnpm docker:up`
+name: tradepilot-dev
+
+services:
+  postgres:
+    # pgvector 官方镜像（基于 postgres:16，含 contrib 扩展 pg_trgm）
+    image: pgvector/pgvector:pg16
+    container_name: tradepilot-pg
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tradepilot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tradepilot_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-tradepilot}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-tradepilot} -d ${POSTGRES_DB:-tradepilot}']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: tradepilot-redis
+    command: ['redis-server', '--appendonly', 'yes', '--appendfsync', 'everysec']
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: tradepilot-minio
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-tradepilot}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-tradepilot_dev}
+    ports:
+      - '${MINIO_PORT:-9000}:9000'
+      - '${MINIO_CONSOLE_PORT:-9001}:9001'
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mailpit:
+    # SMTP 测试服务：SMTP 1025 / Web UI 8025（开发信与通知联调用）
+    image: axllent/mailpit:latest
+    container_name: tradepilot-mailpit
+    ports:
+      - '${MAILPIT_SMTP_PORT:-1025}:1025'
+      - '${MAILPIT_UI_PORT:-8025}:8025'
+    volumes:
+      - mailpit_data:/data
+    environment:
+      MP_MAX_MESSAGES: 5000
+      MP_DATA_FILE: /data/mailpit.db
+
+volumes:
+  pg_data:
+  redis_data:
+  minio_data:
+  mailpit_data:

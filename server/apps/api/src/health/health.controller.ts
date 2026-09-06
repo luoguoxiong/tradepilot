@@ -4,6 +4,7 @@ import { Client } from 'pg';
 import type { Response } from 'express';
 import { EnvService } from '../config/env.service.js';
 import { RawResponse } from '../common/decorators/raw-response.decorator.js';
+import { Public } from '../auth/decorators/public.decorator.js';
 
 /**
  * 健康检查（后端技术方案 09 §2）：
@@ -12,6 +13,7 @@ import { RawResponse } from '../common/decorators/raw-response.decorator.js';
  * K8s readiness/liveness 对应；失败返回 503。
  */
 @Controller()
+@Public()
 export class HealthController {
   // @Inject 强制 EnvService 保持运行时导入（同 TransformInterceptor，保证 DI 元数据）
   constructor(@Inject(EnvService) private readonly env: EnvService) {}

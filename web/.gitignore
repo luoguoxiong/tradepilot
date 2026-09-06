@@ -1,0 +1,29 @@
+# deps
+node_modules/
+
+# build
+dist/
+dist-ssr/
+coverage/
+
+# logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# editor / os
+.DS_Store
+*.local
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# vitest / playwright
+test-results/
+playwright-report/
+.vite/
+
+# auto-generated
+auto-imports.d.ts
+components.d.ts

@@ -1,0 +1,35 @@
+export default {
+  extends: ['@commitlint/config-conventional'],
+  rules: {
+    // scope 取模块名，见技术方案 01 §4（feat(crm): ...）
+    'scope-enum': [
+      2,
+      'always',
+      [
+        'auth',
+        'layout',
+        'router',
+        'api',
+        'stores',
+        'composables',
+        'styles',
+        'locales',
+        'msw',
+        'dashboard',
+        'employee-center',
+        'lead-gen',
+        'customer-360',
+        'crm',
+        'sales-workbench',
+        'follow-up',
+        'knowledge',
+        'approval',
+        'settings',
+        'tests',
+        'ci',
+        'deps',
+        'config',
+      ],
+    ],
+  },
+}

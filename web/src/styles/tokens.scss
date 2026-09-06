@@ -1,0 +1,50 @@
+/**
+ * Design Tokens —— 全局唯一颜色/尺寸语义入口（技术方案 04 §1）。
+ * 规则：颜色/间距禁止字面量散落，组件一律引用本文件 CSS Variables（01 §3）。
+ */
+:root {
+  /* ===== 布局（产品总览 §7）===== */
+  --tp-header-height: 64px;
+  --tp-sider-width: 240px;
+  --tp-sider-collapsed-width: 64px;
+  --tp-content-max-width: 1600px;
+
+  /* ===== 基础 ===== */
+  --tp-font-size-base: 14px;
+  --tp-border-radius-base: 8px;
+  --tp-spacing-base: 4px;
+
+  /* ===== 品牌色 ===== */
+  --tp-primary: #2563eb;
+  --tp-primary-hover: #1d4ed8;
+
+  /* ===== 文本 ===== */
+  --tp-text-primary: #1f2329;
+  --tp-text-secondary: #646a73;
+  --tp-text-tertiary: #8f959e;
+  --tp-text-disabled: #bbbfc4;
+
+  /* ===== 背景 / 边框 ===== */
+  --tp-bg-page: #f5f6f7;
+  --tp-bg-container: #fff;
+  --tp-bg-hover: #f2f3f5;
+  --tp-border-color: #dee0e3;
+
+  /* ===== AI 状态语义色（产品总览 §7 全局统一）===== */
+  --ai-working: #52c41a; /* 🟢 执行中 */
+  --ai-waiting: #faad14; /* 🟡 等待审核 */
+  --ai-scheduled: #1677ff; /* 🔵 已排期 */
+  --ai-risk: #f5222d; /* 🔴 风险 / 失败 */
+  --ai-idle: #909399; /* ⚪ 空闲 */
+
+  /* ===== 客户阶段（接口规范 §3.3）===== */
+  --tp-stage-new-lead: var(--ai-scheduled); /* 🔵 new_lead */
+  --tp-stage-contacted: var(--ai-waiting); /* 🟡 contacted */
+  --tp-stage-negotiation: var(--ai-working); /* 🟢 negotiation */
+  --tp-stage-cold: var(--ai-risk); /* 🔴 cold */
+
+  /* ===== 风险等级（12 §7.1 风险分流口径）===== */
+  --tp-risk-high: #f5222d;
+  --tp-risk-medium: #e6a23c;
+  --tp-risk-low: #909399;
+}

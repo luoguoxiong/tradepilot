@@ -94,6 +94,13 @@ KPI Card、AI Employee Status、High Value Lead、Pending Tasks、AI Insight、B
 | 09-报价中心 | 新报价数、待审核报价数 |
 | 10-订单中心 | 预计成交额、延期风险订单 |
 
+### 5.1 P0 阶段降级注记（v0.2，对齐 [00 §5.1](./00-产品总览与MVP规划.md) 降级矩阵）
+
+- **KPI 卡片（FR-02）**：`new_quotes` / `estimated_revenue` 依赖 09/10（P1）——P0 两卡片隐藏，KPI 区自适应 2/4 卡布局，接口仅返回已启用 metric（D1）。
+- **今日待处理（FR-05）**：`quote_approval` / `order_delay_risk` 依赖 09/10（P1）——P0 仅聚合客户新回复、高价值客户超期未联系两类（D2）。
+- **AI 每日报告（FR-01）**：入口依赖 13（P1）——P0 隐藏入口，daily-report 接口保留 `40401` 语义（D3）。
+- 员工状态/产出（FR-03）数据来自 `ai_task` / 审批聚合表，不依赖 14 页面本身（14 为建议 P1，D5 口径）。
+
 ---
 
 ## 6. 效果指标（建议）

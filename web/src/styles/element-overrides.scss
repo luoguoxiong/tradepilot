@@ -1,0 +1,31 @@
+/**
+ * Element Plus 主题对齐 —— 组件库变量映射到同一套 Design Tokens（04 §1）。
+ */
+:root {
+  --el-color-primary: var(--tp-primary);
+  --el-color-primary-dark-2: var(--tp-primary-hover);
+  --el-border-radius-base: var(--tp-border-radius-base);
+  --el-font-size-base: var(--tp-font-size-base);
+  --el-text-color-primary: var(--tp-text-primary);
+  --el-text-color-regular: var(--tp-text-secondary);
+  --el-text-color-secondary: var(--tp-text-tertiary);
+  --el-text-color-disabled: var(--tp-text-disabled);
+  --el-text-color-placeholder: var(--tp-text-disabled);
+  --el-bg-color-page: var(--tp-bg-page);
+  --el-fill-color-light: var(--tp-bg-hover);
+  --el-border-color: var(--tp-border-color);
+  --el-border-color-light: var(--tp-border-color);
+  --el-border-color-lighter: var(--tp-border-color);
+
+  /* AI 语义色 → Element 状态色（success/warning/danger/info） */
+  --el-color-success: var(--ai-working);
+  --el-color-warning: var(--ai-waiting);
+  --el-color-danger: var(--ai-risk);
+  --el-color-error: var(--ai-risk);
+  --el-color-info: var(--ai-idle);
+}
+
+/* 全局页面底色 */
+body {
+  background-color: var(--tp-bg-page);
+}

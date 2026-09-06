@@ -1,16 +1,43 @@
-import { defineConfig } from 'vite'
+import { fileURLToPath, URL } from 'node:url'
+
+import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
-// Vite 配置：dev 服务器将 /api 代理到本地 Fastify 服务（端口 8787）
-export default defineConfig({
-  plugins: [vue()],
-  server: {
-    port: 5173,
-    proxy: {
-      '/api': {
-        target: 'http://127.0.0.1:8787', // 用 127.0.0.1 避免 localhost 解析到 IPv6 ::1 导致代理连不上
-        changeOrigin: true
-      }
-    }
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+
+  return {
+    plugins: [vue()],
+    resolve: {
+      alias: {
+        '@': fileURLToPath(new URL('./src', import.meta.url)),
+      },
+    },
+    server: {
+      port: 5173,
+      proxy: {
+        '/api': {
+          target: env.VITE_PROXY_TARGET || 'http://localhost:8080',
+          changeOrigin: true,
+          // SSE 代理需关闭响应缓冲（技术方案 01 §5.2）
+          configure(proxy) {
+            proxy.on('proxyRes', (proxyRes) => {
+              proxyRes.headers.connection = 'keep-alive'
+            })
+          },
+        },
+      },
+    },
+    build: {
+      sourcemap: mode === 'staging',
+      rollupOptions: {
+        output: {
+          // vendor 分包（01 §5.2），echarts/tiptap 目录随依赖引入时补充
+          manualChunks: {
+            'element-plus': ['element-plus'],
+          },
+        },
+      },
+    },
   }
 })

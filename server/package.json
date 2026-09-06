@@ -1,29 +1,46 @@
 {
-  "name": "tradepilot-server",
-  "version": "0.1.0",
+  "name": "tradepilot-backend",
   "private": true,
-  "type": "module",
-  "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "build": "tsc -p .",
-    "start": "node dist/index.js"
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": ">=20"
   },
-  "dependencies": {
-    "@fastify/cors": "^9.0.1",
-    "better-sqlite3": "^11.3.0",
-    "cheerio": "^1.0.0",
-    "dotenv": "^16.4.5",
-    "fastify": "^4.28.1",
-    "nodemailer": "^6.9.16",
-    "pdf-parse": "^1.1.1",
-    "xlsx": "^0.18.5"
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@nestjs/core",
+      "esbuild"
+    ]
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "format": "prettier --write \"**/*.{ts,json,yml,yaml,md}\"",
+    "docker:up": "docker compose -f docker/docker-compose.yml --env-file .env up -d",
+    "docker:down": "docker compose -f docker/docker-compose.yml --env-file .env down"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.11",
-    "@types/node": "^20.14.0",
-    "@types/nodemailer": "^6.4.16",
-    "@types/pdf-parse": "^1.1.4",
-    "tsx": "^4.19.0",
-    "typescript": "^5.6.0"
+    "@eslint/js": "^9.18.0",
+    "@types/node": "^20.17.11",
+    "eslint": "^9.18.0",
+    "eslint-config-prettier": "^10.0.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.4.3",
+    "prettier": "^3.4.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.20.0"
+  },
+  "lint-staged": {
+    "*.ts": [
+      "prettier --write",
+      "eslint --fix"
+    ],
+    "*.{json,yml,yaml,md}": [
+      "prettier --write"
+    ]
   }
 }

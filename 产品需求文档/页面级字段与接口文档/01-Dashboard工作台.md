@@ -3,7 +3,7 @@
 | 项 | 内容 |
 |---|---|
 | 对应需求文档 | [01-Dashboard工作台](../01-Dashboard工作台.md) |
-| 版本 | v0.1（2026-09-04） |
+| 版本 | v0.2（2026-09-05，补 P0 阶段 KPI/pendingItems/dailyReport 降级行为，对齐 [00-产品总览 §5.1](../00-产品总览与MVP规划.md) 降级矩阵 D1～D3）<br>v0.1（2026-09-04） |
 | 页面 | 工作台 Dashboard（只读聚合视图） |
 
 ---
@@ -18,7 +18,7 @@
 | date | string | ✓ | 当天日期 | 前端 |
 | onlineEmployeeCount | number | ✓ | 在线 AI 员工数（status ∈ working/waiting_approval） | 接口 |
 | onlineEmployeeTotal | number | ✓ | AI 员工总数 | 接口 |
-| dailyReport | object | — | 「AI 每日报告」入口：`{ reportId, status }` | 接口 |
+| dailyReport | object | — | 「AI 每日报告」入口：`{ reportId, status }`；**P0（13 为 P1）：字段不返回，前端隐藏入口（D3）** | 接口 |
 
 ### 1.2 KPI 卡片组（FR-02）
 
@@ -30,6 +30,8 @@
 | changePct | number | ✓ | 环比变化百分比，如 20 表示 ↑20% |
 | trend | string | ✓ | `up` / `down` / `flat` |
 | comparePeriod | string | ✓ | 环比基准（如 `vs_last_week`） |
+
+> **P0 降级（v0.2，对齐 [00 §5.1](../00-产品总览与MVP规划.md) D1）**：`new_quotes` / `estimated_revenue` 依赖 09/10（P1）——P0 阶段 `kpis[]` 仅返回 `new_customers / new_inquiries`，**不返回未启用 metric**（而非返回 0）；前端 KPI 区自适应 2/4 卡布局。
 
 ### 1.3 AI 员工工作状态区（FR-03）
 
@@ -60,6 +62,8 @@
 | level | string | ✓ | 语义色：`danger` 🔴 / `warning` 🟡 / `info` 🔵 |
 | link | string | ✓ | 跳转目标（报价中心 / CRM / 收件箱 / 订单中心） |
 
+> **P0 降级（v0.2，对齐 [00 §5.1](../00-产品总览与MVP规划.md) D2）**：`quote_approval` / `order_delay_risk` 依赖 09/10（P1）——P0 阶段 `pendingItems[]` 仅返回 `high_value_overdue` / `customer_reply` 两类。
+
 ---
 
 ## 2. 接口清单
@@ -67,8 +71,8 @@
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/v1/dashboard/summary` | 首屏聚合（1.1～1.5 一次返回） |
-| GET | `/api/v1/dashboard/daily-report` | 获取最新 AI 每日报告 |
-| POST | `/api/v1/dashboard/daily-report/generate` | 触发生成 AI 每日报告（异步任务） |
+| GET | `/api/v1/dashboard/daily-report` | 获取最新 AI 每日报告（P1 启用，见 §3.2） |
+| POST | `/api/v1/dashboard/daily-report/generate` | 触发生成 AI 每日报告（异步任务，P1 启用，见 §3.3） |
 
 ---
 
@@ -85,9 +89,7 @@
   "greeting": { "onlineEmployeeCount": 5, "onlineEmployeeTotal": 6 },
   "kpis": [
     { "metric": "new_customers", "value": 28, "changePct": 20, "trend": "up", "comparePeriod": "vs_last_week" },
-    { "metric": "new_inquiries", "value": 8, "changePct": 15, "trend": "up", "comparePeriod": "vs_last_week" },
-    { "metric": "new_quotes", "value": 12, "changePct": 8, "trend": "up", "comparePeriod": "vs_last_week" },
-    { "metric": "estimated_revenue", "value": "18500.00", "currency": "USD", "changePct": 32, "trend": "up", "comparePeriod": "vs_last_week" }
+    { "metric": "new_inquiries", "value": 8, "changePct": 15, "trend": "up", "comparePeriod": "vs_last_week" }
   ],
   "aiEmployees": [
     { "employeeId": "emp_1", "name": "AI 获客员工", "role": "lead_hunter", "status": "working",
@@ -99,22 +101,21 @@
     { "customerId": "cus_1", "companyName": "ABC Sports", "score": 92, "country": "US" }
   ],
   "pendingItems": [
-    { "type": "quote_approval", "count": 3, "level": "danger", "link": "/quotes?status=waiting_approval" },
     { "type": "high_value_overdue", "count": 5, "level": "warning", "link": "/crm?overdue=7d" },
-    { "type": "customer_reply", "count": 2, "level": "warning", "link": "/inbox?unread=true" },
-    { "type": "order_delay_risk", "count": 1, "level": "danger", "link": "/orders?risk=at_risk" }
-  ],
-  "dailyReport": { "reportId": "rpt_9", "status": "ready" }
+    { "type": "customer_reply", "count": 2, "level": "warning", "link": "/inbox?unread=true" }
+  ]
 }
 ```
 
+> 示例为 **P0 阶段响应**（v0.2）：`kpis[]` 无 `new_quotes / estimated_revenue`、`pendingItems[]` 无 `quote_approval / order_delay_risk`、无 `dailyReport` 字段（D1～D3）；P1 模块交付后按矩阵恢复为全量结构。
+
 ### 3.2 GET /api/v1/dashboard/daily-report
 
-响应 `data`：`{ reportId, period, status, content（Markdown）, generatedAt, citations[] }`；无报告时 `code=40401`。
+响应 `data`：`{ reportId, period, status, content（Markdown）, generatedAt, citations[] }`；无报告时 `code=40401`。**P0（D3）：接口保留、恒返回 `40401`（13 为 P1）。**
 
 ### 3.3 POST /api/v1/dashboard/daily-report/generate
 
-请求：`{ period: "daily" | "weekly" }`；响应：`{ taskId }`（异步任务，见 [00-总览 §4.3](./00-总览与接口规范.md)）。
+请求：`{ period: "daily" | "weekly" }`；响应：`{ taskId }`（异步任务，见 [00-总览 §4.3](./00-总览与接口规范.md)）。**P0（D3）：不开放（13 为 P1），调用返回 `40401`。**
 
 ---
 
@@ -123,3 +124,4 @@
 - 本页全部接口为**只读聚合**，不提供业务写操作；待办处理跳转各模块完成。
 - 数据口径依赖：02/14（员工状态与产出）、05/04（客户与评分）、06/07（询盘与回复）、09（报价）、10（订单）。
 - `estimated_revenue` 为估算值，前端需标注「预计」。
+- **P0 阶段（v0.2）**：依赖 09/10/13 的数据源未启用，聚合行为按 [00 §5.1](../00-产品总览与MVP规划.md) 降级矩阵 D1～D3 执行——未启用 metric/类型/入口**不返回、不渲染**；员工状态与产出（FR-03）来自 `ai_task` / 审批聚合表，不依赖 14 页面。P1 模块交付后逐项恢复。

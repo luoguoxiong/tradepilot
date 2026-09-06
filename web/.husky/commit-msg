@@ -1,0 +1,2 @@
+# pnpm -C <dir> exec 在部分环境下无法解析 workspace bin，改用 cd 形式
+(cd web && pnpm exec commitlint --edit "$1")

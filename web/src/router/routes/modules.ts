@@ -23,19 +23,19 @@ export const appRoutes: RouteRecordRaw[] = [
       {
         path: 'ai-employees',
         name: 'ai-employees',
-        component: placeholder,
+        component: () => import('@/features/employees/views/AiEmployeesView.vue'),
         meta: { title: 'menu.aiEmployees', icon: 'Avatar', menu: true, order: 2 },
       },
       {
         path: 'lead-gen',
         name: 'lead-gen',
-        component: placeholder,
+        component: () => import('@/features/lead-gen/views/LeadGenView.vue'),
         meta: { title: 'menu.leadGen', icon: 'Aim', menu: true, order: 3 },
       },
       {
         path: 'lead-gen/leads',
         name: 'lead-discover',
-        component: placeholder,
+        component: () => import('@/features/lead-gen/views/LeadDiscoverView.vue'),
         meta: { title: 'menu.leadDiscover' },
       },
       {

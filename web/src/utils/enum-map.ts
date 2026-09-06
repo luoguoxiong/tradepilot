@@ -71,6 +71,46 @@ export const ENUMS = {
       color: 'var(--ai-scheduled)',
     },
   ],
+  /** 员工角色（02 §1.1） */
+  employeeRole: [
+    { value: 'lead_hunter', labelKey: 'enums.employeeRole.leadHunter' },
+    { value: 'customer_researcher', labelKey: 'enums.employeeRole.customerResearcher' },
+    { value: 'sales', labelKey: 'enums.employeeRole.sales' },
+    { value: 'follow_up', labelKey: 'enums.employeeRole.followUp' },
+    { value: 'merchandiser', labelKey: 'enums.employeeRole.merchandiser' },
+    { value: 'manager', labelKey: 'enums.employeeRole.manager' },
+  ],
+  /** 员工状态（02 §1.1，AI 语义色 04 §1.1） */
+  employeeStatus: [
+    { value: 'working', labelKey: 'enums.employeeStatus.working', color: 'var(--ai-working)' },
+    {
+      value: 'waiting_approval',
+      labelKey: 'enums.employeeStatus.waitingApproval',
+      color: 'var(--ai-waiting)',
+    },
+    { value: 'idle', labelKey: 'enums.employeeStatus.idle', color: 'var(--ai-idle)' },
+    { value: 'error', labelKey: 'enums.employeeStatus.error', color: 'var(--ai-risk)' },
+  ],
+  /** 任务状态（14 §1.1） */
+  taskStatus: [
+    { value: 'running', labelKey: 'enums.taskStatus.running', color: 'var(--ai-working)' },
+    {
+      value: 'waiting_approval',
+      labelKey: 'enums.taskStatus.waitingApproval',
+      color: 'var(--ai-waiting)',
+    },
+    { value: 'scheduled', labelKey: 'enums.taskStatus.scheduled', color: 'var(--ai-scheduled)' },
+    { value: 'completed', labelKey: 'enums.taskStatus.completed', color: 'var(--ai-working)' },
+    { value: 'failed', labelKey: 'enums.taskStatus.failed', color: 'var(--ai-risk)' },
+    { value: 'paused', labelKey: 'enums.taskStatus.paused', color: 'var(--ai-idle)' },
+    { value: 'canceled', labelKey: 'enums.taskStatus.canceled', color: 'var(--ai-idle)' },
+  ],
+  /** 发现客户价值档（03 §1.6 leadValue） */
+  leadValue: [
+    { value: 'high', labelKey: 'enums.leadValue.high', color: 'var(--ai-working)' },
+    { value: 'medium', labelKey: 'enums.leadValue.medium', color: 'var(--ai-waiting)' },
+    { value: 'low', labelKey: 'enums.leadValue.low', color: 'var(--ai-idle)' },
+  ],
 } as const satisfies Record<string, EnumOption[]>
 
 export type EnumGroup = keyof typeof ENUMS

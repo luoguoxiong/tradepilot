@@ -13,9 +13,15 @@
   },
   "dependencies": {
     "@tradepilot/core": "workspace:*",
+    "@tradepilot/db": "workspace:*",
+    "@tradepilot/runtime": "workspace:*",
     "@tradepilot/shared": "workspace:*",
+    "@tradepilot/tools": "workspace:*",
+    "@tradepilot/workflows": "workspace:*",
     "bullmq": "^5.34.5",
+    "drizzle-orm": "^0.45.2",
     "ioredis": "^5.4.2",
+    "pg": "^8.23.0",
     "pino": "^9.6.0"
   },
   "devDependencies": {

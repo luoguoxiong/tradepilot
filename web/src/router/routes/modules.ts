@@ -94,10 +94,75 @@ export const appRoutes: RouteRecordRaw[] = [
         meta: { title: 'menu.approvals', icon: 'Checked', menu: true, order: 10 },
       },
       {
+        // 系统设置（16）：子路由不进全局 Sider，由 SettingsLayout 内导航承载
         path: 'settings',
         name: 'settings',
-        component: placeholder,
+        component: () => import('@/features/settings/views/SettingsLayout.vue'),
         meta: { title: 'menu.settings', icon: 'Setting', menu: true, order: 11 },
+        children: [
+          { path: '', redirect: { name: 'settings-org' } },
+          {
+            path: 'org',
+            name: 'settings-org',
+            component: () => import('@/features/settings/views/OrgInfoView.vue'),
+            meta: { title: 'settings.orgInfo' },
+          },
+          {
+            path: 'members',
+            name: 'settings-members',
+            component: () => import('@/features/settings/views/MembersView.vue'),
+            meta: { title: 'settings.members' },
+          },
+          {
+            path: 'mailboxes',
+            name: 'settings-mailboxes',
+            component: () => import('@/features/settings/views/MailboxesView.vue'),
+            meta: { title: 'settings.mailboxes' },
+          },
+          {
+            path: 'approval-rules',
+            name: 'settings-approval-rules',
+            component: () => import('@/features/settings/views/ApprovalRulesView.vue'),
+            meta: { title: 'settings.approvalRules' },
+          },
+          {
+            path: 'notifications',
+            name: 'settings-notifications',
+            component: () => import('@/features/settings/views/NotificationsView.vue'),
+            meta: { title: 'settings.notifications' },
+          },
+          {
+            path: 'ai-employees',
+            name: 'settings-ai-employees',
+            component: () => import('@/features/settings/views/AiEmployeesEntryView.vue'),
+            meta: { title: 'settings.aiEmployees' },
+          },
+          // ===== P1 占位（FR-06/07/10/11，菜单占位先例）=====
+          {
+            path: 'crm-integration',
+            name: 'settings-crm-integration',
+            component: () => import('@/features/settings/views/SettingsPlaceholderView.vue'),
+            meta: { title: 'settings.crmIntegration' },
+          },
+          {
+            path: 'pricing-rules',
+            name: 'settings-pricing-rules',
+            component: () => import('@/features/settings/views/SettingsPlaceholderView.vue'),
+            meta: { title: 'settings.pricingRules' },
+          },
+          {
+            path: 'ai-models',
+            name: 'settings-ai-models',
+            component: () => import('@/features/settings/views/SettingsPlaceholderView.vue'),
+            meta: { title: 'settings.aiModels' },
+          },
+          {
+            path: 'api-keys',
+            name: 'settings-api-keys',
+            component: () => import('@/features/settings/views/SettingsPlaceholderView.vue'),
+            meta: { title: 'settings.apiKeys' },
+          },
+        ],
       },
       // 详情类路由（不进菜单）
       {

@@ -21,10 +21,10 @@ export const authRoutes: RouteRecordRaw[] = [
         meta: { public: true, title: 'auth.registerTitle' },
       },
       {
-        // 企业初始化四步向导（16 v0.4），M2 交付；路由先占位保证守卫链可跳转
+        // 企业初始化四步向导（16 v0.4，M2）：断点续走 onboarding.currentStep
         path: 'onboarding',
         name: 'onboarding',
-        component: () => import('@/views/PlaceholderView.vue'),
+        component: () => import('@/features/onboarding/views/OnboardingView.vue'),
         meta: { title: 'menu.onboarding' },
       },
     ],

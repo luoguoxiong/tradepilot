@@ -3,10 +3,11 @@ import { http, delay } from 'msw'
 import { ErrorCode } from '@/api/error-codes'
 import type { AuthSession, LoginReq, RegisterReq } from '@/api/types/auth'
 
+import { mockOnboarding } from '../data/db'
 import { LATENCY, fail, ok, readJson } from '../utils'
 
 /** 演示会话：任意合法邮箱 + 8 位以上密码可登录，角色 admin 覆盖 P0 全部入口 */
-function sessionFor(currentStep = 4): AuthSession {
+function sessionFor(currentStep = mockOnboarding.currentStep): AuthSession {
   return {
     token: `mock-${crypto.randomUUID()}`,
     user: { userId: 'u-demo', orgId: 'org-demo', role: 'admin', name: '演示管理员' },
@@ -38,10 +39,17 @@ export const authHandlers = [
   http.post('/api/v1/auth/register', async ({ request }) => {
     await delay(LATENCY)
     const body = await readJson<RegisterReq>(request)
-    if (!body.orgName || !EMAIL_RE.test(body.email ?? '') || (body.password?.length ?? 0) < 8) {
+    // 统一防枚举提示；密码 ≥ 8 位（16 v0.4）
+    if (
+      !body.companyName ||
+      !body.contactName ||
+      !EMAIL_RE.test(body.email ?? '') ||
+      (body.password?.length ?? 0) < 8
+    ) {
       return fail(ErrorCode.BAD_REQUEST, '注册信息不完整')
     }
     // 注册后进入初始化向导（currentStep = 1，守卫强制跳 /onboarding）
+    mockOnboarding.currentStep = 1
     return ok(sessionFor(1))
   }),
 

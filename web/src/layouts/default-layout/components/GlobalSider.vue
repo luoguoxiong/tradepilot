@@ -2,6 +2,7 @@
 import { computed, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { useWindowSize } from '@vueuse/core'
 import {
   Aim,
   Avatar,
@@ -26,6 +27,7 @@ import { useAppStore } from '@/stores/app'
 
 /**
  * Sider 菜单由路由表自动生成（02 §1.1）：meta.menu !== false，按 features.ts 过滤、meta.order 排序。
+ * 1280px 以下自动折叠为图标栏（04 §4 响应式约定）；折叠状态与用户手动开关取并集。
  */
 const ICONS: Record<string, Component> = {
   Odometer,
@@ -52,6 +54,10 @@ const route = useRoute()
 const { t } = useI18n()
 const appStore = useAppStore()
 
+const { width } = useWindowSize()
+
+const collapsed = computed(() => appStore.siderCollapsed || width.value < 1280)
+
 const menuItems = computed(() =>
   router
     .getRoutes()
@@ -59,6 +65,14 @@ const menuItems = computed(() =>
     .sort((a, b) => (a.meta.order ?? 99) - (b.meta.order ?? 99))
     .map((r) => ({ path: r.path, titleKey: r.meta.title ?? '', icon: r.meta.icon })),
 )
+
+/** 父级路由高亮：/settings/org 等子路由仍点亮菜单父项 */
+const activePath = computed(() => {
+  const match = menuItems.value.find(
+    (item) => item.path !== '/' && route.path.startsWith(`${item.path}/`),
+  )
+  return match?.path ?? route.path
+})
 
 function iconOf(name?: string): Component | undefined {
   return name ? ICONS[name] : undefined
@@ -68,8 +82,8 @@ function iconOf(name?: string): Component | undefined {
 <template>
   <el-menu
     class="global-sider"
-    :collapse="appStore.siderCollapsed"
-    :default-active="route.path"
+    :collapse="collapsed"
+    :default-active="activePath"
     :collapse-transition="false"
     router
   >

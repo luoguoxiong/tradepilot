@@ -83,6 +83,17 @@ export const useAuthStore = defineStore('auth', {
       )
     },
 
+    /** 向导步骤推进后同步持久化（刷新后断点续走，16 v0.4 currentStep 语义） */
+    setOnboarding(currentStep: number) {
+      this.onboarding = { currentStep }
+      if (this.token) {
+        localStorage.setItem(
+          SESSION_KEY,
+          JSON.stringify({ user: this.user, org: this.org, onboarding: this.onboarding }),
+        )
+      }
+    },
+
     clearSession() {
       this.token = null
       this.user = null

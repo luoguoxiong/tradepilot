@@ -15,10 +15,11 @@ const authStore = useAuthStore()
 
 const formRef = ref<FormInstance>()
 const loading = ref(false)
-const form = reactive({ orgName: '', email: '', password: '' })
+const form = reactive({ companyName: '', contactName: '', email: '', password: '' })
 
 const rules: FormRules = {
-  orgName: [{ required: true, message: t('auth.orgNamePlaceholder'), trigger: 'blur' }],
+  companyName: [{ required: true, message: t('auth.orgNamePlaceholder'), trigger: 'blur' }],
+  contactName: [{ required: true, message: t('auth.contactNamePlaceholder'), trigger: 'blur' }],
   email: [
     { required: true, message: t('auth.emailPlaceholder'), trigger: 'blur' },
     { type: 'email', message: t('auth.emailPlaceholder'), trigger: ['blur', 'change'] },
@@ -56,8 +57,11 @@ async function submit() {
       size="large"
       @keyup.enter="submit"
     >
-      <el-form-item :label="t('auth.orgName')" prop="orgName">
-        <el-input v-model="form.orgName" :placeholder="t('auth.orgNamePlaceholder')" />
+      <el-form-item :label="t('auth.orgName')" prop="companyName">
+        <el-input v-model="form.companyName" :placeholder="t('auth.orgNamePlaceholder')" />
+      </el-form-item>
+      <el-form-item :label="t('auth.contactName')" prop="contactName">
+        <el-input v-model="form.contactName" :placeholder="t('auth.contactNamePlaceholder')" />
       </el-form-item>
       <el-form-item :label="t('auth.email')" prop="email">
         <el-input

@@ -39,8 +39,10 @@ export interface LoginReq {
   password: string
 }
 
+/** 注册企业（16 接口文档 §3.1：{ companyName, contactName, email, password }） */
 export interface RegisterReq {
-  orgName: string
+  companyName: string
+  contactName: string
   email: string
   password: string
 }

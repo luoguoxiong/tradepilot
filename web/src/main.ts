@@ -6,6 +6,7 @@ import 'element-plus/dist/index.css'
 
 import App from './app.vue'
 import { setUnauthorizedHandler } from './api/http'
+import { vPermission } from './directives/v-permission'
 import { i18n } from './locales'
 import { queryClient } from './query/client'
 import { router } from './router'
@@ -26,6 +27,8 @@ async function bootstrap() {
   app.use(router)
   app.use(VueQueryPlugin, { queryClient })
   app.use(ElementPlus)
+  // 元素级权限裁剪（05 §3.1）
+  app.directive('permission', vPermission)
 
   // 40101 → 清会话回登录页（03 §4，http ↔ store 解耦注册）
   setUnauthorizedHandler(() => useAuthStore().forceLogout())

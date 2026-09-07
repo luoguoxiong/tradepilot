@@ -16,6 +16,17 @@ export const TASK_STATUS = {
 } as const;
 export type TaskStatus = (typeof TASK_STATUS)[keyof typeof TASK_STATUS];
 
+/**
+ * 员工并发占用任务状态集合（04 §3.3 员工并发=1 / M3-06）：
+ * 单员工任一时刻至多 1 个 active 任务——`running`（执行中）与 `waiting_approval`（审批挂起）
+ * 均占用员工位；org 级 10 并发仍仅统计 `running`（挂起不占 org 额度）。
+ * Dispatcher / API 入队判定 / 终态回写共用此口径。
+ */
+export const EMPLOYEE_OCCUPYING_TASK_STATUSES: readonly TaskStatus[] = [
+  TASK_STATUS.RUNNING,
+  TASK_STATUS.WAITING_APPROVAL,
+];
+
 /** AI 员工状态（00 §3.1） */
 export const EMPLOYEE_STATUS = {
   WORKING: 'working',

@@ -348,17 +348,36 @@ describe('权限管理（16 §1.7/§3.6）', () => {
         settings: 'view',
       },
       approvalRules: [
-        { approvalType: 'email_send', approverRoles: ['admin', 'manager'], autoApprove: true },
+        {
+          approvalType: 'email_send',
+          approverRoles: ['admin', 'manager'],
+          autoApprove: true,
+          expireHours: 6,
+        },
       ],
     });
     const sales = await settings.getRolePermissions(orgId, 'sales');
     expect(sales.permissions.settings).toBe('view');
     expect(sales.approvalRules[0]?.approverRoles).toEqual(['admin', 'manager']);
+    // M3-14：按类型审批超时随 approvalRules 持久化（12 §7.2）
+    expect(sales.approvalRules[0]?.expireHours).toBe(6);
 
     const bad = rolePermissionsSchema.safeParse({
       permissions: { customers: 'everyone', quotes: 'view', approvals: [], settings: 'none' },
     });
     expect(bad.success).toBe(false);
+
+    // M3-14：expireHours 越界（0 / 超 720）拒绝
+    expect(
+      rolePermissionsSchema.safeParse({
+        approvalRules: [{ approvalType: 'email_send', approverRoles: ['admin'], expireHours: 0 }],
+      }).success,
+    ).toBe(false);
+    expect(
+      rolePermissionsSchema.safeParse({
+        approvalRules: [{ approvalType: 'email_send', approverRoles: ['admin'], expireHours: 721 }],
+      }).success,
+    ).toBe(false);
   });
 });
 

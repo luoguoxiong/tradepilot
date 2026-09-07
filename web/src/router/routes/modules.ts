@@ -17,44 +17,44 @@ export const appRoutes: RouteRecordRaw[] = [
       {
         path: 'dashboard',
         name: 'dashboard',
-        component: placeholder,
+        component: () => import('@/features/dashboard/views/DashboardView.vue'),
         meta: { title: 'menu.dashboard', icon: 'Odometer', menu: true, order: 1 },
       },
       {
         path: 'ai-employees',
         name: 'ai-employees',
-        component: placeholder,
+        component: () => import('@/features/employees/views/AiEmployeesView.vue'),
         meta: { title: 'menu.aiEmployees', icon: 'Avatar', menu: true, order: 2 },
       },
       {
         path: 'lead-gen',
         name: 'lead-gen',
-        component: placeholder,
+        component: () => import('@/features/lead-gen/views/LeadGenView.vue'),
         meta: { title: 'menu.leadGen', icon: 'Aim', menu: true, order: 3 },
       },
       {
         path: 'lead-gen/leads',
         name: 'lead-discover',
-        component: placeholder,
+        component: () => import('@/features/lead-gen/views/LeadDiscoverView.vue'),
         meta: { title: 'menu.leadDiscover' },
       },
       {
         path: 'crm',
         name: 'crm',
-        component: placeholder,
+        component: () => import('@/features/crm/views/CrmView.vue'),
         meta: { title: 'menu.crm', icon: 'User', menu: true, order: 4 },
       },
       {
         path: 'crm/contacts',
         name: 'crm-contacts',
-        component: placeholder,
+        component: () => import('@/features/crm/views/CrmView.vue'),
         meta: { title: 'menu.contacts' },
       },
       {
         path: 'inbox',
         name: 'inbox',
-        component: placeholder,
-        meta: { title: 'menu.inbox', icon: 'Message', menu: true, order: 5 },
+        component: () => import('@/features/inbox/views/InboxView.vue'),
+        meta: { title: 'menu.inbox', icon: 'Message', menu: true, order: 5, fullHeight: true },
       },
       {
         path: 'outreach',
@@ -65,13 +65,13 @@ export const appRoutes: RouteRecordRaw[] = [
       {
         path: 'follow-up',
         name: 'follow-up',
-        component: placeholder,
+        component: () => import('@/features/follow-up/views/FollowUpTasksView.vue'),
         meta: { title: 'menu.followUp', icon: 'Timer', menu: true, order: 7 },
       },
       {
         path: 'follow-up/strategies',
         name: 'follow-up-strategies',
-        component: placeholder,
+        component: () => import('@/features/follow-up/views/FollowUpStrategiesView.vue'),
         meta: { title: 'menu.followUpStrategies' },
       },
       // 邮件模板 P1 先例：导航「即将上线」占位
@@ -84,13 +84,13 @@ export const appRoutes: RouteRecordRaw[] = [
       {
         path: 'knowledge',
         name: 'knowledge',
-        component: placeholder,
+        component: () => import('@/features/knowledge/views/KnowledgeView.vue'),
         meta: { title: 'menu.knowledge', icon: 'Collection', menu: true, order: 9 },
       },
       {
         path: 'approvals',
         name: 'approvals',
-        component: placeholder,
+        component: () => import('@/features/approvals/views/ApprovalsView.vue'),
         meta: { title: 'menu.approvals', icon: 'Checked', menu: true, order: 10 },
       },
       {
@@ -164,11 +164,11 @@ export const appRoutes: RouteRecordRaw[] = [
           },
         ],
       },
-      // 详情类路由（不进菜单）
+      // 详情类路由（不进菜单；04 客户 360°，页签状态随 ?tab= query，02 §4.2）
       {
         path: 'customers/:id',
         name: 'customer-360',
-        component: placeholder,
+        component: () => import('@/features/customer360/views/Customer360View.vue'),
         meta: { title: 'menu.crm' },
       },
 

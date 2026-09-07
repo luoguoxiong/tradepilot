@@ -6,6 +6,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Bell, Expand, Fold, Search } from '@element-plus/icons-vue'
 import { useDebounceFn } from '@vueuse/core'
 
+import { useSiderCollapsed } from '@/composables/useSiderCollapsed'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { useNotifyStore } from '@/stores/notify'
@@ -19,10 +20,11 @@ const { t, locale } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 const notifyStore = useNotifyStore()
+const { siderCollapsed } = useSiderCollapsed()
 
 const orgName = computed(() => authStore.org?.name ?? '')
 const roleLabel = computed(() => authStore.user?.role ?? '')
-const siderIcon = computed(() => (appStore.siderCollapsed ? Expand : Fold))
+const siderIcon = computed(() => (siderCollapsed.value ? Expand : Fold))
 
 // ===== 全局搜索：300ms 防抖（02 §1.1）；聚合结果页随 M3/M4 各模块数据接入后交付 =====
 const keyword = ref('')

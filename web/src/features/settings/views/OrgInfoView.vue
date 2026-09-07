@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules, UploadFile } from 'element-plus'
@@ -9,6 +9,7 @@ import type { OrgProfile } from '@/api/types/org'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { usePermission } from '@/composables/usePermission'
+import { useFormLeaveGuard } from '@/composables/useFormLeaveGuard'
 
 /**
  * 企业信息（16 FR-02 / FR-12，P0）：基础资料 + 区域与本地化 3 默认值 + 外发规则。
@@ -33,6 +34,18 @@ const form = reactive<Partial<OrgProfile> & { sendRules: NonNullable<OrgProfile[
   defaultLanguage: 'zh-CN',
   sendRules: { timeWindowStart: '09:00', timeWindowEnd: '18:00', minTouchIntervalDays: 3 },
 })
+
+// 02 §6 表单离开拦截：加载完成后表单变更即置脏，保存成功复位
+const loaded = ref(false)
+const dirty = ref(false)
+watch(
+  form,
+  () => {
+    if (loaded.value && !saving.value) dirty.value = true
+  },
+  { deep: true },
+)
+useFormLeaveGuard({ isDirty: () => dirty.value })
 
 const rules: FormRules = {
   name: [{ required: true, message: t('auth.orgNamePlaceholder'), trigger: 'blur' }],
@@ -92,6 +105,7 @@ onMounted(async () => {
   try {
     const org = await fetchOrg()
     Object.assign(form, org, { sendRules: org.sendRules ?? form.sendRules })
+    loaded.value = true
   } finally {
     loading.value = false
   }

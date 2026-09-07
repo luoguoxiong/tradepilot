@@ -6,7 +6,12 @@ import Decimal from 'decimal.js'
  */
 export function formatMoney(amount: string | number | null | undefined, currency = 'USD'): string {
   if (amount === null || amount === undefined || amount === '') return '—'
-  const value = new Decimal(String(amount))
+  let value: Decimal
+  try {
+    value = new Decimal(String(amount))
+  } catch {
+    return '—'
+  }
   if (value.isNaN()) return '—'
   return new Intl.NumberFormat('zh-CN', { style: 'currency', currency }).format(value.toNumber())
 }

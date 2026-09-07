@@ -117,7 +117,7 @@ const PRESET_EMPLOYEES: PresetEmployee[] = [
     name: 'AI 获客专员',
     goal: '按画像持续挖掘高价值潜在客户，产出可验证线索入 ai_lead 共享池',
     skills: ['market_scan', 'profile_match', 'contact_discovery'],
-    tools: ['web_search', 'crm_write', 'knowledge_search'],
+    tools: ['web_search', 'site_crawl', 'find_contact', 'lookup_contact', 'crm_write', 'knowledge_search'],
     kpi: { metric: 'daily_leads', target: 35 },
     sop: {
       steps: [

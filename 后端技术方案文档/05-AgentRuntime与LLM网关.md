@@ -12,7 +12,7 @@
 ```text
 packages/runtime/src/
 ├── task-runner.ts        # 领取→执行→收尾骨架（04 §5.1）
-├── graph-compiler.ts     # SOP jsonb → CompiledGraph（缓存按 sopId+version）
+├── graph-compiler.ts     # SOP jsonb → CompiledGraph（缓存键 orgId:taskType@version，M3-17）
 ├── state/                # BaseTaskState 与各图 State 类型（LangGraph 工作流 §1.1）
 ├── approval-gate.ts      # §4
 ├── memory/               # 三层记忆读写
@@ -27,9 +27,9 @@ packages/workflows/src/   # lead_hunting / email_reply / follow_up 图 + prompts
 | 项 | 决策 |
 |---|---|
 | Checkpointer | `@langchain/langgraph-checkpoint-postgres`，与业务库同实例（独立 schema `langgraph`）；`thread_id = taskId` |
-| 中断 | 审批等待用原生 `interrupt()`；恢复 `Command { resume: ResumePayload }`（批准 / 编辑后内容 / 拒绝原因） |
+| 中断 | 未用原生 `interrupt()` / `Command{resume}`：Gate 判定需审 → `enterWaiting` 落库（approval_request + waiting_approval + linked_approval_id）→ 抛 `ApprovalPendingError` → runner 捕获后 job 正常结束（waiting_approval，非失败）；恢复 = resume job 重入 `invoke(null)` 从检查点续跑（M3-17，详见 §4.2） |
 | 节点粒度事务 | 每节点内 DB 写共享一个 `withOrg` 事务（[02 §4.3](./02-数据访问层设计.md)）；节点完成后 checkpointer 落盘 |
-| 图版本 | 启动时按任务锁定的 `(sopId, version)` 取编译缓存；SOP 修改不影响进行中任务 |
+| 图版本 | 编译缓存键 `orgId:taskType@version`（含 org 维度防多租户交叉，M3-17）；M3 内置 SOP 按 taskType 固化（org 自定义 sop_template 随 P1），SOP 修改不影响进行中任务 |
 | State 演进 | `packages/runtime/state` 类型与 LangGraph 工作流 §1~§4 的 TS 定义一字不差（shared 包导出，编译器消费） |
 
 **编译器**：`compile(sop: SopContent)` 校验 jsonb（Zod：nodes/edges/kind 枚举/promptRef 存在性/风险标注）→ 生成 `StateGraph`：
@@ -86,30 +86,37 @@ riskLevel=medium：
      'high_value_only' 且客户 tier=high）→ 必人工
   ② org autoApprove（16 FR-08，仅 medium 可开）+ 员工 approval_policy.autoExecute 含该类型
      → 直发，approval_request.status='auto_approved' + approval_log 留痕
-  ③ 其余 → 人工审批（interrupt）
+  ③ 其余 → 人工审批（enterWaiting + ApprovalPendingError，§4.2）
 ```
 
-### 4.2 interrupt 与恢复
+### 4.2 interrupt 与恢复（M3-17：非原生 interrupt，ApprovalPendingError 中断）
+
+> 未用 LangGraph 原生 `interrupt()` / `Command{resume}`，改为「Gate 抛 `ApprovalPendingError` → runner 收尾 → resume job 重入 `invoke(null)` 续跑」。机制闭环：挂起态由 DB（waiting_approval）权威表达，图侧异常路径由 runner 统一收尾（job 正常结束、不算失败），checkpointer 线程不被弃用。
 
 ```text
-Gate 判定需审批
-→ interrupt(payload) → checkpointer 落盘
-→ 事务：ai_task.waiting_approval + linked_approval_id
-       + approval_request(biz_type+biz_id 多态, expires_at=now+48h, snapshot=工具入参)
-       + follow_up_task 状态同步（waiting_approval / next_run_at 冻结）
-→ SSE status 事件
-─────────── 审批处置（12 接口 → Worker resume）───────────
-approve          → Command{resume:{decision:'approve'}} → freshnessCheck() 通过 → 真实执行
-edited_approved  → resume 携带编辑后内容替换工具入参，差异写 approval_log
+Gate 判定需审批（decide → interrupt）
+→ enterWaiting（单事务幂等落库）：
+    approval_request(status='pending', expires_at=now+TTL, snapshot=工具入参, aiProposal.nodeId)
+    + ai_task.status='waiting_approval' + linked_approval_id
+    + follow_up_task 状态同步（waiting_approval / next_run_at 冻结）+ 员工 waiting_approval
+→ 抛 ApprovalPendingError(approvalId) → runner 捕获：
+    删除心跳 + flush 缓冲 SSE status(waiting_approval, linkedApprovalId) → job 正常结束
+─────────── 审批处置（12 接口 → Worker resume job，job.data.resume={nodeId, approvalId}）───────────
+approve          → markResumed（waiting_approval→running，员工 working，follow_up scheduled）
+                 → graph.invoke(null) 从检查点续跑 → 命中工具节点（isResume）
+                 → freshnessCheck() 通过 → 真实执行
+edited_approved  → resume 携带编辑后内容替换工具入参，差异写 approval_log（12 侧）
 reject           → 拒绝原因写 Org Memory（反馈闭环）→ 图走拒绝收尾（completed 带反馈）
 ```
 
-- **新鲜度校验**：`email_send` 工具的 `freshnessCheck`——email_reply 重查会话是否已被人工回复/关闭；follow_up 重跑 `check_replied`。不通过则不发送，转 `completed(insight)` / `pause_strategy`。
+- **幂等**：`enterWaiting` 对同 `(task, node)` 已有 pending 审批单复用不重建（resume 重放节点防重复建单）；resume 领取对已 `running`（12 侧 `markResumed` 先置位）幂等放行。
+- **新鲜度校验**：`email_send` 的 `freshnessCheck`——email_reply 重查会话是否已被人工回复/关闭；follow_up 重跑 `check_replied`。不通过则不发送（抛 CONFLICT 终止执行），转 `completed(insight)` / `pause_strategy`。
 - 审批超时不由图处理：由 [04 §4](./04-任务调度与队列.md) 扫描器统一级联（图侧仅感知任务 failed，checkpointer 线程弃用）。
 
 ### 4.3 Org Memory 回流
 
 - 拒绝原因、草稿编辑差异、`need_info` 缺料清单 → `ai_task.outputs`（type=insight）+ 追加至客户维度上下文包（crm_read 时注入最近 N 条拒绝原因摘要），实现「修正反馈闭环」而不新增表。
+- **M3 状态（M3-17）**：`memory.readOrgMemory` 为占位空实现（返回空数组，[memory.ts](../server/packages/runtime/src/memory.ts)）——写侧随反馈闭环 **P1** 落地；拒绝原因等产出仍照常落 `ai_task.outputs`，仅客户维度上下文注入为空。
 
 ## 5. Memory Manager（三层落地）
 
@@ -133,16 +140,17 @@ llm-gateway/
 - 统一走 LangChain `BaseChatModel` 抽象；供应商差异（Anthropic 消息结构、Azure 部署名）收敛在适配器。
 - 供应商与模型名来自 `ai_model_setting.scenes`（**org 级**，16 FR-10）；`provider` + `apiKey` 引用服务端密钥库（key 名存配置，真实 key 在 env/密管，[08 §2](./08-安全设计与合规.md)）。
 
-### 6.2 路由（场景 → 模型档位）
+### 6.2 路由（场景 → 模型档位；M3-17 口径同步）
 
 ```text
-resolveModel(orgId, scene: 'high'|'medium'|'low'|'default', fallbackChain)
-→ ai_model_setting.scenes 精确命中 → 否则 default
-→ 构造 ChatModel（temperature/maxTokens 随行配置）
-→ 不可用（超时/5xx×2）→ 降级链（high→medium 档）+ warn 日志标记 degraded
+resolveTarget(orgId, scene)
+→ ai_model_setting 按 (orgId, scene) 精确命中 → 该行 model / temperature / maxTokens
+→ 未命中 → 默认模型兜底（defaultModel / temp 0.7 / maxTokens 4096），degraded=true 标记
+→ 构造 ChatModel；M3 mock provider 走 Zod schema 驱动的确定性产出（风险对策 §5.7）
 ```
 
-- promptRef ↔ 模型档位映射固化为 LangGraph 工作流 §6 表（parseGoal=轻…draftReply=强），编译器据此传 scene。
+- **M3 口径**：`scene = taskType`（compiler 传 `ctx.taskType`，`ai_model_setting.scene` 取 lead_hunting / email_reply / follow_up / analysis）——任务类型级档位，未细分到 promptRef。
+- **M4 演进（随 ai_model_setting 档位化实装）**：promptRef → 模型档位映射（LangGraph 工作流 §6 表：parseGoal=轻…draftReply=强）与 high→medium 降级链暂未接——M3 mock provider 无真实调用，任务类型级档位即可闭环；接入真实 LLM 与模型设置时补此层。
 
 ### 6.3 结构化输出
 
@@ -168,7 +176,7 @@ CREATE TABLE llm_call (
 CREATE INDEX idx_llm_call_org_time ON llm_call (org_id, created_at DESC);
 ```
 
-- 预算：Cron 每 10min 汇总当月 `sum(cost_usd)` 对比 `budgetLimit` → 超 80%/100% 写告警通知（`q:notify`），**不熔断**（16 FR-10）。
+- 预算（MVP 增量口径 / 16 FR-10）：每次调用记账后汇总当月 `sum(cost_usd)` 对比 `budgetLimit`；当月累计**首次越界**（前值 ≤ 预算 < 后值）写一次告警通知（`q:notify`，事件 `budget_limit`），**不熔断**。Cron 每 10min 汇总 + 超 80%/100% 两级阈值随 M5 #9 复核。
 
 ## 7. Prompt 管理
 

@@ -11,6 +11,7 @@ import { RedisModule } from './redis/redis.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { OrgModule } from './org/org.module.js';
 import { SettingsModule } from './settings/settings.module.js';
+import { TasksModule } from './tasks/tasks.module.js';
 
 /**
  * API 根模块（后端技术方案 01 §4）。
@@ -27,6 +28,7 @@ import { SettingsModule } from './settings/settings.module.js';
     AuthModule,
     OrgModule,
     SettingsModule,
+    TasksModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: HttpExceptionFilter },

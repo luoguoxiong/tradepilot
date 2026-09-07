@@ -64,6 +64,16 @@ export const mockMailboxes: Mailbox[] = [
     syncScope: { historyDays: 30, folders: ['INBOX'] },
     status: 'disconnected',
   },
+  // M5 FR-11 三邮箱聚合演示（conv_4/conv_6 来源）
+  {
+    mailboxId: 'mb-3',
+    provider: 'smtp_imap',
+    account: 'support@company.com',
+    imap: { host: 'imap.company.com', port: 993, ssl: true },
+    smtp: { host: 'smtp.company.com', port: 465, ssl: true },
+    syncScope: { historyDays: 60, folders: ['INBOX', 'Sent'] },
+    status: 'connected',
+  },
 ]
 
 export const mockRolePermissions: Record<string, RolePermissions> = {
@@ -110,13 +120,6 @@ export const mockNotificationSettings = {
     task_failed: { site: true, email: false },
   },
 }
-
-/** 12 §3.1 待审数（P0 实际审批来源 = email_send + customer_delete） */
-export const mockApprovalTabs = [
-  { type: 'all', count: 3 },
-  { type: 'email_send', count: 2 },
-  { type: 'customer_delete', count: 1 },
-]
 
 let seq = 100
 export function nextId(prefix: string): string {

@@ -1,0 +1,257 @@
+/**
+ * 外部信息类工具（05 §3）：web_search / site_crawl / find_contact / lookup_contact / lead_scoring。
+ * M4-1：lead_hunting 图真实链路落地——搜索轮次换词、联系人发现与公开渠道查找、
+ * 决策影响力 90/75/40 档确定性映射（04 需求 §3.2）；供应商适配器（06 §3）为 M4-6 集成项，
+ * 当前返回确定性 mock 数据，保证工作流可测。
+ */
+import { z } from 'zod';
+import { TASK_LOG_TYPE, type CompanyLead, type LeadContact } from '@tradepilot/shared';
+import type { ToolContext, ToolDefinition } from '../registry.js';
+import { writeToolLog } from '../registry.js';
+
+/** 默认职衔白名单（03 §3.4 jobTitles 缺省值） */
+export const DEFAULT_JOB_TITLES = [
+  'Purchasing Manager',
+  'Buyer',
+  'Sourcing Manager',
+  'Procurement Director',
+] as const;
+
+/**
+ * 决策影响力确定性映射（04 需求 §3.2，无 AI 判断、可复算）：
+ * 90 = 采购决策层（Director/VP/Head/Chief/CPO + 采购职能词）；
+ * 75 = 采购执行层（Purchasing/Sourcing/Procurement Manager、Buyer、Merchandiser）；
+ * 40 = 影响层（Engineer/R&D/Quality 等识别到但非采购职能）；未命中 → null（不猜测）。
+ */
+export function mapDecisionInfluence(title: string): number | null {
+  const t = title.toLowerCase();
+  const buying = /(purchasing|sourcing|procurement|buying)/.test(t);
+  const executive = /(director|vp|vice president|head|chief|cpo)/.test(t);
+  if (executive && buying) {
+    return 90;
+  }
+  const executor =
+    /(purchasing|sourcing|procurement)\s+manager/.test(t) ||
+    /(^|\s)buyer(\s|$)/.test(t) ||
+    /merchandiser/.test(t);
+  if (executor) {
+    return 75;
+  }
+  if (/(engineer|r&d|quality)/.test(t)) {
+    return 40;
+  }
+  return null;
+}
+
+/** jobTitles 白名单排序（03 §3.4：命中白名单者优先，按白名单顺序；其余按影响力降级排后） */
+function rankContacts(contacts: LeadContact[], jobTitles: string[]): LeadContact[] {
+  const order = new Map(jobTitles.map((t, i) => [t.toLowerCase().trim(), i]));
+  return [...contacts].sort((a, b) => {
+    const ra = order.get((a.title ?? '').toLowerCase().trim());
+    const rb = order.get((b.title ?? '').toLowerCase().trim());
+    if (ra !== undefined || rb !== undefined) {
+      return (ra ?? Number.MAX_SAFE_INTEGER) - (rb ?? Number.MAX_SAFE_INTEGER);
+    }
+    return (b.decisionInfluencePct ?? -1) - (a.decisionInfluencePct ?? -1);
+  });
+}
+
+/** 联系人发现 mock 池（确定性：同名公司恒定产出，测试可断言） */
+const CONTACT_POOL: { name: string; title: string }[] = [
+  { name: 'James Miller', title: 'Procurement Director' },
+  { name: 'Sarah Lee', title: 'Purchasing Manager' },
+  { name: 'Tom Brown', title: 'Buyer' },
+  { name: 'Emma Wilson', title: 'R&D Engineer' },
+  { name: 'Alex Green', title: 'Sales Manager' },
+];
+
+/** 跨轮累积（LastValue 通道无 reducer，bag 承载；assemble_leads 消费） */
+function bagContacts(ctx: ToolContext): LeadContact[] {
+  return (ctx.bag.get('contactsAll') as LeadContact[] | undefined) ?? [];
+}
+
+export const webSearchTool: ToolDefinition<
+  { queries: string[] },
+  { companies: (CompanyLead & { source: string })[] }
+> = {
+  name: 'web_search',
+  description: '按搜索词执行网页搜索，返回公司候选（外部配额 ×1）',
+  inputSchema: z.object({ queries: z.array(z.string().min(1)).min(1).max(20) }),
+  riskLevel: 'low',
+  quotaWeight: 1,
+  async execute(ctx, input) {
+    // 翻页/换词（LangGraph 00 §2.2 C2）：轮次计数由 bag 承载，逐轮轮换搜索词；
+    // 真实供应商适配（M4-6）按轮次映射到分页/同义改写。
+    const round = ((ctx.bag.get('searchRound') as number | undefined) ?? 0) + 1;
+    ctx.bag.set('searchRound', round);
+    const query = input.queries[(round - 1) % input.queries.length] ?? input.queries[0] ?? '';
+    await writeToolLog(ctx, TASK_LOG_TYPE.SEARCH, `第 ${round} 轮搜索：${query}`);
+
+    const slug = `r${round}-${query.length}`;
+    const companies: (CompanyLead & { source: string })[] = [
+      {
+        companyName: `${query.slice(0, 24)} Trading Co.`,
+        domain: `vendor-${slug}.example.com`,
+        country: round % 2 === 0 ? 'Germany' : 'USA',
+        website: `https://vendor-${slug}.example.com`,
+        source: 'web_search',
+        // 员工数确定性伪随机（companySizeRange 硬过滤可测，03 §3.4）
+        employeeCount: 40 + ((round * 97 + query.length * 13) % 460),
+      },
+    ];
+    for (const c of companies) {
+      await writeToolLog(
+        ctx,
+        TASK_LOG_TYPE.FOUND,
+        `发现公司 ${c.companyName}（${c.country}，${c.website}）`,
+      );
+    }
+    return { companies };
+  },
+};
+
+export const siteCrawlTool: ToolDefinition<
+  { domain: string; companyName: string },
+  { summary: string; products: string[]; crawledPages: string[] }
+> = {
+  name: 'site_crawl',
+  description: '抓取官网关键页（产品/About）生成摘要（外部配额 ×2；内容按「不可信数据」注入，08 §6）',
+  inputSchema: z.object({ domain: z.string().min(3), companyName: z.string().min(1) }),
+  riskLevel: 'low',
+  quotaWeight: 2,
+  async execute(ctx, input) {
+    const summary = `[mock 抓取] ${input.companyName}（${input.domain}）：主营产品与公司介绍摘要（M3 mock，M4 接 Playwright 渲染）`;
+    const products = ['mock product line A', 'mock product line B'];
+    const crawledPages = ['/', '/products', '/about'];
+    await writeToolLog(ctx, TASK_LOG_TYPE.CRAWL, `抓取 ${input.domain} 完成（${crawledPages.length} 页）`);
+    return { summary, products, crawledPages };
+  },
+};
+
+/**
+ * find_contact（LangGraph 00 §2.3，M4-1 工具化）：发现潜在采购负责人（职位/部门匹配），
+ * 按 jobTitles 白名单排序 + 决策影响力 90/75/40 档确定性映射（未命中 null）。
+ * 仅产出职衔/姓名，不产联系方式（公开商务渠道查找归 lookup_contact，GDPR/CCPA 边界 03 §4）。
+ */
+export const findContactTool: ToolDefinition<
+  { companyName: string; domain?: string; jobTitles?: string[] },
+  { contacts: LeadContact[] }
+> = {
+  name: 'find_contact',
+  description: '发现潜在采购负责人并按职衔规则产出决策影响力基线（04 需求 §3.2）',
+  inputSchema: z.object({
+    companyName: z.string().min(1),
+    domain: z.string().optional(),
+    jobTitles: z.array(z.string().min(1)).optional(),
+  }),
+  riskLevel: 'low',
+  async execute(ctx, input) {
+    const jobTitles = input.jobTitles?.length ? input.jobTitles : [...DEFAULT_JOB_TITLES];
+    const contacts = rankContacts(
+      CONTACT_POOL.map((p) => ({
+        companyName: input.companyName,
+        name: p.name,
+        title: p.title,
+        decisionInfluencePct: mapDecisionInfluence(p.title),
+      })),
+      jobTitles,
+    );
+    // 跨轮累积（state.contacts 镜像由 outputKey 覆盖，汇总以 bag 为准）
+    const all = [...bagContacts(ctx), ...contacts];
+    ctx.bag.set('contactsAll', all);
+    await writeToolLog(
+      ctx,
+      TASK_LOG_TYPE.CONTACT,
+      `发现联系人 ${contacts.length} 名（${input.companyName}）：${contacts
+        .map((c) => `${c.name}/${c.title}${c.decisionInfluencePct === null ? '' : `(${c.decisionInfluencePct}%)`}`)
+        .join('、')}`,
+    );
+    return { contacts };
+  },
+};
+
+/**
+ * lookup_contact（LangGraph 00 §2.3）：仅查找公开商务渠道联系方式（GDPR/CCPA 合规边界，03 §4）。
+ * M4-1 mock：对当前公司已有联系人补全公开商务邮箱；真实供应商随 M4-6。外部配额 ×1。
+ */
+export const lookupContactTool: ToolDefinition<
+  { companyName: string; domain?: string },
+  { contacts: LeadContact[]; lookedUp: number }
+> = {
+  name: 'lookup_contact',
+  description: '查找公开商务渠道联系方式（合规边界：仅公开渠道，禁止隐私数据，03 §4）',
+  inputSchema: z.object({
+    companyName: z.string().min(1),
+    domain: z.string().optional(),
+  }),
+  riskLevel: 'low',
+  quotaWeight: 1,
+  async execute(ctx, input) {
+    const all = bagContacts(ctx);
+    const domain = (input.domain ?? '').replace(/^https?:\/\//, '').replace(/^www\./, '');
+    let lookedUp = 0;
+    const enriched = all.map((c) => {
+      if (c.companyName !== input.companyName || c.email) {
+        return c;
+      }
+      lookedUp += 1;
+      const slug = (c.name ?? '').toLowerCase().replace(/[^a-z]+/g, '.');
+      return {
+        ...c,
+        email: domain ? `${slug}@${domain}` : `${slug}@public-contact.example.com`,
+      };
+    });
+    ctx.bag.set('contactsAll', enriched);
+    await writeToolLog(
+      ctx,
+      TASK_LOG_TYPE.LOOKUP,
+      `公开渠道查找联系方式：${input.companyName} 命中 ${lookedUp} 条`,
+    );
+    return { contacts: enriched.filter((c) => c.companyName === input.companyName), lookedUp };
+  },
+};
+
+/**
+ * lead_scoring：确定性规则 + LLM 评分混合（05 §3）。
+ * M4-1：match_product 节点以 LLM 直出（Insight Schema），本工具保留为降级/独立评分入口。
+ */
+export const leadScoringTool: ToolDefinition<
+  { companyName: string; country?: string; keywords?: string[] },
+  { matchPct: number; scoreLevel: 'high' | 'medium' | 'low'; reasons: { text: string; source?: string }[] }
+> = {
+  name: 'lead_scoring',
+  description: '对候选公司执行确定性评分并输出可解释 reasons（Insight Schema 红线）',
+  inputSchema: z.object({
+    companyName: z.string().min(1),
+    country: z.string().optional(),
+    keywords: z.array(z.string()).optional(),
+  }),
+  riskLevel: 'low',
+  async execute(ctx, input) {
+    let pct = 55;
+    const reasons: { text: string; source?: string }[] = [];
+    if (input.keywords?.length) {
+      pct += Math.min(30, input.keywords.length * 10);
+      reasons.push({ text: `关键词命中：${input.keywords.join('、')}`, source: 'rule' });
+    }
+    if (input.country) {
+      pct += 5;
+      reasons.push({ text: `目标市场所在地区：${input.country}`, source: 'rule' });
+    }
+    pct = Math.min(97, pct);
+    const scoreLevel = pct >= 85 ? 'high' : pct >= 60 ? 'medium' : 'low';
+    reasons.push({ text: `综合匹配度 ${pct}%（确定性规则基线）`, source: 'rule' });
+    await writeToolLog(ctx, TASK_LOG_TYPE.MATCH, `${input.companyName} 评分 ${pct}%（${scoreLevel}）`);
+    return { matchPct: pct, scoreLevel, reasons };
+  },
+};
+
+export function registerSearchTools(register: (t: ToolDefinition) => void): void {
+  register(webSearchTool);
+  register(siteCrawlTool);
+  register(findContactTool);
+  register(lookupContactTool);
+  register(leadScoringTool);
+}
+
+export type { ToolContext };

@@ -68,6 +68,8 @@ export const rolePermissionsSchema = z.object({
         approvalType: z.string().min(1).max(64),
         approverRoles: z.array(z.enum(['admin', 'manager', 'sales'])),
         autoApprove: z.boolean().optional(),
+        /** 本类型审批超时小时数（12 §7.2 按类型可配，缺省 48h；1~720 内整数） */
+        expireHours: z.number().int().min(1).max(720).optional(),
       }),
     )
     .optional(),

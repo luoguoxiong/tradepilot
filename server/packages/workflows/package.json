@@ -14,5 +14,13 @@
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src"
+  },
+  "dependencies": {
+    "@tradepilot/core": "workspace:*",
+    "@tradepilot/db": "workspace:*",
+    "@tradepilot/runtime": "workspace:*",
+    "@tradepilot/shared": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "zod": "^3.24.1"
   }
 }

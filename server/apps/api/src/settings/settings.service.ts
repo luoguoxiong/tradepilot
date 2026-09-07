@@ -236,7 +236,13 @@ function parseRole(role: string): Role {
 
 /** 强制审批绑定不可绕过（16 §3.6）：mandatory 类型 approverRoles 置空 → 42201；high 禁 autoApprove */
 function assertApprovalRules(
-  rules: { approvalType: string; approverRoles: string[]; autoApprove?: boolean }[],
+  rules: {
+    approvalType: string;
+    approverRoles: string[];
+    autoApprove?: boolean;
+    /** 审批超时小时（12 §7.2；范围校验由 DTO zod 层完成） */
+    expireHours?: number;
+  }[],
 ): void {
   for (const rule of rules) {
     if (

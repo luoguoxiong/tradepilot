@@ -97,7 +97,9 @@ export const aiTask = pgTable(
       .references(() => aiEmployee.id),
     type: taskType('type').notNull(),
     title: text('title').notNull(),
-    status: taskStatus('status').notNull().default('running'),
+    // 默认 scheduled：running 由 Runner.claim 独占置位并补 started_at（04 §5.2），
+    // 避免未来误插入「running + started_at 空」的不可恢复直投态（M3-01 根因同源，M3-17）
+    status: taskStatus('status').notNull().default('scheduled'),
     progressPct: smallint('progress_pct').notNull().default(0),
     currentStep: text('current_step'),
     input: jsonb('input').$type<Record<string, unknown>>().notNull().default({}),

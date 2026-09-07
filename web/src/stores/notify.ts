@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia'
 
 import { fetchApprovalSummary } from '@/api/resources/approvals'
+import { addPollTask } from '@/composables/usePolling'
 
-/** 轮询节奏（03 §5.2 / 排期 M2-7）：15s，页面隐藏暂停、恢复可见立即刷一次 */
+/** 轮询节奏（03 §5.2 / 排期 M2-7）：15s；隐藏暂停/恢复补刷由全局轮询管理器统一收敛 */
 const POLL_INTERVAL = 15_000
 
 /** 模块级 stop 句柄：timer/监听器不进 state（避免被持久化或 devtools 噪音） */
@@ -35,19 +36,8 @@ export const useNotifyStore = defineStore('notify', {
       this.polling = true
       void this.refresh()
 
-      const onVisible = () => {
-        if (!document.hidden) void this.refresh()
-      }
-      document.addEventListener('visibilitychange', onVisible)
-
-      const timer = window.setInterval(() => {
-        if (!document.hidden) void this.refresh()
-      }, POLL_INTERVAL)
-
-      teardown = () => {
-        window.clearInterval(timer)
-        document.removeEventListener('visibilitychange', onVisible)
-      }
+      // 全局轮询收敛管理器（06 §3）：隐藏暂停 / 恢复补刷统一处理
+      teardown = addPollTask(() => this.refresh(), POLL_INTERVAL)
     },
 
     stopPolling() {

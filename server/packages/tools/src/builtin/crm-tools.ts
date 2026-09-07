@@ -109,6 +109,7 @@ export const crmWriteTool: ToolDefinition<
   name: 'crm_write',
   description: '批量写入客户发现池（inCrm=false，不自动进 CRM；加入 CRM 是用户动作，03 §4）',
   inputSchema: z.object({
+    // 允许空数组：全部候选被硬过滤/去重排除时零写入收尾（03 §3.6）
     leads: z
       .array(
         z.object({
@@ -137,7 +138,6 @@ export const crmWriteTool: ToolDefinition<
             .optional(),
         }),
       )
-      .min(1)
       .max(50),
   }),
   riskLevel: 'low',

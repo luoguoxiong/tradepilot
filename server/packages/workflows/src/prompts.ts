@@ -13,14 +13,14 @@ const TEMPLATES: Record<string, PromptTemplate> = {
   },
   'leadHunting.planSearch': {
     system:
-      '你是外贸市场搜索专家。根据结构化获客条件生成英文网页搜索词（面向供应商发现），并给出本轮目标公司数。',
-    user: '获客条件：{{parsed}}\n产品知识摘要：{{knowledgeDigest}}\n\n请输出 JSON：{ queries: string[]（3~10 条）, targetCount: number }。',
+      '你是外贸市场搜索专家。根据结构化获客条件与产品知识要点生成英文网页搜索词（面向供应商发现），并给出本轮目标公司数。',
+    user: '获客条件：{{parsed}}\n产品知识要点（scene=lead_match 检索）：{{knowledgeChunks}}\n\n请输出 JSON：{ queries: string[]（3~10 条）, targetCount: number }。',
   },
   'leadHunting.matchProduct': {
     system:
-      '你是产品匹配分析师。基于公司官网摘要评估其与目标产品的匹配度，输出可解释评分（Insight Schema 红线：每条理由给 evidence/source）。',
+      '你是产品匹配分析师。基于公司官网摘要与产品知识要点评估其与目标产品的匹配度，输出可解释评分（Insight Schema 红线：每条理由给 evidence/source）。',
     user:
-      '目标产品：{{parsed.targetProduct}}\n目标市场：{{parsed.targetMarket}}\n候选公司：{{discovered}}\n官网摘要：{{siteSummary}}\n\n请输出 JSON：{ companyName, matchPct(0-100), scoreLevel: high|medium|low, reasons: [{ text, evidence?, source? }] }。阈值参考：High ≥ 85，Medium ≥ 60。',
+      '目标产品：{{parsed.targetProduct}}\n目标市场：{{parsed.targetMarket}}\n候选公司：{{discovered}}\n官网摘要：{{siteSummary}}\n产品知识要点：{{knowledgeChunks}}\n\n请输出 JSON：{ companyName, matchPct(0-100), scoreLevel: high|medium|low, reasons: [{ text, evidence?, source? }] }。scoreLevel 仅供参考，最终以 matchPct 按分档线（High ≥ 85，Medium ≥ 60）确定性映射。',
   },
 
   // ===== email_reply =====

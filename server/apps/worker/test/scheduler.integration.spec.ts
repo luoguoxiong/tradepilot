@@ -54,7 +54,8 @@ const FT_BUSY = createId('ftask');
 const CONV_CAPPED = createId('conv');
 const TASK_BUSY = createId('task');
 
-const EMP_IDS = Array.from({ length: 12 }, () => createId('aie'));
+// 租户 A 用前 5 个、租户 B 用后 11 个（切片必须不相交，否则 ai_employee 主键冲突）
+const EMP_IDS = Array.from({ length: 16 }, () => createId('aie'));
 
 async function insertTask(values: {
   orgId: string;
@@ -156,7 +157,7 @@ beforeAll(async () => {
 
   // ===== 租户 B：org 并发=10（10 running 跨 10 员工 + 1 scheduled）=====
   await db.insert(schema.aiEmployee).values(
-    EMP_IDS.map((id, i) => ({
+    EMP_IDS.slice(5).map((id, i) => ({
       id,
       orgId: ORG_FULL,
       role: 'sales' as const,
@@ -173,11 +174,11 @@ beforeAll(async () => {
     })),
   );
   for (let i = 0; i < 10; i += 1) {
-    await insertTask({ orgId: ORG_FULL, employeeId: EMP_IDS[i], status: 'running' });
+    await insertTask({ orgId: ORG_FULL, employeeId: EMP_IDS[i + 5], status: 'running' });
   }
   await insertTask({
     orgId: ORG_FULL,
-    employeeId: EMP_IDS[10],
+    employeeId: EMP_IDS[15],
     status: 'scheduled',
     scheduledAt: new Date(now - 100),
   });

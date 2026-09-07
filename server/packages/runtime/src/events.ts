@@ -56,7 +56,8 @@ export class TaskEventPublisher {
   async publish(taskId: string, event: TaskEvent): Promise<void> {
     const parsed = taskEventSchema.safeParse(event);
     if (!parsed.success) {
-      throw new Error(`SSE 事件不符合契约: ${parsed.error.issues.map((i) => i.message).join('; ')}`);
+      const detail = parsed.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ');
+      throw new Error(`SSE 事件不符合契约: ${detail}；event=${JSON.stringify(event)}`);
     }
     await this.redis.publish(taskEventChannel(taskId), JSON.stringify(parsed.data));
   }

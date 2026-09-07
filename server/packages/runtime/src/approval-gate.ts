@@ -8,7 +8,7 @@
  * 挂起即冻结：waiting_approval 不占 org 并发额度（org 仅统计 running），但占员工位（04 §3.3，M3-06）；
  * follow_up_task.status 同步 waiting_approval、next_run_at 冻结原值（排期单一写入口约束）。
  */
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { schema, withOrg, type Db, type Tx } from '@tradepilot/db';
@@ -186,7 +186,8 @@ export class ApprovalGate {
         })
         .where(and(eq(schema.aiTask.id, ctx.taskId), eq(schema.aiTask.orgId, ctx.orgId)));
 
-      // follow_up_task 同步挂起（next_run_at 冻结原值，不写排期）
+      // follow_up_task 同步挂起（next_run_at 冻结原值，不写排期）；
+      // ready/scheduled 均为 Scheduler 可扫的活跃态，挂起时一并冻结（00 §3.6）
       const followUpTaskId = ctx.task.input['followUpTaskId'];
       if (typeof followUpTaskId === 'string') {
         await tx
@@ -195,7 +196,7 @@ export class ApprovalGate {
           .where(
             and(
               eq(schema.followUpTask.id, followUpTaskId),
-              eq(schema.followUpTask.status, 'scheduled'),
+              inArray(schema.followUpTask.status, ['ready', 'scheduled']),
             ),
           );
       }

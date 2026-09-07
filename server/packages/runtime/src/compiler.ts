@@ -343,7 +343,9 @@ export class GraphCompiler {
       }
       const branch = state[BRANCH_KEY];
       if (typeof branch === 'string' && branchMap.has(branch)) {
-        return branchMap.get(branch) as string;
+        // langgraph addConditionalEdges(object pathMap) 语义：router 返回 pathMap 的「键」，
+        // 由 ends 映射到目标节点；返回目标节点名会被判为 unknown destination。
+        return branch;
       }
       if (defaultTarget) {
         return DEFAULT_KEY;

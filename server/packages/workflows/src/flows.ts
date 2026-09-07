@@ -2,13 +2,13 @@
  * flow 节点注册表（LangGraph 工作流 §2~§4 flow 语义 + Runtime 总纲 §4.3）。
  * FlowNodeFn = (state, ctx) → { patch, branch, done }；DB 访问一律 withOrg（RLS fail-closed）。
  *
- * M3 骨架说明：
- * - 频控顺延复用 @tradepilot/core time-window（P1-4 收口公式，Scheduler 预检共用同一实现）；
- * - find_contact / writeback / load_thread / load_context / pause_strategy / writeback_execution
- *   在文档为 tool 节点，M3 以 flow 承载（确定性规则或直查 DB），真实工具随 M4 集成落地；
- * - 跨轮累积（scored/contacts/discovered 元数据）经 ctx.bag 承载（LastValue 通道无 reducer）。
+ * M4-1 说明：
+ * - lead_hunting 的 find_contact/lookup_contact 已工具化（tools/builtin/search-tools.ts），
+ *   flow 层仅保留控制流（dedup/评分分流/目标检查/汇总）；
+ * - 跨轮累积（scored/contacts/discovered 元数据）经 ctx.bag 承载（LastValue 通道无 reducer）；
+ * - 频控顺延复用 @tradepilot/core time-window（P1-4 收口公式，Scheduler 预检共用同一实现）。
  */
-import { and, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { createId } from '@tradepilot/core';
 import { computeDeferredNextRunAt, type SendWindow } from '@tradepilot/core';
 import { schema, withOrg } from '@tradepilot/db';
@@ -17,6 +17,7 @@ import {
   type CompanyLead,
   type LeadContact,
   type LeadScore,
+  type MatchThresholds,
 } from '@tradepilot/shared';
 import {
   SimpleFlowRegistry,
@@ -31,11 +32,6 @@ type State = Record<string, unknown>;
 
 function str(value: unknown): string {
   return typeof value === 'string' ? value : '';
-}
-
-/** 状态读取助手：LastValue 通道未写入时为 undefined */
-function readArray<T>(value: unknown): T[] {
-  return Array.isArray(value) ? (value as T[]) : [];
 }
 
 function normDomain(domain: string | null | undefined): string | null {
@@ -67,9 +63,29 @@ function parseSendWindow(sendRules: TaskRunContext['org']['sendRules']): SendWin
   return { startHour, endHour };
 }
 
-function readAdvanced(ctx: TaskRunContext): { excludeDomains?: string[]; maxRounds?: number } {
+/** advancedSettings（03 §3.4 五键结构 + 循环守护 maxRounds） */
+interface AdvancedSettings {
+  excludeDomains?: string[];
+  companySizeRange?: { min?: number; max?: number };
+  annualImportRange?: string;
+  jobTitles?: string[];
+  matchThresholds?: MatchThresholds;
+  maxRounds?: number;
+}
+
+function readAdvanced(ctx: TaskRunContext): AdvancedSettings {
   const advanced = ctx.task.input['advancedSettings'];
   return advanced !== null && typeof advanced === 'object' ? (advanced as never) : {};
+}
+
+/**
+ * scoreLevel 确定性映射（03 §3.5：单一评分源 matchPct，scoreLevel 不做二次 AI 判断，
+ * 与 LLM 输出不一致时以本映射为准）：High ≥ high（默认 85）、Medium ≥ medium（默认 60）。
+ */
+export function mapScoreLevel(matchPct: number, thresholds?: MatchThresholds): 'high' | 'medium' | 'low' {
+  const high = typeof thresholds?.high === 'number' ? thresholds.high : 85;
+  const medium = typeof thresholds?.medium === 'number' ? thresholds.medium : 60;
+  return matchPct >= high ? 'high' : matchPct >= medium ? 'medium' : 'low';
 }
 
 function bagArray<T>(ctx: TaskRunContext, key: string): T[] {
@@ -79,7 +95,7 @@ function bagArray<T>(ctx: TaskRunContext, key: string): T[] {
 /** ===== lead_hunting ===== */
 
 /**
- * 三级去重口径（03 §3.6）：excludeDomains 硬过滤 → 任务内已发现（bag seenKeys）→
+ * 三级去重口径（03 §3.6）：excludeDomains/companySizeRange 硬过滤 → 任务内已发现（bag seenKeys）→
  * 发现池/CRM 查重（归一化域名优先，lower(company_name) 兜底）。
  * 每轮产出首个新公司（discovered=[current]，crawl_site 以 discovered.0.* 取值）；
  * 无新公司 → branch 'duplicate'；搜索轮次守护（maxRounds，防 mock 池耗尽死循环）。
@@ -92,6 +108,7 @@ const dedupCheck: FlowNodeFn = async (state, ctx) => {
     (advanced.excludeDomains ?? []).map((d) => normDomain(d)).filter(Boolean),
   );
   const seen = (ctx.bag.get('seenKeys') as Set<string> | undefined) ?? new Set<string>();
+  const size = advanced.companySizeRange;
 
   const candidates = companies.filter((c) => {
     const key = leadKey(c);
@@ -100,6 +117,16 @@ const dedupCheck: FlowNodeFn = async (state, ctx) => {
     }
     const domain = normDomain(c.domain);
     if (domain && exclude.has(domain)) {
+      seen.add(key);
+      return false;
+    }
+    // companySizeRange 硬过滤（03 §3.4）：员工数区间外的候选直接排除（确定性，不进 AI 评分）
+    if (
+      size &&
+      c.employeeCount !== undefined &&
+      ((size.min !== undefined && c.employeeCount < size.min) ||
+        (size.max !== undefined && c.employeeCount > size.max))
+    ) {
       seen.add(key);
       return false;
     }
@@ -113,6 +140,14 @@ const dedupCheck: FlowNodeFn = async (state, ctx) => {
     const names = candidates.map((c) => c.companyName.toLowerCase().trim());
     fresh =
       (await withOrg(ctx.db, ctx.orgId, async (tx) => {
+        // 命中口径：域名匹配 OR 名称匹配（分别 inArray 绑定，避免 ANY($2) 混排参数错误）
+        const hitConds: (SQL | undefined)[] = [];
+        if (domains.length > 0) {
+          hitConds.push(inArray(schema.aiLead.companyDomain, domains));
+        }
+        if (names.length > 0) {
+          hitConds.push(inArray(sql`lower(${schema.aiLead.companyName})`, names));
+        }
         const rows = await tx
           .select({
             companyName: schema.aiLead.companyName,
@@ -120,10 +155,9 @@ const dedupCheck: FlowNodeFn = async (state, ctx) => {
           })
           .from(schema.aiLead)
           .where(
-            and(
-              eq(schema.aiLead.orgId, ctx.orgId),
-              sql`(${schema.aiLead.companyDomain} = ANY(${domains}) or lower(${schema.aiLead.companyName}) = ANY(${names}))`,
-            ),
+            hitConds.length > 0
+              ? and(eq(schema.aiLead.orgId, ctx.orgId), or(...hitConds))
+              : eq(schema.aiLead.orgId, ctx.orgId),
           );
         const existingKeys = new Set<string>();
         for (const r of rows) {
@@ -148,34 +182,21 @@ const dedupCheck: FlowNodeFn = async (state, ctx) => {
   return { patch: { discovered: [fresh] }, branch: 'new' };
 };
 
-/** 评分累积（bag scoredAll → state.scored 镜像）+ 阈值分流（High/Medium ≥ 60 命中，Low 不找联系人） */
+/**
+ * 评分累积（bag scoredAll → state.scored 镜像）+ 阈值分流。
+ * scoreLevel 以 matchPct 按 matchThresholds 确定性映射覆写（03 §3.5，LLM 输出仅参考）；
+ * 低于 Medium 分档线（默认 <60）不进入联系人发现。
+ */
 const recordScore: FlowNodeFn = (state, ctx) => {
   const current = state['currentScore'] as LeadScore | undefined;
   if (!current) {
     return { branch: 'low' };
   }
-  const all = [...bagArray<LeadScore>(ctx, 'scoredAll'), current];
+  const level = mapScoreLevel(current.matchPct, readAdvanced(ctx).matchThresholds);
+  const normalized: LeadScore = { ...current, scoreLevel: level };
+  const all = [...bagArray<LeadScore>(ctx, 'scoredAll'), normalized];
   ctx.bag.set('scoredAll', all);
-  return { patch: { scored: all }, branch: current.scoreLevel === 'low' ? 'low' : 'matched' };
-};
-
-/**
- * 联系人发现（M3 确定性规则基线）：决策影响力 90/75/40 档映射（04 需求 §3.2），
- * M3 固定产出采购经理档（75）；仅公开商务渠道原则 → 不产 email（真实工具随 M4）。
- */
-const findContact: FlowNodeFn = (state) => {
-  const lead = readArray<CompanyLead>(state['discovered'])[0];
-  if (!lead) {
-    return { patch: {} };
-  }
-  const contact: LeadContact = {
-    companyName: lead.companyName,
-    name: 'Procurement Manager',
-    title: 'Procurement Manager',
-    decisionInfluencePct: 75,
-  };
-  const all = [...readArray<LeadContact>(state['contacts']), contact];
-  return { patch: { contacts: all } };
+  return { patch: { scored: all }, branch: level === 'low' ? 'low' : 'matched' };
 };
 
 /** 目标数检查（J）：scored ≥ targetCount 或轮次耗尽 → 'save'；否则 'continue' 回 web_search */
@@ -200,11 +221,12 @@ function readTargetCount(state: State, ctx: TaskRunContext): number {
   return typeof value === 'number' && value >= 1 ? Math.min(100, Math.floor(value)) : 1;
 }
 
-/** 汇总发现池 leads（scored × contacts 按 companyName 连接 + 元数据国家）→ crm_write 入参 */
+/** 汇总发现池 leads（scored × contacts 按 companyName 连接 + 元数据国家）→ crm_write 入参。
+ *  contacts 以 bag 累积为准（find_contact/lookup_contact 工具跨轮写入，含公开渠道 email）。 */
 const assembleLeads: FlowNodeFn = (state, ctx) => {
   const scoredAll = bagArray<LeadScore>(ctx, 'scoredAll');
   const meta = (ctx.bag.get('companyMeta') as Record<string, string> | undefined) ?? {};
-  const contacts = readArray<LeadContact>(state['contacts']);
+  const contacts = bagArray<LeadContact>(ctx, 'contactsAll');
   const leads = scoredAll.map((s) => ({
     companyName: s.companyName,
     country: meta[s.companyName] ?? 'Unknown',
@@ -230,6 +252,7 @@ const finalize: FlowNodeFn = (state, ctx) => {
   ctx.events.push({
     type: 'log',
     payload: {
+      logId: createId('tlog'),
       type: 'found',
       content: `获客完成：分析 ${scoredAll.length} 家，高价值 ${highValue} 家`,
     },
@@ -626,7 +649,6 @@ const scheduleNext: FlowNodeFn = async (state, ctx) => {
 export function registerFlows(registry: SimpleFlowRegistry): void {
   registry.register('dedup_check', dedupCheck);
   registry.register('record_score', recordScore);
-  registry.register('find_contact', findContact);
   registry.register('target_reached', targetReached);
   registry.register('assemble_leads', assembleLeads);
   registry.register('finalize', finalize);

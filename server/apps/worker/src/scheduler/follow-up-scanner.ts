@@ -88,7 +88,8 @@ export class FollowUpScanner {
           .where(
             and(
               inArray(schema.aiTask.status, ['scheduled', 'running', 'waiting_approval']),
-              sql`(${schema.aiTask.input} ->> 'followUpTaskId') = any(${dueIds})`,
+              // jsonb ->> 为 text，参数走 in（= any 数组参数在 PG 无法推断类型，42809）
+              inArray(sql`(${schema.aiTask.input} ->> 'followUpTaskId')`, dueIds),
             ),
           );
         return rows.map((r) => r.followUpTaskId);

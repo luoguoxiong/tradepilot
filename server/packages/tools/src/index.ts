@@ -4,7 +4,11 @@
  */
 export type { ToolContext, ToolDefinition, BufferedTaskEvent } from './registry.js';
 export { ToolRegistry, writeToolLog, toolIdempotencyKey, withIdempotency } from './registry.js';
-export { registerSearchTools } from './builtin/search-tools.js';
+export {
+  registerSearchTools,
+  mapDecisionInfluence,
+  DEFAULT_JOB_TITLES,
+} from './builtin/search-tools.js';
 export {
   registerCrmTools,
   crmReadTool,

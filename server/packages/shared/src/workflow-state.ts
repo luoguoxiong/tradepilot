@@ -178,10 +178,18 @@ export interface CompanyLead {
   country?: string;
   website?: string;
   source: string;
+  /** 员工数（companySizeRange 硬过滤依据，03 §3.4；外部源缺失时 undefined 不过滤） */
+  employeeCount?: number;
   /** dedup_check 标记 */
   duplicate?: boolean;
   /** excludeDomains 硬过滤标记 */
   excluded?: boolean;
+}
+
+/** matchThresholds（03 §3.4/§3.5）：scoreLevel 由 matchPct 确定性映射的分档线 */
+export interface MatchThresholds {
+  high?: number;
+  medium?: number;
 }
 
 /** Insight Schema（03 §4 可解释红线；insight/schema.ts 同构） */

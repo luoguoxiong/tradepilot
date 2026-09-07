@@ -12,7 +12,7 @@ import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { and, eq, sql } from 'drizzle-orm';
 import { schema, withOrg, type Db } from '@tradepilot/db';
-import { BizException, ErrorCode } from '@tradepilot/core';
+import { BizException, ErrorCode, createId } from '@tradepilot/core';
 import { EMPLOYEE_STATUS, TASK_STATUS, type TaskType } from '@tradepilot/shared';
 import type { GraphCompiler } from './compiler.js';
 import { BRANCH_KEY, ApprovalPendingError } from './compiler.js';
@@ -48,7 +48,7 @@ export interface TaskRunnerDeps {
 }
 
 export interface RunTaskResult {
-  status: 'completed' | 'waiting_approval' | 'failed' | 'skipped' | 'missing';
+  status: 'completed' | 'waiting_approval' | 'failed' | 'paused' | 'skipped' | 'missing';
   outputs?: Record<string, unknown>[];
   error?: string;
 }
@@ -135,6 +135,11 @@ export class TaskRunner {
         await flushBufferedEvents(this.deps.publisher, taskId, ctx.events);
         logger.info({ taskId, approvalId: err.approvalId }, '任务进入审批挂起，job 正常结束');
         return { status: TASK_STATUS.WAITING_APPROVAL };
+      }
+      // 外部调用日额度耗尽 → paused 而非 failed（03 §3.7：次日额度重置后由用户手动 resume）
+      if (err instanceof BizException && err.code === ErrorCode.RATE_LIMITED) {
+        await this.pause(taskId, probe.orgId, snapshot.employee.id, err.message);
+        return { status: TASK_STATUS.PAUSED, error: err.message };
       }
       const error = err instanceof Error ? err.message : String(err);
       await this.fail(taskId, probe.orgId, snapshot.employee.id, error);
@@ -323,6 +328,48 @@ export class TaskRunner {
   }
 
   // ===== 终态 =====
+
+  /**
+   * 额度耗尽转 paused（03 §3.7）：任务置 paused + error 日志「外部调用日额度已用尽」，
+   * 员工释放（paused 不占并发），SSE 推 status=paused（不发 done，流由 API 兜底轮询收口）。
+   * 次日额度重置后由用户手动 resume。
+   */
+  private async pause(
+    taskId: string,
+    orgId: string,
+    employeeId: string,
+    error: string,
+  ): Promise<void> {
+    const now = new Date();
+    await withOrg(this.deps.db, orgId, async (tx) => {
+      await tx
+        .update(schema.aiTask)
+        .set({ status: TASK_STATUS.PAUSED, updatedAt: now })
+        .where(eq(schema.aiTask.id, taskId));
+      await tx.insert(schema.aiTaskLog).values({
+        id: createId('tlog'),
+        orgId,
+        taskId,
+        occurredAt: now,
+        type: 'error',
+        content: error,
+        leadId: null,
+      });
+      const released = await releaseEmployeeIdle(tx, { employeeId, excludeTaskId: taskId, now });
+      if (!released) {
+        this.deps.logger.warn(
+          { taskId, employeeId },
+          '任务转 paused 但员工仍占用其它任务，保持员工状态',
+        );
+      }
+    });
+    await this.deps.redis.del(heartbeatKey(taskId));
+    await this.deps.publisher.publish(
+      taskId,
+      buildStatusEvent({ status: TASK_STATUS.PAUSED, error }),
+    );
+    this.deps.logger.warn({ taskId, error }, '任务因外部额度耗尽转 paused');
+  }
 
   private async complete(
     taskId: string,

@@ -23,12 +23,16 @@ export const searchPlanSchema = z
   })
   .strict();
 
-/** Insight Schema 红线（03 §4）：可解释 reasons（对齐 LeadScore） */
+/**
+ * Insight Schema 红线（03 §4 可解释红线；对齐 LeadScore）。
+ * scoreLevel 仅为 LLM 参考输出（03 §3.5：与 matchPct 映射不一致时以 matchPct 映射为准，
+ * record_score 节点按 matchThresholds 确定性覆写，不做二次 AI 判断），故 optional。
+ */
 export const leadScoreSchema = z
   .object({
     companyName: z.string().min(1),
     matchPct: z.number().int().min(0).max(100),
-    scoreLevel: z.enum(['high', 'medium', 'low']),
+    scoreLevel: z.enum(['high', 'medium', 'low']).optional(),
     reasons: z.array(
       z
         .object({

@@ -13,24 +13,27 @@ import type { TaskSopProvider } from '@tradepilot/runtime';
 const BASE_KEYS = ['taskId', 'orgId', 'employeeId', 'taskType', 'input', 'errors'] as const;
 
 const LEAD_HUNTING_SOP: SopGraphDefinition = {
-  version: 1,
+  version: 2,
   entry: 'parse_goal',
   nodes: [
     { id: 'parse_goal', kind: 'llm', promptRef: 'leadHunting.parseGoal', outputSchema: 'parsedGoal', outputKey: 'parsed', title: '解析获客目标', progress: 5 },
+    { id: 'retrieve_knowledge', kind: 'tool', tool: 'knowledge_search', input: { scene: 'lead_match', topK: 3 }, inputMap: { query: 'parsed.targetProduct' }, outputKey: 'knowledgeChunks', title: '产品知识检索', progress: 5 },
     { id: 'plan_search', kind: 'llm', promptRef: 'leadHunting.planSearch', outputSchema: 'searchPlan', outputKey: 'searchPlan', logType: 'search', title: '生成搜索策略', progress: 10 },
     { id: 'web_search', kind: 'tool', tool: 'web_search', inputMap: { queries: 'searchPlan.queries' }, outputKey: 'searchResult', logType: 'found', title: '执行网页搜索' },
     { id: 'dedup_check', kind: 'flow', route: 'dedup_check', title: '三级去重' },
     { id: 'crawl_site', kind: 'tool', tool: 'site_crawl', inputMap: { domain: 'discovered.0.domain', companyName: 'discovered.0.companyName' }, outputKey: 'siteSummary', logType: 'crawl', title: '抓取官网摘要' },
     { id: 'match_product', kind: 'llm', promptRef: 'leadHunting.matchProduct', outputSchema: 'leadScore', outputKey: 'currentScore', logType: 'match', title: '产品匹配评分', progress: 8 },
     { id: 'record_score', kind: 'flow', route: 'record_score', title: '记录评分' },
-    { id: 'find_contact', kind: 'flow', route: 'find_contact', title: '发现联系人', progress: 5 },
+    { id: 'find_contact', kind: 'tool', tool: 'find_contact', inputMap: { companyName: 'discovered.0.companyName', domain: 'discovered.0.domain', jobTitles: 'input.advancedSettings.jobTitles' }, outputKey: 'contacts', logType: 'contact', title: '发现联系人', progress: 5 },
+    { id: 'lookup_contact', kind: 'tool', tool: 'lookup_contact', inputMap: { companyName: 'discovered.0.companyName', domain: 'discovered.0.domain' }, outputKey: 'lookupResult', logType: 'lookup', title: '公开渠道联系方式', progress: 5 },
     { id: 'target_check', kind: 'flow', route: 'target_reached', title: '目标数检查' },
     { id: 'assemble_leads', kind: 'flow', route: 'assemble_leads', title: '汇总发现池' },
     { id: 'save_to_crm_pool', kind: 'tool', tool: 'crm_write', inputMap: { leads: 'crmLeads' }, logType: 'found', title: '写入客户发现池', progress: 40 },
     { id: 'finalize', kind: 'flow', route: 'finalize', title: '汇总产出', progress: 25 },
   ],
   edges: [
-    { from: 'parse_goal', to: 'plan_search' },
+    { from: 'parse_goal', to: 'retrieve_knowledge' },
+    { from: 'retrieve_knowledge', to: 'plan_search' },
     { from: 'plan_search', to: 'web_search' },
     { from: 'web_search', to: 'dedup_check' },
     { from: 'dedup_check', to: 'crawl_site', when: 'new' },
@@ -39,7 +42,8 @@ const LEAD_HUNTING_SOP: SopGraphDefinition = {
     { from: 'match_product', to: 'record_score' },
     { from: 'record_score', to: 'find_contact', when: 'matched' },
     { from: 'record_score', to: 'target_check', when: 'low' },
-    { from: 'find_contact', to: 'target_check' },
+    { from: 'find_contact', to: 'lookup_contact' },
+    { from: 'lookup_contact', to: 'target_check' },
     { from: 'target_check', to: 'web_search', when: 'continue' },
     { from: 'target_check', to: 'assemble_leads', when: 'save' },
     { from: 'assemble_leads', to: 'save_to_crm_pool' },
@@ -109,6 +113,7 @@ const TASK_SOPS: Record<string, { sop: SopGraphDefinition; stateKeys: string[] }
       'parsed', 'searchQueries', 'discovered', 'scored', 'contacts', 'targetCount',
       // 编排辅助（见文件头说明）
       'searchPlan', 'searchResult', 'siteSummary', 'currentScore', 'crmLeads',
+      'knowledgeChunks', 'lookupResult',
     ],
   },
   email_reply: {

@@ -11,16 +11,22 @@ import { approvalHandlers } from '@/mocks/handlers/approvals'
 import { conversationHandlers } from '@/mocks/handlers/conversations'
 import { customer360Handlers } from '@/mocks/handlers/customer360'
 import { customerHandlers } from '@/mocks/handlers/customers'
+import { dashboardHandlers } from '@/mocks/handlers/dashboard'
+import { followUpHandlers } from '@/mocks/handlers/follow-ups'
+import { knowledgeHandlers } from '@/mocks/handlers/knowledge'
 import type { ApiResponse, PageResp } from '@/api/types/common'
 
 /** 契约测试请求基址：msw/node 相对路径 handler 以 jsdom 环境默认 URL（localhost:3000）解析 */
 export const BASE = 'http://localhost:3000/api/v1'
 
 export const contractServer = setupServer(
+  ...dashboardHandlers,
   ...approvalHandlers,
   ...conversationHandlers,
   ...customerHandlers,
   ...customer360Handlers,
+  ...followUpHandlers,
+  ...knowledgeHandlers,
 )
 
 /** 发起契约请求并解析统一 envelope（接口规范 §2.2：HTTP 200 + 业务码） */

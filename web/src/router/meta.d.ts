@@ -21,6 +21,8 @@ declare module 'vue-router' {
     public?: boolean
     /** 错误页类型 */
     errorType?: '403' | '404'
+    /** 满屏工作台页（06 收件箱）：内容区锁定一屏，滚动交给页面内部窗格 */
+    fullHeight?: boolean
   }
 }
 

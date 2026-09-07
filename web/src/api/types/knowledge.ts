@@ -26,3 +26,57 @@ export interface KnowledgeDocument {
   deletedAt?: string
   deletedBy?: string
 }
+
+/** 知识统计（11 §1.2 FR-05） */
+export interface KnowledgeStats {
+  documentsCount: number
+  chunksCount: number
+  lastIndexedAt: string
+}
+
+/** 文档列表查询（11 §2：category/keyword；过滤已删） */
+export interface KnowledgeListQuery {
+  category?: KnowledgeCategory | 'all'
+  keyword?: string
+  page?: number
+  pageSize?: number
+}
+
+/** 上传响应：索引异步执行，前端轮询列表至终态（11 §3.1） */
+export interface UploadKnowledgeResp {
+  docId: string
+  status: 'indexing'
+}
+
+/** 检索场景（11 §3.3，对内 API 各 AI 员工调用；前端仅「检索预览」用 sales_reply） */
+export type KnowledgeSearchScene =
+  | 'lead_match'
+  | 'sales_reply'
+  | 'follow_up'
+  | 'pricing_basis'
+  | 'business_analysis'
+
+/** 检索命中（11 §1.3：docId/docName/chunkId 溯源三元组 + content/score） */
+export interface KnowledgeSearchHit {
+  docId: string
+  docName: string
+  chunkId: string
+  content: string
+  /** 相关度 0~1 */
+  score: number
+  category?: KnowledgeCategory
+}
+
+/** RAG 检索请求（11 §3.3） */
+export interface KnowledgeSearchReq {
+  query: string
+  category?: KnowledgeCategory[]
+  topK?: number
+  scene?: KnowledgeSearchScene
+}
+
+/** RAG 检索响应：noResult=true 时前端必须提示「知识库中没有相关信息」，禁止编造 */
+export interface KnowledgeSearchResp {
+  results: KnowledgeSearchHit[]
+  noResult: boolean
+}

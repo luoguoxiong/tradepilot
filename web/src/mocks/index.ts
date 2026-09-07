@@ -3,7 +3,9 @@ import { authHandlers } from './handlers/auth'
 import { conversationHandlers } from './handlers/conversations'
 import { customer360Handlers } from './handlers/customer360'
 import { customerHandlers } from './handlers/customers'
+import { dashboardHandlers } from './handlers/dashboard'
 import { employeeHandlers } from './handlers/employees'
+import { followUpHandlers } from './handlers/follow-ups'
 import { knowledgeHandlers } from './handlers/knowledge'
 import { leadHandlers } from './handlers/leads'
 import { orgHandlers } from './handlers/org'
@@ -19,8 +21,10 @@ export const handlers = [
   ...conversationHandlers,
   ...customerHandlers,
   ...customer360Handlers,
+  ...dashboardHandlers,
   ...knowledgeHandlers,
   ...employeeHandlers,
+  ...followUpHandlers,
   ...leadHandlers,
   ...taskHandlers,
 ]

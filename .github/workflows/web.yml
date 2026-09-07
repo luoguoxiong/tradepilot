@@ -38,3 +38,6 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      - name: Bundle size gate
+        run: pnpm size

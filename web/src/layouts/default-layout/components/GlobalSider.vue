@@ -2,7 +2,8 @@
 import { computed, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useWindowSize } from '@vueuse/core'
+
+import { useSiderCollapsed } from '@/composables/useSiderCollapsed'
 import {
   Aim,
   Avatar,
@@ -23,7 +24,6 @@ import {
   UserFilled,
 } from '@element-plus/icons-vue'
 
-import { useAppStore } from '@/stores/app'
 import { useNotifyStore } from '@/stores/notify'
 
 /**
@@ -54,14 +54,11 @@ const ICONS: Record<string, Component> = {
 const router = useRouter()
 const route = useRoute()
 const { t } = useI18n()
-const appStore = useAppStore()
 const notifyStore = useNotifyStore()
 
 const pendingCount = computed(() => notifyStore.pendingCount)
 
-const { width } = useWindowSize()
-
-const collapsed = computed(() => appStore.siderCollapsed || width.value < 1280)
+const { siderCollapsed: collapsed } = useSiderCollapsed()
 
 const menuItems = computed(() =>
   router

@@ -4,9 +4,12 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { ElMessage } from 'element-plus'
-import { ChatDotRound, Promotion, RefreshRight } from '@element-plus/icons-vue'
+import { ChatDotRound, Document, Promotion, RefreshRight } from '@element-plus/icons-vue'
+
+import CitationPopover from '@/components/business/CitationPopover.vue'
 
 import type { AiDraft, ConversationDetail, SendResp } from '@/api/types/conversations'
+import type { InsightCitation } from '@/api/types/insight'
 import {
   generateAiDraft,
   regenerateAiDraft,
@@ -38,6 +41,10 @@ const queryClient = useQueryClient()
 const draftId = ref<string | null>(null)
 const draftContent = ref('')
 const generating = ref(false)
+
+/** D9 依据区：当前草稿的知识中心引用；grounded=false → 持久黄条提示补资料 */
+const draftCitations = ref<InsightCitation[]>([])
+const draftMissing = ref(false)
 
 /** 最近一条客户来信（AI 草稿的依据消息） */
 const lastInbound = computed(() => {
@@ -71,6 +78,8 @@ watch(
   () => {
     draftId.value = existingDraft.value?.messageId ?? null
     draftContent.value = existingDraft.value?.content ?? ''
+    draftCitations.value = []
+    draftMissing.value = false
   },
   { immediate: true },
 )
@@ -99,10 +108,10 @@ async function generate(regenerate: boolean): Promise<void> {
       : await generateAiDraft(props.detail.conversationId, payload)
     draftId.value = draft.draftId
     draftContent.value = draft.content
+    // D9：依据区 citations + grounded=false 持久黄条（02 §5.3）
+    draftCitations.value = draft.citations ?? []
+    draftMissing.value = Boolean(draft.missingKnowledge)
     ElMessage.success(t('inbox.composer.generated'))
-    if (draft.missingKnowledge) {
-      ElMessage.warning({ message: t('inbox.composer.missingKnowledge'), duration: 5000 })
-    }
     invalidateConversation()
   } catch (error) {
     ElMessage.error((error as ApiError).message || t('common.operationFailed'))
@@ -136,11 +145,15 @@ async function onSend(): Promise<void> {
       ElMessage.success(t('inbox.composer.sent'))
       draftId.value = null
       draftContent.value = ''
+      draftCitations.value = []
+      draftMissing.value = false
     } else {
       // 分支 B：审批单已生成（email_send=medium 人工审，Runtime §4.7）→ 全局通知 + 深链审核中心
       notifyWaitingApproval(result.approval.approvalId)
       draftId.value = null
       draftContent.value = ''
+      draftCitations.value = []
+      draftMissing.value = false
     }
     invalidateConversation()
   } catch (error) {
@@ -203,6 +216,30 @@ defineExpose({
       </div>
 
       <template v-if="draftId">
+        <!-- D9 依据区：知识中心 citations 溯源（只消费 11 引用，无 08/09 结构化参数） -->
+        <div v-if="draftCitations.length" class="composer__citations" data-testid="draft-citations">
+          <span class="composer__citations-label">{{ t('inbox.composer.basedOn') }}</span>
+          <CitationPopover
+            v-for="citation in draftCitations"
+            :key="`${citation.docId}:${citation.chunkId ?? ''}`"
+            :citation="citation"
+          >
+            <span class="composer__cite">
+              <el-icon><Document /></el-icon>
+              {{ citation.docName }}
+            </span>
+          </CitationPopover>
+        </div>
+        <!-- D9 grounded=false：持久黄条提示补资料（AI 不编造参数） -->
+        <el-alert
+          v-if="draftMissing"
+          class="composer__missing"
+          :title="t('inbox.composer.missingKnowledge')"
+          type="warning"
+          :closable="false"
+          show-icon
+          data-testid="draft-missing-knowledge"
+        />
         <DraftEditor v-model="draftContent" class="composer__editor" />
 
         <div class="composer__actions">
@@ -252,6 +289,35 @@ defineExpose({
   }
 
   &__editor {
+    margin-bottom: 8px;
+  }
+
+  &__citations {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+
+  &__citations-label {
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+  }
+
+  &__cite {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    font-size: 12px;
+    color: var(--el-color-primary);
+    background: var(--el-color-primary-light-9);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  &__missing {
     margin-bottom: 8px;
   }
 

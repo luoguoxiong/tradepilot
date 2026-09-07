@@ -121,6 +121,63 @@ export const ENUMS = {
     { value: 'process', labelKey: 'enums.knowledgeCategory.process', color: 'var(--tp-primary)' },
     { value: 'other', labelKey: 'enums.knowledgeCategory.other', color: 'var(--ai-idle)' },
   ],
+  /** 索引状态（11 §1.1 indexStatus） */
+  knowledgeDocStatus: [
+    { value: 'indexed', labelKey: 'enums.knowledgeDocStatus.indexed', color: 'var(--ai-working)' },
+    {
+      value: 'indexing',
+      labelKey: 'enums.knowledgeDocStatus.indexing',
+      color: 'var(--ai-scheduled)',
+    },
+    { value: 'failed', labelKey: 'enums.knowledgeDocStatus.failed', color: 'var(--ai-risk)' },
+  ],
+  /** 跟进任务状态（07 §1.2） */
+  followUpTaskStatus: [
+    { value: 'ready', labelKey: 'enums.followUpTaskStatus.ready', color: 'var(--ai-working)' },
+    {
+      value: 'scheduled',
+      labelKey: 'enums.followUpTaskStatus.scheduled',
+      color: 'var(--ai-scheduled)',
+    },
+    {
+      value: 'waiting_approval',
+      labelKey: 'enums.followUpTaskStatus.waitingApproval',
+      color: 'var(--ai-waiting)',
+    },
+    {
+      value: 'completed',
+      labelKey: 'enums.followUpTaskStatus.completed',
+      color: 'var(--ai-idle)',
+    },
+    { value: 'paused', labelKey: 'enums.followUpTaskStatus.paused', color: 'var(--ai-idle)' },
+  ],
+  /** 跟进阶段（07 §1.2） */
+  followUpStage: [
+    { value: 'follow_up_1', labelKey: 'enums.followUpStage.followUp1' },
+    { value: 'follow_up_2', labelKey: 'enums.followUpStage.followUp2' },
+    { value: 'follow_up_3', labelKey: 'enums.followUpStage.followUp3' },
+    { value: 'follow_up_4', labelKey: 'enums.followUpStage.followUp4' },
+    { value: 'quote_followup', labelKey: 'enums.followUpStage.quoteFollowup' },
+  ],
+  /** 自动发送策略（07 §1.4） */
+  autoSendPolicy: [
+    { value: 'manual_review', labelKey: 'enums.autoSendPolicy.manualReview' },
+    { value: 'auto_send', labelKey: 'enums.autoSendPolicy.autoSend' },
+    { value: 'value_based', labelKey: 'enums.autoSendPolicy.valueBased' },
+  ],
+  /** 跟进执行记录状态（07 §1.5） */
+  executionStatus: [
+    { value: 'sent', labelKey: 'enums.executionStatus.sent', color: 'var(--ai-working)' },
+    {
+      value: 'waiting_approval',
+      labelKey: 'enums.executionStatus.waitingApproval',
+      color: 'var(--ai-waiting)',
+    },
+    { value: 'approved', labelKey: 'enums.executionStatus.approved', color: 'var(--ai-working)' },
+    { value: 'rejected', labelKey: 'enums.executionStatus.rejected', color: 'var(--ai-risk)' },
+    { value: 'failed', labelKey: 'enums.executionStatus.failed', color: 'var(--ai-risk)' },
+    { value: 'skipped', labelKey: 'enums.executionStatus.skipped', color: 'var(--ai-idle)' },
+  ],
   /** 客户类型（05 §1.2 添加表单：Brand / Distributor / Factory / Other） */
   customerType: [
     { value: 'brand', labelKey: 'enums.customerType.brand' },

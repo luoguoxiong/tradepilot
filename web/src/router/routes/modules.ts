@@ -17,7 +17,7 @@ export const appRoutes: RouteRecordRaw[] = [
       {
         path: 'dashboard',
         name: 'dashboard',
-        component: placeholder,
+        component: () => import('@/features/dashboard/views/DashboardView.vue'),
         meta: { title: 'menu.dashboard', icon: 'Odometer', menu: true, order: 1 },
       },
       {
@@ -53,8 +53,8 @@ export const appRoutes: RouteRecordRaw[] = [
       {
         path: 'inbox',
         name: 'inbox',
-        component: placeholder,
-        meta: { title: 'menu.inbox', icon: 'Message', menu: true, order: 5 },
+        component: () => import('@/features/inbox/views/InboxView.vue'),
+        meta: { title: 'menu.inbox', icon: 'Message', menu: true, order: 5, fullHeight: true },
       },
       {
         path: 'outreach',
@@ -65,13 +65,13 @@ export const appRoutes: RouteRecordRaw[] = [
       {
         path: 'follow-up',
         name: 'follow-up',
-        component: placeholder,
+        component: () => import('@/features/follow-up/views/FollowUpTasksView.vue'),
         meta: { title: 'menu.followUp', icon: 'Timer', menu: true, order: 7 },
       },
       {
         path: 'follow-up/strategies',
         name: 'follow-up-strategies',
-        component: placeholder,
+        component: () => import('@/features/follow-up/views/FollowUpStrategiesView.vue'),
         meta: { title: 'menu.followUpStrategies' },
       },
       // 邮件模板 P1 先例：导航「即将上线」占位
@@ -84,7 +84,7 @@ export const appRoutes: RouteRecordRaw[] = [
       {
         path: 'knowledge',
         name: 'knowledge',
-        component: placeholder,
+        component: () => import('@/features/knowledge/views/KnowledgeView.vue'),
         meta: { title: 'menu.knowledge', icon: 'Collection', menu: true, order: 9 },
       },
       {

@@ -1,8 +1,13 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import { VueQueryPlugin } from '@tanstack/vue-query'
-import ElementPlus from 'element-plus'
-import 'element-plus/dist/index.css'
+// Element Plus 按需导入（06 §2）：模板组件由 unplugin-vue-components 解析；
+// 全局指令（v-loading）与反馈类 API（Message/MessageBox/Notification）样式手动引入
+import { ElLoading } from 'element-plus'
+import 'element-plus/es/components/loading/style/css'
+import 'element-plus/es/components/message/style/css'
+import 'element-plus/es/components/message-box/style/css'
+import 'element-plus/es/components/notification/style/css'
 
 import App from './app.vue'
 import { setUnauthorizedHandler } from './api/http'
@@ -13,6 +18,7 @@ import { queryClient } from './query/client'
 import { router } from './router'
 import { useAuthStore } from './stores/auth'
 import './styles/index.scss'
+import { initWebVitals } from './utils/web-vitals'
 
 async function bootstrap() {
   // MSW Mock 先行：后端未就绪模块可独立开发（06 §5.3）
@@ -27,7 +33,8 @@ async function bootstrap() {
   app.use(i18n)
   app.use(router)
   app.use(VueQueryPlugin, { queryClient })
-  app.use(ElementPlus)
+  // v-loading 全局指令（模板组件按需注册见 vite.config Components 插件）
+  app.use(ElLoading)
   // 元素级权限裁剪（05 §3.1）
   app.directive('permission', vPermission)
 
@@ -38,6 +45,9 @@ async function bootstrap() {
   bindNotifyRouter(router)
 
   app.mount('#app')
+
+  // Web Vitals 实测上报（05 §5；仅生产构建生效）
+  initWebVitals()
 }
 
 void bootstrap()

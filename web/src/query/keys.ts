@@ -75,6 +75,15 @@ export const qk = {
     copilot: (id: string) => [...qk.conversations.all, 'copilot', id] as const,
   },
 
+  /** 跟进（07）：summary / 任务 list(filters) / 策略 / 执行记录 */
+  followUps: {
+    all: ['follow-ups'] as const,
+    summary: () => [...qk.followUps.all, 'summary'] as const,
+    list: (filters: unknown) => [...qk.followUps.all, 'list', filters] as const,
+    strategies: () => [...qk.followUps.all, 'strategies'] as const,
+    executions: (strategyId: string) => [...qk.followUps.all, 'executions', strategyId] as const,
+  },
+
   /** 审批（12）：list(filters) / detail / logs；summary 供 Tab 与页面共享（notifyStore 暂不走 vue-query） */
   approvals: {
     all: ['approvals'] as const,
@@ -83,4 +92,16 @@ export const qk = {
     logs: (id: string) => [...qk.approvals.all, 'logs', id] as const,
     summary: () => [...qk.approvals.all, 'summary'] as const,
   },
+
+  /** 知识中心（11）：list(filters) / stats / search / 引用解析 detail(docId) */
+  knowledge: {
+    all: ['knowledge'] as const,
+    list: (filters: unknown) => [...qk.knowledge.all, 'list', filters] as const,
+    stats: () => [...qk.knowledge.all, 'stats'] as const,
+    search: (query: unknown) => [...qk.knowledge.all, 'search', query] as const,
+    detail: (docId: string) => [...qk.knowledge.all, 'detail', docId] as const,
+  },
+
+  /** 工作台（01）：首屏只读聚合 */
+  dashboardSummary: ['dashboard', 'summary'] as const,
 } as const

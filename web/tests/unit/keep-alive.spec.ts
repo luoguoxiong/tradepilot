@@ -14,8 +14,16 @@ function route(path: string, query: Record<string, unknown> = {}): RouteLocation
 }
 
 describe('keep-alive（02 §6）', () => {
-  it('include 白名单 = CRM / 发现列表 / 收件箱 / 审批（360° 不入保活）', () => {
-    expect(KEEP_ALIVE_INCLUDE).toEqual(['CrmView', 'LeadDiscoverView', 'InboxView', 'ApprovalsView'])
+  it('include 白名单 = Dashboard / CRM / 发现列表 / 收件箱 / 审批 / 跟进任务 / 知识中心（360° 不入保活）', () => {
+    expect(KEEP_ALIVE_INCLUDE).toEqual([
+      'DashboardView',
+      'CrmView',
+      'LeadDiscoverView',
+      'InboxView',
+      'ApprovalsView',
+      'FollowUpTasksView',
+      'KnowledgeView',
+    ])
   })
 
   it('无页签 query → key 为 path（单实例，页签为组件内部态）', () => {

@@ -6,7 +6,7 @@ import type { RouteLocationNormalizedLoaded } from 'vue-router'
  * 客户 360° 不入保活（数据新鲜度优先），表单类页面离开用 useFormLeaveGuard 拦截。
  * 新增列表页：在此登记 + 组件命名。
  */
-export const KEEP_ALIVE_INCLUDE: string[] = ['CrmView', 'LeadDiscoverView', 'ApprovalsView']
+export const KEEP_ALIVE_INCLUDE: string[] = ['CrmView', 'LeadDiscoverView', 'InboxView', 'ApprovalsView']
 
 /**
  * 02 §6：缓存 key 含路由 query 页签参数 —— 同一 path 下不同 tab 各自独立缓存，

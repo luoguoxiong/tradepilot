@@ -13,6 +13,7 @@ import {
   nextCustomerId,
   pushActivity,
 } from '../data/customers'
+import { registerCustomerDeleteApproval } from '../data/approvals'
 import { mockMembers, nextId } from '../data/db'
 import { LATENCY, fail, ok, page, readJson } from '../utils'
 
@@ -50,21 +51,24 @@ function customerSort(items: typeof mockCustomers, sortBy: string, order: 'asc' 
   })
 }
 
-/** 联系人公共校验：姓名必填 / 邮箱格式 / 邮箱 org 内唯一（ER uq_contact_org_email → 40901） */
-function validateContactPayload(
+/** 联系人基础校验：姓名必填 / 邮箱格式（40001） */
+function validateContactBasics(body: Partial<ContactPayload>): string | null {
+  if (!body.name?.trim()) return '联系人姓名为必填项'
+  if (body.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)) return '邮箱格式不正确'
+  return null
+}
+
+/** 联系人邮箱 org 内唯一（ER uq_contact_org_email → 40901，PUT/POST 同口径） */
+function validateContactUnique(
   body: Partial<ContactPayload>,
   excludeContactId?: string,
 ): string | null {
-  if (!body.name?.trim()) return '联系人姓名为必填项'
-  if (body.email) {
-    const email = body.email.toLowerCase()
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return '邮箱格式不正确'
-    const duplicated = mockContacts.some(
-      (c) => c.contactId !== excludeContactId && (c.email ?? '').toLowerCase() === email,
-    )
-    if (duplicated) return '该邮箱已被其他联系人使用'
-  }
-  return null
+  if (!body.email) return null
+  const email = body.email.toLowerCase()
+  const duplicated = mockContacts.some(
+    (c) => c.contactId !== excludeContactId && (c.email ?? '').toLowerCase() === email,
+  )
+  return duplicated ? '该邮箱已被其他联系人使用' : null
 }
 
 /** 05 CRM 客户中心（05 接口文档 §2/§3） */
@@ -238,10 +242,13 @@ export const customerHandlers = [
     const item = findCustomer(String(params.id))
     if (!item) return fail(ErrorCode.NOT_FOUND, '客户不存在或已被删除')
     if (item.deleteLocked) return fail(ErrorCode.CONFLICT, '该客户删除审批处理中，请勿重复发起')
+    // 05 §3.3 → 12：删除 = 锁定客户 + 注册删除审批单（审批中心唯一事实源）
+    const approvalId = registerCustomerDeleteApproval(item.customerId)
+    if (!approvalId) return fail(ErrorCode.BIZ_VALIDATION, '删除审批注册失败')
     item.deleteLocked = true
     item.updatedAt = new Date().toISOString()
     return ok({
-      approvalId: nextId('appr'),
+      approvalId,
       approvalType: 'customer_delete',
       status: 'pending',
     })
@@ -266,7 +273,8 @@ export const customerHandlers = [
         continue
       }
       item.deleteLocked = true
-      approvals.push({ customerId, approvalId: nextId('appr') })
+      const approvalId = registerCustomerDeleteApproval(customerId)
+      if (approvalId) approvals.push({ customerId, approvalId })
     }
     return ok({ approvals, failed })
   }),
@@ -330,8 +338,10 @@ export const customerHandlers = [
   http.post('/api/v1/contacts', async ({ request }) => {
     await delay(LATENCY)
     const body = await readJson<ContactPayload>(request)
-    const invalid = validateContactPayload(body)
+    const invalid = validateContactBasics(body)
     if (invalid) return fail(ErrorCode.BAD_REQUEST, invalid)
+    const duplicated = validateContactUnique(body)
+    if (duplicated) return fail(ErrorCode.CONFLICT, duplicated)
     const customer = findCustomer(body.customerId!)
     if (!customer) return fail(ErrorCode.NOT_FOUND, '所属客户不存在或已被删除')
     const created = {
@@ -354,10 +364,16 @@ export const customerHandlers = [
     const item = mockContacts.find((c) => c.contactId === String(params.id))
     if (!item) return fail(ErrorCode.NOT_FOUND, '联系人不存在')
     const body = await readJson<Partial<ContactPayload>>(request)
-    const invalid = validateContactPayload(body, item.contactId)
-    if (invalid) {
-      return fail(ErrorCode.CONFLICT, invalid)
-    }
+    // PUT 为部分更新：仅校验显式传入的字段（姓名/格式 → 40001；唯一冲突 → 40901）
+    const invalid =
+      body.name !== undefined && !body.name.trim()
+        ? '联系人姓名为必填项'
+        : body.email !== undefined && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)
+          ? '邮箱格式不正确'
+          : null
+    if (invalid) return fail(ErrorCode.BAD_REQUEST, invalid)
+    const duplicated = validateContactUnique(body, item.contactId)
+    if (duplicated) return fail(ErrorCode.CONFLICT, duplicated)
     if (body.name !== undefined) item.name = body.name.trim()
     if (body.title !== undefined) item.title = body.title.trim()
     if (body.email !== undefined) item.email = body.email

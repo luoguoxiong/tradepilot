@@ -32,9 +32,10 @@ export default defineConfig(({ mode }) => {
       sourcemap: mode === 'staging',
       rollupOptions: {
         output: {
-          // vendor 分包（01 §5.2），echarts/tiptap 目录随依赖引入时补充
+          // vendor 分包（01 §5.2）：tiptap 仅 inbox/approvals 懒加载入口消费，独立 chunk 控制单包体积
           manualChunks: {
             'element-plus': ['element-plus'],
+            tiptap: ['@tiptap/vue-3', '@tiptap/starter-kit', '@tiptap/extensions', '@tiptap/pm'],
           },
         },
       },

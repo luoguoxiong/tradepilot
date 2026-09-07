@@ -64,6 +64,16 @@ export const mockMailboxes: Mailbox[] = [
     syncScope: { historyDays: 30, folders: ['INBOX'] },
     status: 'disconnected',
   },
+  // M5 FR-11 三邮箱聚合演示（conv_4/conv_6 来源）
+  {
+    mailboxId: 'mb-3',
+    provider: 'smtp_imap',
+    account: 'support@company.com',
+    imap: { host: 'imap.company.com', port: 993, ssl: true },
+    smtp: { host: 'smtp.company.com', port: 465, ssl: true },
+    syncScope: { historyDays: 60, folders: ['INBOX', 'Sent'] },
+    status: 'connected',
+  },
 ]
 
 export const mockRolePermissions: Record<string, RolePermissions> = {

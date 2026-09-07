@@ -7,6 +7,7 @@ import 'element-plus/dist/index.css'
 import App from './app.vue'
 import { setUnauthorizedHandler } from './api/http'
 import { vPermission } from './directives/v-permission'
+import { bindNotifyRouter } from './features/approvals/composables/notifyWaitingApproval'
 import { i18n } from './locales'
 import { queryClient } from './query/client'
 import { router } from './router'
@@ -32,6 +33,9 @@ async function bootstrap() {
 
   // 40101 → 清会话回登录页（03 §4，http ↔ store 解耦注册）
   setUnauthorizedHandler(() => useAuthStore().forceLogout())
+
+  // waiting_approval 全局通知深链路由绑定（M5 决策 10）
+  bindNotifyRouter(router)
 
   app.mount('#app')
 }

@@ -90,7 +90,7 @@ export const appRoutes: RouteRecordRaw[] = [
       {
         path: 'approvals',
         name: 'approvals',
-        component: placeholder,
+        component: () => import('@/features/approvals/views/ApprovalsView.vue'),
         meta: { title: 'menu.approvals', icon: 'Checked', menu: true, order: 10 },
       },
       {

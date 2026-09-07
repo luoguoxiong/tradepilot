@@ -38,6 +38,9 @@ export const qk = {
   /** 团队成员（owner 转交/批量改派候选；org settings 同源） */
   orgMembers: ['org', 'members'] as const,
 
+  /** 邮箱连接（16；inbox 来源筛选下拉） */
+  mailboxes: ['settings', 'mailboxes'] as const,
+
   /** 联系人（05 §2，独立资源：页签列表/删除） */
   contacts: {
     all: ['contacts'] as const,
@@ -62,5 +65,22 @@ export const qk = {
       [...qk.customer360.all, 'conversations', id, filters] as const,
     activities: (id: string, filters: unknown) =>
       [...qk.customer360.all, 'activities', id, filters] as const,
+  },
+
+  /** 会话（06 销售工作台）：list(filters) / detail / copilot */
+  conversations: {
+    all: ['conversations'] as const,
+    list: (filters: unknown) => [...qk.conversations.all, 'list', filters] as const,
+    detail: (id: string) => [...qk.conversations.all, 'detail', id] as const,
+    copilot: (id: string) => [...qk.conversations.all, 'copilot', id] as const,
+  },
+
+  /** 审批（12）：list(filters) / detail / logs；summary 供 Tab 与页面共享（notifyStore 暂不走 vue-query） */
+  approvals: {
+    all: ['approvals'] as const,
+    list: (filters: unknown) => [...qk.approvals.all, 'list', filters] as const,
+    detail: (id: string) => [...qk.approvals.all, 'detail', id] as const,
+    logs: (id: string) => [...qk.approvals.all, 'logs', id] as const,
+    summary: () => [...qk.approvals.all, 'summary'] as const,
   },
 } as const

@@ -6,6 +6,7 @@ import { ElMessage } from 'element-plus'
 
 import TaskProgressCard from '@/components/business/TaskProgressCard.vue'
 import StreamLogPanel from '@/components/business/StreamLogPanel.vue'
+import { notifyWaitingApproval } from '@/features/approvals/composables/notifyWaitingApproval'
 import { useTaskStream } from '@/sse/useTaskStream'
 import { qk } from '@/query/keys'
 import type { TaskStatus } from '@/api/types/tasks'
@@ -44,6 +45,10 @@ function invalidateTaskQueries() {
 const taskIdRef = computed(() => props.taskId)
 
 const { state, start } = useTaskStream(taskIdRef, {
+  // waiting_approval → 全局通知 + 铃徽标刷新（M5 决策 10，点击深链审核中心）
+  onStatus: (status: TaskStatus, linkedApprovalId?: string) => {
+    if (status === 'waiting_approval') notifyWaitingApproval(linkedApprovalId)
+  },
   onDone: (status: TaskStatus) => {
     invalidateTaskQueries()
     if (status === 'completed') ElMessage.success(t('leadGen.taskDone'))

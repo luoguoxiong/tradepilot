@@ -111,6 +111,56 @@ export const ENUMS = {
     { value: 'medium', labelKey: 'enums.leadValue.medium', color: 'var(--ai-waiting)' },
     { value: 'low', labelKey: 'enums.leadValue.low', color: 'var(--ai-idle)' },
   ],
+  /** 知识分类（11 §1.1；引用溯源弹层 / 知识中心共用） */
+  knowledgeCategory: [
+    { value: 'product', labelKey: 'enums.knowledgeCategory.product', color: 'var(--ai-scheduled)' },
+    { value: 'company', labelKey: 'enums.knowledgeCategory.company', color: 'var(--tp-primary)' },
+    { value: 'sales', labelKey: 'enums.knowledgeCategory.sales', color: 'var(--ai-working)' },
+    { value: 'customer', labelKey: 'enums.knowledgeCategory.customer', color: 'var(--ai-waiting)' },
+    { value: 'faq', labelKey: 'enums.knowledgeCategory.faq', color: 'var(--ai-idle)' },
+    { value: 'process', labelKey: 'enums.knowledgeCategory.process', color: 'var(--tp-primary)' },
+    { value: 'other', labelKey: 'enums.knowledgeCategory.other', color: 'var(--ai-idle)' },
+  ],
+  /** 客户类型（05 §1.2 添加表单：Brand / Distributor / Factory / Other） */
+  customerType: [
+    { value: 'brand', labelKey: 'enums.customerType.brand' },
+    { value: 'distributor', labelKey: 'enums.customerType.distributor' },
+    { value: 'factory', labelKey: 'enums.customerType.factory' },
+    { value: 'other', labelKey: 'enums.customerType.other' },
+  ],
+  /** 活动类型（05 §1.3；CRM 全部活动页签 / 客户 360° 时间线共用） */
+  activityType: [
+    {
+      value: 'stage_change',
+      labelKey: 'enums.activityType.stageChange',
+      color: 'var(--tp-primary)',
+    },
+    {
+      value: 'owner_change',
+      labelKey: 'enums.activityType.ownerChange',
+      color: 'var(--ai-waiting)',
+    },
+    { value: 'email', labelKey: 'enums.activityType.email', color: 'var(--ai-working)' },
+    { value: 'quote', labelKey: 'enums.activityType.quote', color: 'var(--tp-primary)' },
+    { value: 'follow_up', labelKey: 'enums.activityType.followUp', color: 'var(--ai-scheduled)' },
+    { value: 'note', labelKey: 'enums.activityType.note', color: 'var(--ai-idle)' },
+    { value: 'ai_action', labelKey: 'enums.activityType.aiAction', color: 'var(--ai-scheduled)' },
+  ],
+  /** 国家/地区（05 §1.2 添加客户表单 + 筛选；值 = ISO 3166-1 alpha-2 大写代码） */
+  country: [
+    { value: 'US', labelKey: 'enums.country.us' },
+    { value: 'DE', labelKey: 'enums.country.de' },
+    { value: 'UK', labelKey: 'enums.country.uk' },
+    { value: 'FR', labelKey: 'enums.country.fr' },
+    { value: 'JP', labelKey: 'enums.country.jp' },
+    { value: 'CA', labelKey: 'enums.country.ca' },
+    { value: 'AU', labelKey: 'enums.country.au' },
+    { value: 'ES', labelKey: 'enums.country.es' },
+    { value: 'SE', labelKey: 'enums.country.se' },
+    { value: 'AE', labelKey: 'enums.country.ae' },
+    { value: 'IT', labelKey: 'enums.country.it' },
+    { value: 'CN', labelKey: 'enums.country.cn' },
+  ],
 } as const satisfies Record<string, EnumOption[]>
 
 export type EnumGroup = keyof typeof ENUMS

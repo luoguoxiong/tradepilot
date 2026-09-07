@@ -4,7 +4,7 @@
  * AI 权限边界：crm_write 仅写 ai_lead 池与活动记录，不暴露阶段推进/身份/owner 变更（03 §5）。
  */
 import { createHash } from 'node:crypto';
-import { and, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, ilike, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@tradepilot/db';
 import { createId } from '@tradepilot/core';
@@ -12,7 +12,16 @@ import { TASK_LOG_TYPE } from '@tradepilot/shared';
 import type { ToolContext, ToolDefinition } from '../registry.js';
 import { toolIdempotencyKey, withIdempotency, writeToolLog } from '../registry.js';
 
-const { conversation, customer, aiLead, aiLeadContact, customerActivity, knowledgeChunk, knowledgeDocument, message } = schema;
+const {
+  conversation,
+  customer,
+  aiLead,
+  aiLeadContact,
+  customerActivity,
+  knowledgeChunk,
+  knowledgeDocument,
+  message,
+} = schema;
 
 // ===== crm_read =====
 
@@ -64,7 +73,12 @@ export const crmReadTool: ToolDefinition<
         country: r.country,
         stage: r.stage,
         isFormal: r.isFormal,
-        tier: r.score !== null && r.score >= 85 ? 'high' : r.score !== null && r.score >= 60 ? 'medium' : 'low',
+        tier:
+          r.score !== null && r.score >= 85
+            ? 'high'
+            : r.score !== null && r.score >= 60
+              ? 'medium'
+              : 'low',
       })),
     };
   },
@@ -82,7 +96,12 @@ export const crmWriteTool: ToolDefinition<
       matchPct: number;
       scoreLevel: 'high' | 'medium' | 'low';
       reasons: { text: string; evidence?: string; source?: string }[];
-      contacts?: { name: string; title?: string; email?: string; decisionInfluencePct?: number | null }[];
+      contacts?: {
+        name: string;
+        title?: string;
+        email?: string;
+        decisionInfluencePct?: number | null;
+      }[];
     }[];
   },
   { saved: number; merged: number; leadIds: string[] }
@@ -100,7 +119,11 @@ export const crmWriteTool: ToolDefinition<
           matchPct: z.number().int().min(0).max(100),
           scoreLevel: z.enum(['high', 'medium', 'low']),
           reasons: z.array(
-            z.object({ text: z.string(), evidence: z.string().optional(), source: z.string().optional() }),
+            z.object({
+              text: z.string(),
+              evidence: z.string().optional(),
+              source: z.string().optional(),
+            }),
           ),
           contacts: z
             .array(
@@ -218,7 +241,7 @@ export const emailReadTool: ToolDefinition<
   async execute(ctx, input) {
     // 由 messageId → conversation（触发源）或直接给 conversationId/customerId
     let convId = input.conversationId;
-    let customerId = input.customerId;
+    const customerId = input.customerId;
     if (!convId && input.inboxMessageId) {
       const [m] = await ctx.tx
         .select({ conversationId: message.conversationId })
@@ -283,7 +306,7 @@ export interface EmailSendInput {
   body: string;
   /** Break-up Email 标记（强制人工审例外，07 §4） */
   contentKind?: 'initial' | 'value' | 'case' | 'breakup';
-  /** 新鲜度校验基准（reply = 触发消息；follow_up = 客户 id） */
+  /** reply 模式的触发消息（兼新鲜度基准）；缺省视为 follow_up 模式（基准 = 最近一次 outbound） */
   inboxMessageId?: string;
   customerId?: string;
   mailboxId?: string;
@@ -294,7 +317,8 @@ export const emailSendTool: ToolDefinition<
   { messageId: string; externalMessageId: string; status: 'sent'; deduped: boolean }
 > = {
   name: 'email_send',
-  description: '发送邮件（真实外发唯一出口：凭据解密→SMTP/API 发送→message 行；幂等键 taskId+nodeId+messageHash）',
+  description:
+    '发送邮件（真实外发唯一出口：凭据解密→SMTP/API 发送→message 行；幂等键 taskId+nodeId+messageHash）',
   inputSchema: z.object({
     conversationId: z.string().min(1),
     subject: z.string().min(1).max(200),
@@ -308,24 +332,75 @@ export const emailSendTool: ToolDefinition<
   approvalType: 'email_send',
   /**
    * 新鲜度校验（Runtime §4.7）：批准 resume 后、发送前强制重跑。
-   * reply 模式：会话出现比触发消息更新的 in 消息 → 已处理，不发送；
-   * follow_up 模式：客户在最近一次 outbound 后有回复 → 不发送。
+   * 仅拦截「客户在基准之后新增的 in 消息」，避免任何历史来信误阻断：
+   * - reply 模式（inboxMessageId）：基准 = 触发消息 createdAt（触发消息前的老来信忽略）；
+   * - follow_up 模式：基准 = 会话内最近一次已发送 outbound，缺失时回退 conversation.createdAt
+   *   （口径对齐 flows.ts check_replied，07 §4）。
    */
   async freshnessCheck(ctx, input) {
-    const conditions = [eq(message.conversationId, input.conversationId), eq(message.direction, 'in')];
-    if (input.inboxMessageId) {
-      conditions.push(sql`${message.id} <> ${input.inboxMessageId}`);
+    // 模式判定与时间基准：reply（inboxMessageId）= 触发消息；follow_up = 最近一次已发送 outbound
+    const trigger = input.inboxMessageId
+      ? (
+          await ctx.tx
+            .select({ createdAt: message.createdAt })
+            .from(message)
+            .where(eq(message.id, input.inboxMessageId))
+            .limit(1)
+        )[0]
+      : undefined;
+    if (input.inboxMessageId && !trigger) {
+      // 触发消息已不存在（越权/已清理）：无从判断，交 execute 幂等兜底，保守放行
+      return true;
+    }
+    let since: Date;
+    if (trigger) {
+      since = trigger.createdAt;
+    } else {
+      const lastOut = (
+        await ctx.tx
+          .select({ sentAt: message.sentAt, createdAt: message.createdAt })
+          .from(message)
+          .where(
+            and(
+              eq(message.conversationId, input.conversationId),
+              eq(message.direction, 'out'),
+              eq(message.status, 'sent'),
+            ),
+          )
+          .orderBy(desc(message.createdAt))
+          .limit(1)
+      )[0];
+      const lastOutAt = lastOut?.sentAt ?? lastOut?.createdAt ?? null;
+      if (lastOutAt) {
+        since = lastOutAt;
+      } else {
+        // 尚无任何外发：以会话创建为基准（等价 check_replied 的 followUpTask.createdAt 回退）
+        const conv = (
+          await ctx.tx
+            .select({ createdAt: conversation.createdAt })
+            .from(conversation)
+            .where(eq(conversation.id, input.conversationId))
+            .limit(1)
+        )[0];
+        // 会话不存在：外发注定 FK 失败，保守拦截
+        if (!conv) {
+          return false;
+        }
+        since = conv.createdAt;
+      }
     }
     const [newerIn] = await ctx.tx
       .select({ id: message.id })
       .from(message)
-      .where(and(...conditions))
-      .orderBy(desc(message.createdAt))
+      .where(
+        and(
+          eq(message.conversationId, input.conversationId),
+          eq(message.direction, 'in'),
+          gt(message.createdAt, since),
+        ),
+      )
       .limit(1);
-    if (newerIn) {
-      return false;
-    }
-    return true;
+    return !newerIn;
   },
   async execute(ctx, input) {
     const messageHash = createHash('sha256')
@@ -361,13 +436,22 @@ export const emailSendTool: ToolDefinition<
       // 会话预览刷新
       await ctx.tx
         .update(conversation)
-        .set({ lastMessageAt: ctx.now, lastMessagePreview: input.body.slice(0, 120), updatedAt: ctx.now })
+        .set({
+          lastMessageAt: ctx.now,
+          lastMessagePreview: input.body.slice(0, 120),
+          updatedAt: ctx.now,
+        })
         .where(eq(conversation.id, input.conversationId));
       return { messageId, externalMessageId, status: 'sent' as const, deduped: false };
     });
     if (!first) {
       await writeToolLog(ctx, TASK_LOG_TYPE.ERROR, 'email_send 幂等命中：跳过重复外发');
-      return { ...result, deduped: true, messageId: result.messageId || '', externalMessageId: result.externalMessageId || '' };
+      return {
+        ...result,
+        deduped: true,
+        messageId: result.messageId || '',
+        externalMessageId: result.externalMessageId || '',
+      };
     }
     await writeToolLog(ctx, TASK_LOG_TYPE.FOUND, `邮件已发送（mock）：${input.subject}`);
     return result;
@@ -379,7 +463,13 @@ export const emailSendTool: ToolDefinition<
 export const knowledgeSearchTool: ToolDefinition<
   { query: string; scene?: string; topK?: number },
   {
-    chunks: { chunkId: string; documentId: string; title: string; category: string; excerpt: string }[];
+    chunks: {
+      chunkId: string;
+      documentId: string;
+      title: string;
+      category: string;
+      excerpt: string;
+    }[];
   }
 > = {
   name: 'knowledge_search',
@@ -401,7 +491,9 @@ export const knowledgeSearchTool: ToolDefinition<
       })
       .from(knowledgeChunk)
       .innerJoin(knowledgeDocument, eq(knowledgeDocument.id, knowledgeChunk.documentId))
-      .where(and(ilike(knowledgeChunk.content, `%${input.query}%`), isNull(knowledgeDocument.deletedAt)))
+      .where(
+        and(ilike(knowledgeChunk.content, `%${input.query}%`), isNull(knowledgeDocument.deletedAt)),
+      )
       .limit(input.topK ?? 5);
     return {
       chunks: rows.map((r) => ({

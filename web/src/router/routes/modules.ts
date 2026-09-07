@@ -41,13 +41,13 @@ export const appRoutes: RouteRecordRaw[] = [
       {
         path: 'crm',
         name: 'crm',
-        component: placeholder,
+        component: () => import('@/features/crm/views/CrmView.vue'),
         meta: { title: 'menu.crm', icon: 'User', menu: true, order: 4 },
       },
       {
         path: 'crm/contacts',
         name: 'crm-contacts',
-        component: placeholder,
+        component: () => import('@/features/crm/views/CrmView.vue'),
         meta: { title: 'menu.contacts' },
       },
       {
@@ -164,11 +164,11 @@ export const appRoutes: RouteRecordRaw[] = [
           },
         ],
       },
-      // 详情类路由（不进菜单）
+      // 详情类路由（不进菜单；04 客户 360°，页签状态随 ?tab= query，02 §4.2）
       {
         path: 'customers/:id',
         name: 'customer-360',
-        component: placeholder,
+        component: () => import('@/features/customer360/views/Customer360View.vue'),
         meta: { title: 'menu.crm' },
       },
 

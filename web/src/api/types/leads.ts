@@ -1,27 +1,9 @@
 /** AI 获客（03 接口文档）：创建任务 / 发现列表 / 加入 CRM */
 import type { TaskStatus } from './tasks'
 
-/** 通用 Insight 结构（00 §4.1）：评分/概率/建议一律携带证据链与置信度 */
-export interface InsightReason {
-  text: string
-  evidence?: string
-  source?: string
-}
-
-export interface InsightCitation {
-  docId: string
-  docName: string
-  chunkId?: string
-}
-
-export interface Insight<TValue = number> {
-  value: TValue
-  confidence: number
-  reasons: InsightReason[]
-  citations?: InsightCitation[]
-  estimated?: boolean
-  generatedAt?: string
-}
+// 通用 Insight 结构已抽至独立契约（00 §4.1 / 04 §2.1），供 CRM/360/工作台等复用
+import type { Insight, InsightReason } from './insight'
+export type { InsightCitation, InsightReason, Insight } from './insight'
 
 /** 结构化解析结果（03 §1.3；parse 只产出 4 个基础字段） */
 export interface LeadTaskParsed {
@@ -105,6 +87,15 @@ export interface LeadSummaryResp {
 export interface AddToCrmReq {
   leadIds: string[]
   ownerId?: string
+}
+
+/** POST /leads/{id}/convert 响应（04 §2：客户 360° lead 预览态「加入 CRM」） */
+export interface LeadConvertResp {
+  leadId: string
+  customerId: string
+  customerName: string
+  /** true = 命中已有客户公司名归并；false = 新建客户档案 */
+  mapped: boolean
 }
 
 /** POST /leads/add-to-crm 响应（03 §3.4 v0.2 去重口径） */

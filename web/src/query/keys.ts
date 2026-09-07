@@ -27,4 +27,40 @@ export const qk = {
     detail: (taskId: string) => [...qk.tasks.all, 'detail', taskId] as const,
     logs: (taskId: string, after: string) => [...qk.tasks.all, 'logs', taskId, after] as const,
   },
+
+  /** 客户（05）：list(filters 全量) / detail（批量改派乐观更新遍历 customers.all 回滚） */
+  customers: {
+    all: ['customers'] as const,
+    list: (filters: unknown) => [...qk.customers.all, 'list', filters] as const,
+    detail: (customerId: string) => [...qk.customers.all, 'detail', customerId] as const,
+  },
+
+  /** 团队成员（owner 转交/批量改派候选；org settings 同源） */
+  orgMembers: ['org', 'members'] as const,
+
+  /** 联系人（05 §2，独立资源：页签列表/删除） */
+  contacts: {
+    all: ['contacts'] as const,
+    list: (filters: unknown) => [...qk.contacts.all, 'list', filters] as const,
+  },
+
+  /** 活动（05 §2，全局时间线；客户 360° 同数据口径） */
+  activities: {
+    all: ['activities'] as const,
+    list: (filters: unknown) => [...qk.activities.all, 'list', filters] as const,
+  },
+
+  /** 客户 360°（04）：detail / insight / 各页签列表（id 为入口，customer/lead 双源） */
+  customer360: {
+    all: ['customer360'] as const,
+    detail: (id: string) => [...qk.customer360.all, 'detail', id] as const,
+    insight: (id: string) => [...qk.customer360.all, 'insight', id] as const,
+    products: (id: string) => [...qk.customer360.all, 'products', id] as const,
+    contacts: (id: string, filters: unknown) =>
+      [...qk.customer360.all, 'contacts', id, filters] as const,
+    conversations: (id: string, filters: unknown) =>
+      [...qk.customer360.all, 'conversations', id, filters] as const,
+    activities: (id: string, filters: unknown) =>
+      [...qk.customer360.all, 'activities', id, filters] as const,
+  },
 } as const

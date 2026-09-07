@@ -92,6 +92,10 @@ export interface RolePermissionMatrix {
 export interface ApprovalRule {
   approvalType: string;
   approverRoles: string[];
+  /** org autoApprove 自动通过开关（12 §7.1，仅 medium 类型可开） */
+  autoApprove?: boolean;
+  /** 本类型审批超时小时数（12 §7.2「按类型默认 48h」；缺省回落 48h，16 设置按类型可配） */
+  expireHours?: number;
 }
 
 export const rolePermission = pgTable(

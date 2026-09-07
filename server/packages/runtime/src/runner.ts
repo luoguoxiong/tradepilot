@@ -3,19 +3,23 @@
  * ① 跨租户定位任务（app.sched 放行，02 §4.3）→ ② 乐观锁领取（幂等第二层；scheduled→running，
  * resume 路由 waiting_approval/running 续跑）→ ③ 加载员工/org 快照组装 TaskRunContext →
  * ④ 图执行（初始 State = BaseTaskState + input 同名键播种；心跳 task:{id}:heartbeat 30s/90s）→
- * ⑤ 终态：completed+outputs / ApprovalPendingError（gate 已落 waiting_approval，仅 flush 事件）/
- * failed+error，员工状态回写 idle，SSE status/done 推送。
- * 员工并发=1 与 org 并发=10 的领取闸门在 worker Dispatcher（不归 runner）。
+ * 终态：completed+outputs / ApprovalPendingError（gate 已落 waiting_approval，仅 flush 事件）/
+ * failed+error；员工空闲回写前做前置校验（M3-06：无其它 active 任务才置 idle），SSE status/done 推送。
+ * 员工并发=1（running/waiting_approval 占员工位）与 org 并发=10 的领取闸门在
+ * worker Dispatcher / API 直投判定 / DelayedJobReconciler（04 §3.3；不归 runner）。
  */
 import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { and, eq, sql } from 'drizzle-orm';
-import { schema, withOrg, type Db, type Tx } from '@tradepilot/db';
+import { schema, withOrg, type Db } from '@tradepilot/db';
 import { BizException, ErrorCode } from '@tradepilot/core';
 import { EMPLOYEE_STATUS, TASK_STATUS, type TaskType } from '@tradepilot/shared';
-import { BRANCH_KEY, ApprovalPendingError, GraphCompiler } from './compiler.js';
+import type { GraphCompiler } from './compiler.js';
+import { BRANCH_KEY, ApprovalPendingError } from './compiler.js';
 import type { EmployeeRuntime, OrgApprovalRule, OrgRuntime, TaskRunContext } from './context.js';
-import { buildDoneEvent, buildStatusEvent, flushBufferedEvents, TaskEventPublisher } from './events.js';
+import type { TaskEventPublisher } from './events.js';
+import { buildDoneEvent, buildStatusEvent, flushBufferedEvents } from './events.js';
+import { releaseEmployeeIdle } from './release-employee.js';
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_TTL_S = 90;
@@ -149,7 +153,13 @@ export class TaskRunner {
    *   并同步员工 working、follow_up_task scheduled（排期冻结解除）。
    */
   private async claim(
-    probe: { id: string; orgId: string; employeeId: string; title: string; input: Record<string, unknown> },
+    probe: {
+      id: string;
+      orgId: string;
+      employeeId: string;
+      title: string;
+      input: Record<string, unknown>;
+    },
     resume?: ResumeHint,
   ): Promise<{ ok: boolean; transitioned: boolean }> {
     const now = new Date();
@@ -157,7 +167,11 @@ export class TaskRunner {
       if (resume) {
         const rows = await tx
           .update(schema.aiTask)
-          .set({ status: TASK_STATUS.RUNNING, startedAt: sql`coalesce(${schema.aiTask.startedAt}, ${now})`, updatedAt: now })
+          .set({
+            status: TASK_STATUS.RUNNING,
+            startedAt: sql`coalesce(${schema.aiTask.startedAt}, ${now})`,
+            updatedAt: now,
+          })
           .where(
             and(
               eq(schema.aiTask.id, probe.id),
@@ -174,7 +188,10 @@ export class TaskRunner {
           if (row?.status === TASK_STATUS.RUNNING) {
             return { ok: true, transitioned: false }; // API 已 markResumed，幂等续跑
           }
-          this.deps.logger.warn({ taskId: probe.id, status: row?.status }, 'resume 领取未命中，任务已非续跑态');
+          this.deps.logger.warn(
+            { taskId: probe.id, status: row?.status },
+            'resume 领取未命中，任务已非续跑态',
+          );
           return { ok: false, transitioned: false };
         }
         await this.syncResumeSides(tx, probe);
@@ -216,20 +233,31 @@ export class TaskRunner {
       .update(schema.aiEmployee)
       .set({ status: EMPLOYEE_STATUS.WORKING, updatedAt: now })
       .where(
-        and(eq(schema.aiEmployee.id, probe.employeeId), eq(schema.aiEmployee.status, EMPLOYEE_STATUS.WAITING_APPROVAL)),
+        and(
+          eq(schema.aiEmployee.id, probe.employeeId),
+          eq(schema.aiEmployee.status, EMPLOYEE_STATUS.WAITING_APPROVAL),
+        ),
       );
     const followUpTaskId = probe.input['followUpTaskId'];
     if (typeof followUpTaskId === 'string') {
       await tx
         .update(schema.followUpTask)
         .set({ status: 'scheduled', updatedAt: now })
-        .where(and(eq(schema.followUpTask.id, followUpTaskId), eq(schema.followUpTask.status, 'waiting_approval')));
+        .where(
+          and(
+            eq(schema.followUpTask.id, followUpTaskId),
+            eq(schema.followUpTask.status, 'waiting_approval'),
+          ),
+        );
     }
   }
 
   // ===== 快照 =====
 
-  private async loadSnapshot(orgId: string, employeeId: string): Promise<{ employee: EmployeeRuntime; org: OrgRuntime }> {
+  private async loadSnapshot(
+    orgId: string,
+    employeeId: string,
+  ): Promise<{ employee: EmployeeRuntime; org: OrgRuntime }> {
     return withOrg(this.deps.db, orgId, async (tx) => {
       const [emp] = await tx
         .select()
@@ -240,7 +268,11 @@ export class TaskRunner {
         throw new BizException(40404 as never, `AI 员工不存在: ${employeeId}`);
       }
       const [orgRow] = await tx
-        .select({ id: schema.org.id, timezone: schema.org.timezone, sendRules: schema.org.sendRules })
+        .select({
+          id: schema.org.id,
+          timezone: schema.org.timezone,
+          sendRules: schema.org.sendRules,
+        })
         .from(schema.org)
         .where(eq(schema.org.id, orgId))
         .limit(1);
@@ -248,11 +280,22 @@ export class TaskRunner {
         throw new BizException(ErrorCode.NOT_FOUND, `企业不存在: ${orgId}`);
       }
       const perms = await tx
-        .select({ role: schema.rolePermission.role, approvalRules: schema.rolePermission.approvalRules })
+        .select({
+          role: schema.rolePermission.role,
+          approvalRules: schema.rolePermission.approvalRules,
+        })
         .from(schema.rolePermission)
         .where(eq(schema.rolePermission.orgId, orgId));
       // 员工角色与用户角色域不同（ai_employee_role ⊅ user_role）：仅同名角色（sales/manager）命中审批规则
-      const rules = (perms.find((p) => p.role === emp.role)?.approvalRules ?? []) as OrgApprovalRule[];
+      const rules = (perms.find((p) => p.role === emp.role)?.approvalRules ??
+        []) as OrgApprovalRule[];
+      // M3-14：按类型审批超时（expireHours 小时 → 毫秒；非法值忽略回落 gate 侧 48h 常量）
+      const approvalTtlMsByType: Record<string, number> = {};
+      for (const rule of rules) {
+        if (typeof rule.expireHours === 'number' && rule.expireHours > 0) {
+          approvalTtlMsByType[rule.approvalType] = rule.expireHours * 3600 * 1000;
+        }
+      }
 
       const employee: EmployeeRuntime = {
         id: emp.id,
@@ -273,6 +316,7 @@ export class TaskRunner {
         timezone: orgRow.timezone ?? 'Asia/Shanghai',
         sendRules: orgRow.sendRules ?? null,
         autoApproveTypes: rules.filter((r) => r.autoApprove === true).map((r) => r.approvalType),
+        approvalTtlMsByType,
       };
       return { employee, org };
     });
@@ -290,32 +334,57 @@ export class TaskRunner {
     await withOrg(this.deps.db, orgId, async (tx) => {
       await tx
         .update(schema.aiTask)
-        .set({ status: TASK_STATUS.COMPLETED, outputs, progressPct: 100, finishedAt: now, updatedAt: now })
+        .set({
+          status: TASK_STATUS.COMPLETED,
+          outputs,
+          progressPct: 100,
+          finishedAt: now,
+          updatedAt: now,
+        })
         .where(eq(schema.aiTask.id, taskId));
-      await tx
-        .update(schema.aiEmployee)
-        .set({ status: EMPLOYEE_STATUS.IDLE, statusDetail: null, updatedAt: now })
-        .where(eq(schema.aiEmployee.id, employeeId));
+      // M3-06：终态回写前置校验——员工仍持有其它 active 任务则保持状态（防并发覆盖）
+      const released = await releaseEmployeeIdle(tx, { employeeId, excludeTaskId: taskId, now });
+      if (!released) {
+        this.deps.logger.warn(
+          { taskId, employeeId },
+          '任务完成但员工仍占用其它任务，保持员工状态（终态回写前置校验）',
+        );
+      }
     });
     await this.deps.redis.del(heartbeatKey(taskId));
-    await this.deps.publisher.publish(taskId, buildDoneEvent({ status: TASK_STATUS.COMPLETED, outputs }));
+    await this.deps.publisher.publish(
+      taskId,
+      buildDoneEvent({ status: TASK_STATUS.COMPLETED, outputs }),
+    );
     this.deps.logger.info({ taskId }, '任务完成');
   }
 
-  private async fail(taskId: string, orgId: string, employeeId: string, error: string): Promise<void> {
+  private async fail(
+    taskId: string,
+    orgId: string,
+    employeeId: string,
+    error: string,
+  ): Promise<void> {
     const now = new Date();
     await withOrg(this.deps.db, orgId, async (tx) => {
       await tx
         .update(schema.aiTask)
         .set({ status: TASK_STATUS.FAILED, error, finishedAt: now, updatedAt: now })
         .where(eq(schema.aiTask.id, taskId));
-      await tx
-        .update(schema.aiEmployee)
-        .set({ status: EMPLOYEE_STATUS.IDLE, statusDetail: null, updatedAt: now })
-        .where(eq(schema.aiEmployee.id, employeeId));
+      // M3-06：同 complete，终态回写前置校验
+      const released = await releaseEmployeeIdle(tx, { employeeId, excludeTaskId: taskId, now });
+      if (!released) {
+        this.deps.logger.warn(
+          { taskId, employeeId },
+          '任务失败但员工仍占用其它任务，保持员工状态（终态回写前置校验）',
+        );
+      }
     });
     await this.deps.redis.del(heartbeatKey(taskId));
-    await this.deps.publisher.publish(taskId, buildStatusEvent({ status: TASK_STATUS.FAILED, error }));
+    await this.deps.publisher.publish(
+      taskId,
+      buildStatusEvent({ status: TASK_STATUS.FAILED, error }),
+    );
     await this.deps.publisher.publish(
       taskId,
       buildDoneEvent({ status: TASK_STATUS.FAILED, outputs: [], error }),
@@ -344,7 +413,10 @@ export function heartbeatKey(taskId: string): string {
 }
 
 /** 初始 State：BaseTaskState 恒定键 + input 同名键播种（LastValue 通道未写键在节点侧读为 undefined） */
-function buildInitialState(ctx: TaskRunContext, stateKeys: readonly string[]): Record<string, unknown> {
+function buildInitialState(
+  ctx: TaskRunContext,
+  stateKeys: readonly string[],
+): Record<string, unknown> {
   const initial: Record<string, unknown> = {
     taskId: ctx.taskId,
     orgId: ctx.orgId,
@@ -367,7 +439,15 @@ function buildInitialState(ctx: TaskRunContext, stateKeys: readonly string[]): R
 
 /** 终态 outputs 摘取：剥离运行时键，其余 State 产出包进单条 result（14 outputs jsonb 数组契约） */
 function buildOutputs(finalState: Record<string, unknown>): Record<string, unknown>[] {
-  const reserved = new Set(['taskId', 'orgId', 'employeeId', 'taskType', 'input', 'errors', BRANCH_KEY]);
+  const reserved = new Set([
+    'taskId',
+    'orgId',
+    'employeeId',
+    'taskType',
+    'input',
+    'errors',
+    BRANCH_KEY,
+  ]);
   const data: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(finalState)) {
     if (reserved.has(key) || value === undefined || value === null) {

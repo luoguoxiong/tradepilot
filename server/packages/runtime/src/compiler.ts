@@ -29,7 +29,7 @@ import { withOrg, schema, type Db, type Tx } from '@tradepilot/db';
 import { BizException, ErrorCode, createId } from '@tradepilot/core';
 import {
   sopGraphDefinitionSchema,
-  TASK_LOG_TYPE,
+  stripSensitiveFields,
   TASK_STATUS,
   type SopFlowNode,
   type SopGraphDefinition,
@@ -38,8 +38,8 @@ import {
   type SopToolNode,
   type TaskLogType,
 } from '@tradepilot/shared';
+import type { ToolRegistry } from '@tradepilot/tools';
 import {
-  ToolRegistry,
   writeToolLog,
   type BufferedTaskEvent,
   type ToolContext,
@@ -169,7 +169,10 @@ export class SimpleFlowRegistry implements FlowRegistry {
 
 /** ===== 编译器 ===== */
 
-type NodeFn = (state: Record<string, unknown>, config: LangGraphRunnableConfig) => Promise<Record<string, unknown>>;
+type NodeFn = (
+  state: Record<string, unknown>,
+  config: LangGraphRunnableConfig,
+) => Promise<Record<string, unknown>>;
 /** 节点执行产物：state patch + 可选节点级日志（completeStep 事务内落 ai_task_log） */
 interface NodeExecResult {
   patch: Record<string, unknown>;
@@ -275,7 +278,11 @@ export class GraphCompiler {
         for (const [key, to] of branchMap) {
           pathMap[key] = to;
         }
-        wf.addConditionalEdges(from, this.buildRouter(sop, from, branchMap, defaultTarget), pathMap);
+        wf.addConditionalEdges(
+          from,
+          this.buildRouter(sop, from, branchMap, defaultTarget),
+          pathMap,
+        );
       } else {
         for (const o of unconditional) {
           wf.addEdge(from, o.to);
@@ -309,7 +316,10 @@ export class GraphCompiler {
     branchMap: Map<string, string>,
     defaultTarget: string | null,
   ) {
-    return async (state: Record<string, unknown>, config: LangGraphRunnableConfig): Promise<string> => {
+    return async (
+      state: Record<string, unknown>,
+      config: LangGraphRunnableConfig,
+    ): Promise<string> => {
       if (state[BRANCH_KEY] === DONE_KEY) {
         return DONE_KEY;
       }
@@ -329,7 +339,10 @@ export class GraphCompiler {
       if (defaultTarget) {
         return DEFAULT_KEY;
       }
-      throw new BizException(ErrorCode.INTERNAL, `节点 ${fromId} 分支未命中且无缺省边: ${String(branch)}`);
+      throw new BizException(
+        ErrorCode.INTERNAL,
+        `节点 ${fromId} 分支未命中且无缺省边: ${String(branch)}`,
+      );
     };
   }
 
@@ -369,8 +382,13 @@ export class GraphCompiler {
     return async (state, ctx) => {
       const tpl = this.deps.prompts.get(node.promptRef);
       const vars: Record<string, unknown> = { ...state };
-      const messages = { system: renderTemplate(tpl.system, vars), user: renderTemplate(tpl.user, vars) };
-      const outSchema = node.outputSchema ? this.deps.outputSchemas.get(node.outputSchema) : undefined;
+      const messages = {
+        system: renderTemplate(tpl.system, vars),
+        user: renderTemplate(tpl.user, vars),
+      };
+      const outSchema = node.outputSchema
+        ? this.deps.outputSchemas.get(node.outputSchema)
+        : undefined;
       const result = await this.deps.gateway.structured(
         {
           orgId: ctx.orgId,
@@ -399,18 +417,26 @@ export class GraphCompiler {
       const input = this.deps.tools.parseInput(tool, buildToolInput(node, state));
       await this.deps.tools.assertQuota(ctx, tool, ctx.employee.externalCallDailyLimit);
 
+      // M3-08 风险单一口径：节点 risk 优先（SOP 内可对同一工具实例化抬高/放行），
+      // 缺省回落工具注册表 riskLevel；避免「SOP 标注了 risk 但门控只看工具」的双轨漂移。
+      const riskLevel = node.risk ?? tool.riskLevel;
       const meta: GateToolMeta = {
         name: tool.name,
-        riskLevel: tool.riskLevel,
+        riskLevel,
         approvalType: node.approvalType ?? tool.approvalType,
       };
-      const resumeInfo = ctx.bag.get('resumeApproval') as { nodeId?: string; approvalId?: string } | undefined;
+      const resumeInfo = ctx.bag.get('resumeApproval') as
+        { nodeId?: string; approvalId?: string } | undefined;
       const isResume = resumeInfo?.nodeId === node.id;
 
-      if (tool.riskLevel !== 'low' && !isResume) {
+      if (riskLevel !== 'low' && !isResume) {
         const verdict = await this.deps.gate.decide(meta, ctx, input as Record<string, unknown>);
         if (verdict.action === 'interrupt') {
-          const approvalId = await this.deps.gate.enterWaiting(meta, ctx, input as Record<string, unknown>);
+          const approvalId = await this.deps.gate.enterWaiting(
+            meta,
+            ctx,
+            input as Record<string, unknown>,
+          );
           throw new ApprovalPendingError(approvalId);
         }
         if (verdict.action === 'auto_approve') {
@@ -422,7 +448,10 @@ export class GraphCompiler {
         const fresh = await this.execTool(tool, ctx, (toolCtx) => check(toolCtx, input));
         ctx.bag.delete('resumeApproval');
         if (!fresh) {
-          throw new BizException(ErrorCode.CONFLICT, '新鲜度校验未通过，终止执行（审批挂起期间状态已变化）');
+          throw new BizException(
+            ErrorCode.CONFLICT,
+            '新鲜度校验未通过，终止执行（审批挂起期间状态已变化）',
+          );
         }
       }
 
@@ -494,7 +523,12 @@ export class GraphCompiler {
         })
         .onConflictDoUpdate({
           target: [schema.aiTaskStep.taskId, schema.aiTaskStep.seq],
-          set: { name: node.title ?? node.id, status: TASK_STATUS.RUNNING, startedAt: now, finishedAt: null },
+          set: {
+            name: node.title ?? node.id,
+            status: TASK_STATUS.RUNNING,
+            startedAt: now,
+            finishedAt: null,
+          },
         }),
     );
   }
@@ -544,7 +578,12 @@ export class GraphCompiler {
     await flushBufferedEvents(this.deps.publisher, ctx.taskId, ctx.events);
   }
 
-  private async failStep(ctx: TaskRunContext, node: SopNode, seq: number, err: unknown): Promise<void> {
+  private async failStep(
+    ctx: TaskRunContext,
+    node: SopNode,
+    seq: number,
+    err: unknown,
+  ): Promise<void> {
     const now = new Date();
     await withOrg(ctx.db, ctx.orgId, (tx) =>
       tx
@@ -553,7 +592,11 @@ export class GraphCompiler {
         .where(and(eq(schema.aiTaskStep.taskId, ctx.taskId), eq(schema.aiTaskStep.seq, seq))),
     );
     this.deps.logger.warn(
-      { taskId: ctx.taskId, nodeId: node.id, err: err instanceof Error ? err.message : String(err) },
+      {
+        taskId: ctx.taskId,
+        nodeId: node.id,
+        err: err instanceof Error ? err.message : String(err),
+      },
       '节点执行失败',
     );
   }
@@ -561,24 +604,30 @@ export class GraphCompiler {
 
 // ===== 辅助 =====
 
-/** {{var}} 插值（支持点路径；对象 JSON 序列化） */
+/** {{var}} 插值（支持点路径；对象 JSON 序列化）。
+ *  M3-16 / 08 §7：对象变量序列化前统一剥离敏感键（cost_price 等），LLM prompt 组装唯一出口兜底。 */
 export function renderTemplate(tpl: string, vars: Record<string, unknown>): string {
   return tpl.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_m, key: string) => {
     const value = key
       .split('.')
       .reduce<unknown>(
-        (acc, k) => (acc !== null && typeof acc === 'object' ? (acc as Record<string, unknown>)[k] : undefined),
+        (acc, k) =>
+          acc !== null && typeof acc === 'object' ? (acc as Record<string, unknown>)[k] : undefined,
         vars,
       );
     if (value === undefined || value === null) {
       return '';
     }
-    return typeof value === 'string' ? value : JSON.stringify(value);
+    return typeof value === 'string' ? value : JSON.stringify(stripSensitiveFields(value));
   });
 }
 
 /** 节点输出装配：outputKey 指定；缺省对象展开合并 / 标量写节点 id 键 */
-function applyOutputKey(outputKey: string | undefined, data: unknown, nodeId: string): Record<string, unknown> {
+function applyOutputKey(
+  outputKey: string | undefined,
+  data: unknown,
+  nodeId: string,
+): Record<string, unknown> {
   if (outputKey) {
     return { [outputKey]: data };
   }
@@ -589,12 +638,19 @@ function applyOutputKey(outputKey: string | undefined, data: unknown, nodeId: st
 }
 
 /** 工具入参装配：静态 input + inputMap 从 State 取（inputMap 优先；键支持点路径/数组下标，如 'draft.subject'、'discovered.0.domain'） */
-function buildToolInput(node: SopToolNode, state: Record<string, unknown>): Record<string, unknown> {
+function buildToolInput(
+  node: SopToolNode,
+  state: Record<string, unknown>,
+): Record<string, unknown> {
   const input: Record<string, unknown> = { ...(node.input ?? {}) };
   for (const [field, stateKey] of Object.entries(node.inputMap ?? {})) {
     const value = stateKey
       .split('.')
-      .reduce<unknown>((acc, k) => (acc !== null && acc !== undefined ? (acc as Record<string, unknown>)[k] : undefined), state);
+      .reduce<unknown>(
+        (acc, k) =>
+          acc !== null && acc !== undefined ? (acc as Record<string, unknown>)[k] : undefined,
+        state,
+      );
     if (value !== undefined) {
       input[field] = value;
     }

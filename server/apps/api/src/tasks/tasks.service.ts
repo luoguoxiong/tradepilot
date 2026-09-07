@@ -1,18 +1,22 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, ilike, sql } from 'drizzle-orm';
+import { Inject, Injectable, type OnModuleDestroy } from '@nestjs/common';
+import { and, asc, desc, eq, ilike, inArray, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 import { BizException, createId } from '@tradepilot/core';
 import { schema, withOrg, type Db } from '@tradepilot/db';
 import { TaskEnqueuer } from '@tradepilot/runtime';
-import type { TaskType } from '@tradepilot/shared';
+import { EMPLOYEE_OCCUPYING_TASK_STATUSES, type TaskType } from '@tradepilot/shared';
 import { DB } from '../db/db.module.js';
 import { REDIS } from '../redis/redis.module.js';
-import { EnvService } from '../config/env.service.js';
+import type { EnvService } from '../config/env.service.js';
 import type { CreateTaskDto, ListTasksQuery } from './tasks.dto.js';
 
 /**
  * 任务中心服务（接口 14 §3 / 技术方案 04 §2）：
- * - 入队判定：员工无 running 任务且 org running < 10 → running 直投；否则 scheduled 落库由 Dispatcher 启动；
+ * - 落库语义：一律 scheduled；running 由 Runner.claim 独占置位并补 started_at（04 §5.2），
+ *   杜绝「running + started_at 空」的不可恢复直投态（M3-01 冻结 org 并发根因）；
+ * - 入队判定：员工无占用任务（running/waiting_approval，M3-06 挂起占员工位）且 org running < 10
+ *   且非未来定时 → 事务提交后即时入队（响应 status='running' 表示已投递待执行）；否则 scheduled
+ *   排队由 Dispatcher 按序启动；
  * - retry = 新任务（retry_of 溯源，输入复制），日志不迁移（14 §3.5）；
  * - 列表/详情/日志增量/步骤均为只读聚合（员工卡片轻量对象另在 02 接口）。
  */
@@ -38,7 +42,7 @@ export interface TaskListItem {
 }
 
 @Injectable()
-export class TasksService {
+export class TasksService implements OnModuleDestroy {
   private readonly enqueuer: TaskEnqueuer;
 
   constructor(
@@ -49,6 +53,11 @@ export class TasksService {
     this.enqueuer = new TaskEnqueuer(env.env.REDIS_URL);
   }
 
+  /** Nest 生命周期：关闭 BullMQ 队列连接（应用退出/模块销毁时释放） */
+  async onModuleDestroy(): Promise<void> {
+    await this.enqueuer.close();
+  }
+
   /** 14 §3.2 通用新建（+ 入队判定 04 §2）；retryOf 为 retry 内部溯源参数 */
   async create(
     orgId: string,
@@ -56,7 +65,9 @@ export class TasksService {
     dto: CreateTaskDto,
     retryOf?: string,
   ): Promise<{ taskId: string; status: 'running' | 'scheduled' }> {
-    return withOrg(this.db, orgId, async (tx) => {
+    // 事务只落库 scheduled（running 由 Runner.claim 独占置位并补 started_at，04 §5.2）。
+    // 直投判定在事务内只读并发快照，入队放到提交之后（Worker probe 必须读到已提交行）。
+    const { taskId, immediate } = await withOrg(this.db, orgId, async (tx) => {
       const [employee] = await tx
         .select({ id: schema.aiEmployee.id, status: schema.aiEmployee.status })
         .from(schema.aiEmployee)
@@ -66,22 +77,25 @@ export class TasksService {
         throw BizException.notFound(`AI 员工不存在: ${dto.employeeId}`);
       }
 
-      // 入队判定：员工 running=0 且 org running<10 → 直投；否则排队
-      const [empRunning] = await tx
+      // 入队判定：员工无占用任务（running/waiting_approval，M3-06 挂起占员工位）且 org running<10 → 直投；否则排队
+      const [empBusy] = await tx
         .select({ n: sql<number>`count(*)::int` })
         .from(schema.aiTask)
         .where(
           and(
             eq(schema.aiTask.employeeId, dto.employeeId),
-            eq(schema.aiTask.status, 'running'),
+            inArray(schema.aiTask.status, [...EMPLOYEE_OCCUPYING_TASK_STATUSES]),
           ),
         );
       const [orgRunning] = await tx
         .select({ n: sql<number>`count(*)::int` })
         .from(schema.aiTask)
         .where(and(eq(schema.aiTask.orgId, orgId), eq(schema.aiTask.status, 'running')));
-      const canRun = (empRunning?.n ?? 0) === 0 && (orgRunning?.n ?? 0) < ORG_CONCURRENCY_LIMIT;
-      const status = canRun ? 'running' : 'scheduled';
+      const canRun = (empBusy?.n ?? 0) === 0 && (orgRunning?.n ?? 0) < ORG_CONCURRENCY_LIMIT;
+      // 未来定时任务不得直投：即使并发空闲也保持 scheduled，由 Dispatcher 到点投递（04 §3.4）
+      const scheduledAt = dto.scheduledAt ? new Date(dto.scheduledAt) : null;
+      const due = !scheduledAt || scheduledAt.getTime() <= Date.now();
+      const immediate = canRun && due;
 
       const taskId = createId('task');
       await tx.insert(schema.aiTask).values({
@@ -90,16 +104,21 @@ export class TasksService {
         employeeId: dto.employeeId,
         type: dto.type,
         title: dto.title,
-        status,
+        status: 'scheduled',
         input: dto.input,
-        scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
+        scheduledAt,
+        retryOf,
         createdBy: userId,
       });
-      if (canRun) {
-        await this.enqueuer.enqueueTask(taskId, dto.type as TaskType);
-      }
-      return { taskId, status };
+      return { taskId, immediate };
     });
+
+    // 事务提交后再入队：若在事务内入队，Worker 可能先于提交消费 → probe 落空 → 任务永久卡死（M3-01）
+    if (immediate) {
+      await this.enqueuer.enqueueTask(taskId, dto.type as TaskType);
+    }
+    // status 语义（14 §3.2）：'running' = 已即时投递待执行；'scheduled' = 排队/定时，由 Dispatcher 启动
+    return { taskId, status: immediate ? 'running' : 'scheduled' };
   }
 
   /** 14 §3.1 任务列表（status Tab / employeeId / type / keyword / 分页） */

@@ -6,13 +6,13 @@ import type { LeadListReq } from '@/api/types/leads'
 import { mockMembers } from '../data/db'
 import {
   createLeadHuntTask,
-  crmCompanyNames,
   mockEmployees,
   mockLeads,
   mockTasks,
   refreshEmployeeCards,
   taskSnapshot,
 } from '../data/business'
+import { createCustomerFromLead, findCustomerByName } from '../data/customers'
 import { LATENCY, fail, ok, page, readJson } from '../utils'
 
 /** 当前演示会话用户（与 auth mock 对齐：admin，具备指派权限） */
@@ -165,6 +165,9 @@ export const leadHandlers = [
     const created: { customerId: string; leadId: string }[] = []
     const mapped: { leadId: string; mappedCustomerId: string }[] = []
     let duplicated = 0
+    // 新建客户归属：未指定负责人默认操作人（03 §3.4）
+    const ownerId =
+      body.ownerId && body.ownerId !== CURRENT_USER_ID ? body.ownerId : CURRENT_USER_ID
 
     for (const leadId of leadIds) {
       const item = mockLeads.find((l) => l.leadId === leadId)
@@ -173,19 +176,44 @@ export const leadHandlers = [
         duplicated += 1
         continue
       }
-      const normalized = item.companyName.toLowerCase()
-      if (crmCompanyNames.has(normalized)) {
-        // 命中已有客户：不新建，置 in_crm 并返回映射（03 §3.4 v0.2 去重口径）
-        item.inCrm = true
-        mapped.push({ leadId: item.leadId, mappedCustomerId: `cus_mapped_${item.leadId}` })
+      // 加入 CRM = 客户中心落库（05 §7 同库口径）：
+      // 命中已有客户公司名 → 置 in_crm 并返回真实映射，不新建（03 §3.4 v0.2 去重口径）
+      const existing = findCustomerByName(item.companyName)
+      item.inCrm = true
+      if (existing) {
+        mapped.push({ leadId: item.leadId, mappedCustomerId: existing.customerId })
         continue
       }
-      item.inCrm = true
-      crmCompanyNames.add(normalized)
-      created.push({ customerId: `cus_${item.leadId}`, leadId: item.leadId })
+      const newCustomer = createCustomerFromLead(item, ownerId)
+      created.push({ customerId: newCustomer.customerId, leadId: item.leadId })
     }
 
     return ok({ created: created.length, duplicated, customers: created, mapped })
+  }),
+
+  http.post('/api/v1/leads/:id/convert', async ({ params }) => {
+    await delay(LATENCY)
+    const leadId = String(params.id)
+    const item = mockLeads.find((l) => l.leadId === leadId)
+    if (!item) return fail(ErrorCode.NOT_FOUND, '线索不存在')
+    // 加入 CRM（04 §2 / 05 §7 同库口径）：命中已有客户公司名 → 归并映射，否则新建
+    const existing = findCustomerByName(item.companyName)
+    item.inCrm = true
+    if (existing) {
+      return ok({
+        leadId,
+        customerId: existing.customerId,
+        customerName: existing.companyName,
+        mapped: true,
+      })
+    }
+    const created = createCustomerFromLead(item, CURRENT_USER_ID)
+    return ok({
+      leadId,
+      customerId: created.customerId,
+      customerName: created.companyName,
+      mapped: false,
+    })
   }),
 
   http.post('/api/v1/leads/batch-analyze', async ({ request }) => {

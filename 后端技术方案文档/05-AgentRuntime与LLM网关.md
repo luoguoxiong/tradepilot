@@ -168,7 +168,7 @@ CREATE TABLE llm_call (
 CREATE INDEX idx_llm_call_org_time ON llm_call (org_id, created_at DESC);
 ```
 
-- 预算：Cron 每 10min 汇总当月 `sum(cost_usd)` 对比 `budgetLimit` → 超 80%/100% 写告警通知（`q:notify`），**不熔断**（16 FR-10）。
+- 预算（MVP 增量口径 / 16 FR-10）：每次调用记账后汇总当月 `sum(cost_usd)` 对比 `budgetLimit`；当月累计**首次越界**（前值 ≤ 预算 < 后值）写一次告警通知（`q:notify`，事件 `budget_limit`），**不熔断**。Cron 每 10min 汇总 + 超 80%/100% 两级阈值随 M5 #9 复核。
 
 ## 7. Prompt 管理
 

@@ -1,7 +1,8 @@
 /**
  * LLM Gateway（后端技术方案 05 §6）：
  * Provider 适配（openai/anthropic/deepseek/azure + mock）· org 级路由（ai_model_setting 场景命中→默认兜底）
- * · Zod 结构化输出（失败重试 2 次）· llm_call 全量记账 + budgetLimit 超限告警不熔断（16 FR-10）。
+ * · Zod 结构化输出（失败重试 2 次）· llm_call 全量记账 + budgetLimit 跨阈值告警不熔断
+ * （16 FR-10 MVP 增量口径：调用时当月累计，跨阈值首超上报一次；Cron 10min 汇总 + 80%/100% 两级随 M5 #9 复核）。
  * M3 mock provider：Zod schema 驱动的确定性产出，保证三工作流全链路可测（风险对策 §5.7）。
  */
 import type { Logger } from 'pino';
@@ -19,6 +20,20 @@ export interface GatewayOptions {
   apiKey?: string;
   baseUrl?: string;
   defaultModel: string;
+  /**
+   * 预算超限告警回调（16 FR-10 MVP：跨阈值首超时上报一次；Worker 侧接 q:notify，
+   * 未接线时仅 logger.warn —— 仅告警不熔断，LLM 调用不受影响）。
+   */
+  alert?: (info: BudgetAlertInfo) => void;
+}
+
+/** 预算超限告警载荷（05 §6.4 / M3-15） */
+export interface BudgetAlertInfo {
+  orgId: string;
+  scene: string;
+  /** 当月场景累计（llm_call.cost_usd sum，字符串避免精度问题） */
+  totalUsd: string;
+  budgetUsd: string;
 }
 
 export interface ModelTarget {
@@ -71,7 +86,21 @@ function estimateCost(model: string, promptTokens: number, completionTokens: num
   if (!price) {
     return 0;
   }
-  return (promptTokens / 1_000_000) * price.prompt + (completionTokens / 1_000_000) * price.completion;
+  return (
+    (promptTokens / 1_000_000) * price.prompt + (completionTokens / 1_000_000) * price.completion
+  );
+}
+
+/**
+ * 预算跨阈值判定（16 FR-10 MVP 口径 / M3-15）：仅当「前值 ≤ 预算 < 后值」时返回 true，
+ * 即当月累计从预算内首次越界上报一次，持续超限不重复告警；不熔断（LLM 调用路径不受影响）。
+ */
+export function crossedBudget(
+  prevTotalUsd: number,
+  nextTotalUsd: number,
+  budgetUsd: number,
+): boolean {
+  return nextTotalUsd > budgetUsd && prevTotalUsd <= budgetUsd;
 }
 
 export class LlmGateway {
@@ -136,12 +165,18 @@ export class LlmGateway {
     }
 
     let lastError: unknown = null;
+    // 自纠正重试（项目硬约束 / P1 教训，M3-07）：校验失败的具体原因回喂下一次请求，
+    // 让模型按反馈修正（补漏字段 / 改类型 / 删未知键），而非用相同输入盲目重试。
+    let retryHint: string | null = null;
     for (let attempt = 1; attempt <= RETRY_LIMIT; attempt++) {
       try {
         const model = this.createChatModel(target);
+        const userContent = retryHint
+          ? `${messages.user}\n\n【结构化输出校验反馈】${retryHint}\n请严格按 schema 修正：字段名一致、类型与必填正确、禁止新增未定义字段，只输出 JSON。`
+          : messages.user;
         const raw = await model.invoke([
           { role: 'system', content: messages.system },
-          { role: 'user', content: messages.user },
+          { role: 'user', content: userContent },
         ]);
         // withStructuredOutput 走 tool-calling；此处直接解析 JSON 文本（兼容所有 provider 的结构化协议差异）
         const contentText =
@@ -151,11 +186,17 @@ export class LlmGateway {
               ? raw.content.map((c) => ('text' in c ? String(c.text) : '')).join('')
               : '';
         const jsonText = extractJson(contentText);
-        const parsed = schemaOut.safeParse(JSON.parse(jsonText));
+        let rawJson: unknown;
+        try {
+          rawJson = JSON.parse(jsonText);
+        } catch {
+          retryHint = '输出不是合法 JSON（未解析出 JSON 对象/数组）';
+          throw new Error(retryHint);
+        }
+        const parsed = schemaOut.safeParse(rawJson);
         if (!parsed.success) {
-          throw new Error(
-            `结构化输出校验失败: ${parsed.error.issues.map((i) => i.message).join('; ')}`,
-          );
+          retryHint = parsed.error.issues.map((i) => i.message).join('; ');
+          throw new Error(`结构化输出校验失败: ${retryHint}`);
         }
         const usageMeta = raw.usage_metadata;
         const usage: LlmUsage = {
@@ -205,11 +246,17 @@ export class LlmGateway {
         latencyMs: usage.latencyMs,
         degraded: usage.degraded,
       });
-      // 预算告警（每 10min 汇总口径简化为调用时增量检查；超 100% 告警，不熔断）
+      // 预算告警（16 FR-10 MVP 增量口径 / M3-15：调用时汇总当月累计，跨阈值首超上报一次，不熔断；
+      // Cron 每 10min 汇总 + 80%/100% 两级阈值随 M5 #9 复核，见 05 §6.4）
       const [setting] = await tx
         .select({ budgetLimit: schema.aiModelSetting.budgetLimit })
         .from(schema.aiModelSetting)
-        .where(and(eq(schema.aiModelSetting.orgId, meta.orgId), eq(schema.aiModelSetting.scene, meta.scene)))
+        .where(
+          and(
+            eq(schema.aiModelSetting.orgId, meta.orgId),
+            eq(schema.aiModelSetting.scene, meta.scene),
+          ),
+        )
         .limit(1);
       const budget = setting?.budgetLimit;
       if (budget !== null && budget !== undefined) {
@@ -226,11 +273,22 @@ export class LlmGateway {
               gte(schema.llmCall.createdAt, monthStart),
             ),
           );
-        if (Number(sum?.total ?? 0) > Number(budget)) {
+        const budgetUsd = Number(budget);
+        const totalUsd = Number(sum?.total ?? 0);
+        // 本次记账已含在 sum：前值 = 累计 - 本次（按落库精度还原，避免边界误差）
+        const prevTotalUsd = totalUsd - Number(costUsd.toFixed(6));
+        if (crossedBudget(prevTotalUsd, totalUsd, budgetUsd)) {
           this.logger.warn(
-            { orgId: meta.orgId, scene: meta.scene, total: sum?.total, budget },
-            'LLM 场景预算超限（仅告警不熔断，16 FR-10）',
+            { orgId: meta.orgId, scene: meta.scene, totalUsd, budgetUsd },
+            'LLM 场景预算跨阈值超限（仅告警不熔断，16 FR-10）',
           );
+          // 告警通道：Worker 侧接 q:notify（budget_limit）；未接线则仅留日志
+          this.opts.alert?.({
+            orgId: meta.orgId,
+            scene: meta.scene,
+            totalUsd: String(totalUsd),
+            budgetUsd: String(budgetUsd),
+          });
         }
       }
     });
@@ -285,11 +343,29 @@ export function extractJson(text: string): string {
 
 // ===== mock provider：Zod schema 驱动的确定性产出 =====
 
-type ZodAny = ZodType<unknown> & { _def?: { typeName?: string; innerType?: ZodAny; value?: unknown; values?: readonly string[]; shape?: () => Record<string, ZodAny>; element?: ZodAny; type?: ZodAny; options?: ZodAny[] } };
+type ZodAny = ZodType<unknown> & {
+  _def?: {
+    typeName?: string;
+    innerType?: ZodAny;
+    value?: unknown;
+    values?: readonly string[];
+    shape?: () => Record<string, ZodAny>;
+    element?: ZodAny;
+    type?: ZodAny;
+    options?: ZodAny[];
+  };
+};
 
 function unwrap(schema: ZodAny): ZodAny {
   let cur = schema;
-  const wrappers = new Set(['ZodOptional', 'ZodNullable', 'ZodDefault', 'ZodEffects', 'ZodCatch', 'ZodBranded']);
+  const wrappers = new Set([
+    'ZodOptional',
+    'ZodNullable',
+    'ZodDefault',
+    'ZodEffects',
+    'ZodCatch',
+    'ZodBranded',
+  ]);
   for (let i = 0; i < 10; i++) {
     const typeName = cur._def?.typeName ?? '';
     if (wrappers.has(typeName) && cur._def?.innerType) {

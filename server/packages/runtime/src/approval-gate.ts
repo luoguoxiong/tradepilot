@@ -5,7 +5,7 @@
  *   ② medium 强制人工例外（Break-up Email / approval_policy.email_send='always' / 'high_value_only' 且客户 tier=high）→ 必人工
  *   ③ org autoApprove（16 FR-08，仅 medium）+ 员工 approval_policy.autoExecute 含该类型 → 直发留痕
  *   ④ 其余 → 人工审批（interrupt）
- * 挂起即冻结：waiting_approval 不占并发（Dispatcher 仅统计 running）；
+ * 挂起即冻结：waiting_approval 不占 org 并发额度（org 仅统计 running），但占员工位（04 §3.3，M3-06）；
  * follow_up_task.status 同步 waiting_approval、next_run_at 冻结原值（排期单一写入口约束）。
  */
 import { and, eq, sql } from 'drizzle-orm';
@@ -14,11 +14,21 @@ import type { Logger } from 'pino';
 import { schema, withOrg, type Db, type Tx } from '@tradepilot/db';
 import { createId } from '@tradepilot/core';
 import { APPROVAL_STATUS, TASK_STATUS, TASK_LOG_TYPE } from '@tradepilot/shared';
-import { buildStatusEvent, TaskEventPublisher } from './events.js';
+import type { TaskEventPublisher } from './events.js';
+import { buildStatusEvent } from './events.js';
 import type { TaskRunContext } from './context.js';
 
-/** 审批超时默认 48h（16 可配，M3 常量） */
+/** 审批超时缺省 48h（12 §7.2；16 设置可按 approvalType 配置覆盖——M3-14 接入 org.approvalTtlMsByType） */
 export const APPROVAL_TTL_MS = 48 * 3600 * 1000;
+
+/**
+ * 审批超时解析（M3-14，12 §7.2「按类型默认 48h，16 可配」）：
+ * 员工角色 approval_rules 中本类型 expireHours → 毫秒；未配置/非法值回落 48h 常量。
+ */
+export function approvalTtlMs(ctx: TaskRunContext, tool: GateToolMeta): number {
+  const configured = ctx.org.approvalTtlMsByType[tool.approvalType ?? tool.name];
+  return typeof configured === 'number' && configured > 0 ? configured : APPROVAL_TTL_MS;
+}
 
 export interface GateVerdict {
   action: 'execute' | 'auto_approve' | 'interrupt';
@@ -43,7 +53,11 @@ export class ApprovalGate {
   ) {}
 
   /** 分流放行链（不落库；interrupt 前置态由 enterWaiting 落库） */
-  async decide(tool: GateToolMeta, ctx: TaskRunContext, input: Record<string, unknown>): Promise<GateVerdict> {
+  async decide(
+    tool: GateToolMeta,
+    ctx: TaskRunContext,
+    input: Record<string, unknown>,
+  ): Promise<GateVerdict> {
     // ① high 一律人工
     if (tool.riskLevel === 'high') {
       return { action: 'interrupt', reason: 'high 风险操作强制人工审批（Runtime §4.7）' };
@@ -58,9 +72,13 @@ export class ApprovalGate {
     // ③ org autoApprove + 员工 autoExecute 白名单 → 直发留痕
     const orgAuto = ctx.org.autoApproveTypes.includes(tool.approvalType ?? tool.name);
     const autoExecute = ctx.employee.approvalPolicy.autoExecute ?? [];
-    const employeeAuto = autoExecute.includes(tool.name) || autoExecute.includes(tool.approvalType ?? '');
+    const employeeAuto =
+      autoExecute.includes(tool.name) || autoExecute.includes(tool.approvalType ?? '');
     if (tool.riskLevel === 'medium' && orgAuto && employeeAuto) {
-      return { action: 'auto_approve', reason: 'org autoApprove + 员工 autoExecute 命中，自动放行留痕' };
+      return {
+        action: 'auto_approve',
+        reason: 'org autoApprove + 员工 autoExecute 命中，自动放行留痕',
+      };
     }
 
     // ④ 其余 → 人工审批
@@ -94,7 +112,10 @@ export class ApprovalGate {
     return null;
   }
 
-  private async customerTier(ctx: TaskRunContext, customerId: string): Promise<'high' | 'medium' | 'low'> {
+  private async customerTier(
+    ctx: TaskRunContext,
+    customerId: string,
+  ): Promise<'high' | 'medium' | 'low'> {
     return withOrg(this.db, ctx.orgId, async (tx) => {
       const [row] = await tx
         .select({ score: schema.customer.score })
@@ -110,7 +131,11 @@ export class ApprovalGate {
    * interrupt 前置落库（幂等，重跑安全）：单事务写 approval_request + ai_task.waiting_approval +
    * linked_approval_id + follow_up_task 状态同步 + 员工状态 + SSE status 事件。
    */
-  async enterWaiting(tool: GateToolMeta, ctx: TaskRunContext, input: Record<string, unknown>): Promise<string> {
+  async enterWaiting(
+    tool: GateToolMeta,
+    ctx: TaskRunContext,
+    input: Record<string, unknown>,
+  ): Promise<string> {
     return withOrg(this.db, ctx.orgId, async (tx) => {
       // 幂等：同 (task, node) 已有 pending 审批单则复用（resume 重放节点时防重复建单）
       const [existing] = await tx
@@ -147,14 +172,18 @@ export class ApprovalGate {
           status: APPROVAL_STATUS.PENDING,
           requestedByEmployeeId: ctx.employeeId,
           linkedTaskId: ctx.taskId,
-          expiresAt: new Date(ctx.now.getTime() + APPROVAL_TTL_MS),
+          expiresAt: new Date(ctx.now.getTime() + approvalTtlMs(ctx, tool)),
         });
       }
 
       // ai_task → waiting_approval（幂等：已处于 waiting_approval 不重复写）
       await tx
         .update(schema.aiTask)
-        .set({ status: TASK_STATUS.WAITING_APPROVAL, linkedApprovalId: approvalId, updatedAt: ctx.now })
+        .set({
+          status: TASK_STATUS.WAITING_APPROVAL,
+          linkedApprovalId: approvalId,
+          updatedAt: ctx.now,
+        })
         .where(and(eq(schema.aiTask.id, ctx.taskId), eq(schema.aiTask.orgId, ctx.orgId)));
 
       // follow_up_task 同步挂起（next_run_at 冻结原值，不写排期）
@@ -163,7 +192,12 @@ export class ApprovalGate {
         await tx
           .update(schema.followUpTask)
           .set({ status: 'waiting_approval', updatedAt: ctx.now })
-          .where(and(eq(schema.followUpTask.id, followUpTaskId), eq(schema.followUpTask.status, 'scheduled')));
+          .where(
+            and(
+              eq(schema.followUpTask.id, followUpTaskId),
+              eq(schema.followUpTask.status, 'scheduled'),
+            ),
+          );
       }
 
       // 员工卡片状态
@@ -172,14 +206,20 @@ export class ApprovalGate {
         .set({ status: 'waiting_approval', updatedAt: ctx.now })
         .where(eq(schema.aiEmployee.id, ctx.employeeId));
 
-      ctx.events.push(buildStatusEvent({ status: TASK_STATUS.WAITING_APPROVAL, linkedApprovalId: approvalId }));
+      ctx.events.push(
+        buildStatusEvent({ status: TASK_STATUS.WAITING_APPROVAL, linkedApprovalId: approvalId }),
+      );
       this.logger.info({ taskId: ctx.taskId, approvalId, tool: tool.name }, '任务进入审批挂起');
       return approvalId;
     });
   }
 
   /** autoApprove 直发留痕：approval_request(auto_approved) + approval_log（12 §7.1 口径） */
-  async recordAutoApprove(tool: GateToolMeta, ctx: TaskRunContext, input: Record<string, unknown>): Promise<string> {
+  async recordAutoApprove(
+    tool: GateToolMeta,
+    ctx: TaskRunContext,
+    input: Record<string, unknown>,
+  ): Promise<string> {
     return withOrg(this.db, ctx.orgId, async (tx) => {
       const approvalId = createId('appr');
       const approverId = await resolveSystemApproverId(tx, ctx.orgId, ctx.taskId);
@@ -197,7 +237,7 @@ export class ApprovalGate {
         status: APPROVAL_STATUS.AUTO_APPROVED,
         requestedByEmployeeId: ctx.employeeId,
         linkedTaskId: ctx.taskId,
-        expiresAt: new Date(ctx.now.getTime() + APPROVAL_TTL_MS),
+        expiresAt: new Date(ctx.now.getTime() + approvalTtlMs(ctx, tool)),
         decidedAt: ctx.now,
       });
       if (approverId) {
@@ -213,7 +253,10 @@ export class ApprovalGate {
       }
       ctx.events.push({
         type: 'log',
-        payload: { type: TASK_LOG_TYPE.FOUND, content: `命中 autoApprove，自动放行（${tool.name}）` },
+        payload: {
+          type: TASK_LOG_TYPE.FOUND,
+          content: `命中 autoApprove，自动放行（${tool.name}）`,
+        },
       });
       return approvalId;
     });
@@ -224,12 +267,19 @@ export class ApprovalGate {
    * 任务 waiting_approval → running、员工 → working；follow_up_task 保持 scheduled（排期冻结解除）。
    * 新鲜度校验在图内 resume 后由工具钩子执行（Runtime §4.7）。
    */
-  async markResumed(orgId: string, taskId: string, employeeId: string, now = new Date()): Promise<void> {
+  async markResumed(
+    orgId: string,
+    taskId: string,
+    employeeId: string,
+    now = new Date(),
+  ): Promise<void> {
     await withOrg(this.db, orgId, async (tx) => {
       await tx
         .update(schema.aiTask)
         .set({ status: TASK_STATUS.RUNNING, updatedAt: now })
-        .where(and(eq(schema.aiTask.id, taskId), eq(schema.aiTask.status, TASK_STATUS.WAITING_APPROVAL)));
+        .where(
+          and(eq(schema.aiTask.id, taskId), eq(schema.aiTask.status, TASK_STATUS.WAITING_APPROVAL)),
+        );
       const followUpTaskId = (
         await tx
           .select({ input: schema.aiTask.input })
@@ -241,12 +291,22 @@ export class ApprovalGate {
         await tx
           .update(schema.followUpTask)
           .set({ status: 'scheduled', updatedAt: now })
-          .where(and(eq(schema.followUpTask.id, followUpTaskId), eq(schema.followUpTask.status, 'waiting_approval')));
+          .where(
+            and(
+              eq(schema.followUpTask.id, followUpTaskId),
+              eq(schema.followUpTask.status, 'waiting_approval'),
+            ),
+          );
       }
       await tx
         .update(schema.aiEmployee)
         .set({ status: 'working', updatedAt: now })
-        .where(and(eq(schema.aiEmployee.id, employeeId), eq(schema.aiEmployee.status, 'waiting_approval')));
+        .where(
+          and(
+            eq(schema.aiEmployee.id, employeeId),
+            eq(schema.aiEmployee.status, 'waiting_approval'),
+          ),
+        );
     });
     await this.publisher.publish(taskId, buildStatusEvent({ status: TASK_STATUS.RUNNING }));
   }

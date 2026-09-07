@@ -5,7 +5,13 @@
  */
 import { and, eq, sql } from 'drizzle-orm';
 import { schema, withOrg, type Db } from '@tradepilot/db';
-import { buildDoneEvent, buildStatusEvent, heartbeatKey, type TaskEventPublisher } from '@tradepilot/runtime';
+import {
+  buildDoneEvent,
+  buildStatusEvent,
+  heartbeatKey,
+  releaseEmployeeIdle,
+  type TaskEventPublisher,
+} from '@tradepilot/runtime';
 import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 
@@ -78,10 +84,18 @@ export class ZombieReaper {
       if (updated.length === 0) {
         return false;
       }
-      await tx
-        .update(schema.aiEmployee)
-        .set({ status: 'idle', statusDetail: null, updatedAt: now })
-        .where(eq(schema.aiEmployee.id, task.employeeId));
+      // M3-06：终态回写前置校验——员工仍占用其它任务则保持状态
+      const released = await releaseEmployeeIdle(tx, {
+        employeeId: task.employeeId,
+        excludeTaskId: task.id,
+        now,
+      });
+      if (!released) {
+        logger.warn(
+          { taskId: task.id, employeeId: task.employeeId },
+          '僵尸收割置 failed 但员工仍占用其它任务，保持员工状态（终态回写前置校验）',
+        );
+      }
       return true;
     });
     if (!done) {
@@ -89,8 +103,14 @@ export class ZombieReaper {
     }
     await redis.del(heartbeatKey(task.id));
     await publisher.publish(task.id, buildStatusEvent({ status: 'failed', error: 'timeout' }));
-    await publisher.publish(task.id, buildDoneEvent({ status: 'failed', outputs: [], error: 'timeout' }));
-    logger.warn({ taskId: task.id, startedAt: task.startedAt?.toISOString() }, '僵尸任务已收割（心跳缺失，timeout）');
+    await publisher.publish(
+      task.id,
+      buildDoneEvent({ status: 'failed', outputs: [], error: 'timeout' }),
+    );
+    logger.warn(
+      { taskId: task.id, startedAt: task.startedAt?.toISOString() },
+      '僵尸任务已收割（心跳缺失，timeout）',
+    );
     return true;
   }
 }

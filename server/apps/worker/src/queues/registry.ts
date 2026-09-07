@@ -6,15 +6,21 @@ import type { Logger } from 'pino';
 
 /**
  * 队列注册表（后端技术方案 04 §1）。
- * 按 WORKER_QUEUES 过滤注册 Worker；processor 由 index.ts 装配（TaskRunner 执行 LangGraph 工作流）。
- * jobId = taskId（防重复入队）；removeOnComplete/removeOnFail 开启——痕迹在 DB 不在 Redis。
+ * 按 WORKER_QUEUES 过滤注册 Worker；processor 由 index.ts 装配，内部按 job.queueName 分流
+ * （M3-12：task_type 队列 → TaskRunner 执行工作流；q:email_sync / q:notify → 系统处理器）。
+ * task jobId = taskId（防重复入队）；removeOnComplete/removeOnFail 开启——痕迹在 DB 不在 Redis。
  */
 const DEFAULT_JOB_OPTIONS = {
   removeOnComplete: { age: 3600, count: 1000 },
   removeOnFail: { age: 24 * 3600 },
 } as const;
 
-export function createWorkers(env: WorkerEnv, redisUrl: string, logger: Logger, processor: Processor): Worker[] {
+export function createWorkers(
+  env: WorkerEnv,
+  redisUrl: string,
+  logger: Logger,
+  processor: Processor,
+): Worker[] {
   const known = (
     env.WORKER_QUEUES.length > 0
       ? ALL_QUEUES.filter((q) => env.WORKER_QUEUES.includes(q))

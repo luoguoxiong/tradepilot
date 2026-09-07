@@ -111,13 +111,6 @@ export const mockNotificationSettings = {
   },
 }
 
-/** 12 §3.1 待审数（P0 实际审批来源 = email_send + customer_delete） */
-export const mockApprovalTabs = [
-  { type: 'all', count: 3 },
-  { type: 'email_send', count: 2 },
-  { type: 'customer_delete', count: 1 },
-]
-
 let seq = 100
 export function nextId(prefix: string): string {
   seq += 1

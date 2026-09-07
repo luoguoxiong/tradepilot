@@ -1,6 +1,6 @@
 import pino from 'pino';
 import { Redis as IORedis } from 'ioredis';
-import { eq, inArray } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import {
   ApprovalGate,
   GraphCompiler,
@@ -54,23 +54,57 @@ async function main(): Promise<void> {
   await db.transaction(async (tx) => {
     await tx.insert(schema.org).values({ id: ORG, name: 'repro', timezone: 'Asia/Shanghai' });
     await tx.insert(schema.userAccount).values({
-      id: USER, orgId: ORG, email: `repro-${ORG}@t.com`, passwordHash: 'x', name: 'r', role: 'admin', status: 'active',
+      id: USER,
+      orgId: ORG,
+      email: `repro-${ORG}@t.com`,
+      passwordHash: 'x',
+      name: 'r',
+      role: 'admin',
+      status: 'active',
     });
     await tx.insert(schema.aiEmployee).values({
-      id: EMP, orgId: ORG, role: 'follow_up', name: '跟进员', goal: 'g', tools: ['knowledge_search', 'email_send'],
-      permissions: {}, approvalPolicy: { email_send: 'high_value_only', quote: 'always', autoExecute: [] },
+      id: EMP,
+      orgId: ORG,
+      role: 'follow_up',
+      name: '跟进员',
+      goal: 'g',
+      tools: ['knowledge_search', 'email_send'],
+      permissions: {},
+      approvalPolicy: { email_send: 'high_value_only', quote: 'always', autoExecute: [] },
       kpiConfig: [{ metric: 't', target: 1, period: 'daily' }],
     });
-    await tx.insert(schema.customer).values({ id: CUS, orgId: ORG, companyName: 'repro客户', country: 'US', ownerId: USER });
-    await tx.insert(schema.followUpStrategy).values({ id: STRAT, orgId: ORG, name: 'r', targetScope: {}, autoSendPolicy: 'manual_review' });
+    await tx
+      .insert(schema.customer)
+      .values({ id: CUS, orgId: ORG, companyName: 'repro客户', country: 'US', ownerId: USER });
+    await tx.insert(schema.followUpStrategy).values({
+      id: STRAT,
+      orgId: ORG,
+      name: 'r',
+      targetScope: {},
+      autoSendPolicy: 'manual_review',
+    });
     await tx.insert(schema.followUpStrategyStep).values([
       { id: S1, orgId: ORG, strategyId: STRAT, seq: 1, dayOffset: 0, title: '首触' },
       { id: S2, orgId: ORG, strategyId: STRAT, seq: 2, dayOffset: 3, title: '价值' },
     ]);
-    await tx.insert(schema.followUpTask).values({ id: FT, orgId: ORG, customerId: CUS, strategyId: STRAT, status: 'ready', nextRunAt: new Date() });
-    await tx.insert(schema.conversation).values({ id: CONV, orgId: ORG, customerId: CUS, channel: 'email', subject: 'r' });
+    await tx.insert(schema.followUpTask).values({
+      id: FT,
+      orgId: ORG,
+      customerId: CUS,
+      strategyId: STRAT,
+      status: 'ready',
+      nextRunAt: new Date(),
+    });
+    await tx
+      .insert(schema.conversation)
+      .values({ id: CONV, orgId: ORG, customerId: CUS, channel: 'email', subject: 'r' });
     await tx.insert(schema.aiTask).values({
-      id: TASK, orgId: ORG, employeeId: EMP, type: 'follow_up', title: 'repro', status: 'scheduled',
+      id: TASK,
+      orgId: ORG,
+      employeeId: EMP,
+      type: 'follow_up',
+      title: 'repro',
+      status: 'scheduled',
       input: { followUpTaskId: FT, customerId: CUS, conversationId: CONV },
     });
   });
@@ -91,12 +125,28 @@ async function main(): Promise<void> {
     events: [],
     db,
     employee: {
-      id: emp.id, orgId: emp.orgId, role: emp.role, name: emp.name, tools: emp.tools,
-      knowledgeScope: emp.knowledgeScope, approvalPolicy: emp.approvalPolicy,
-      memoryConfig: emp.memoryConfig ?? null, externalCallDailyLimit: 200,
+      id: emp.id,
+      orgId: emp.orgId,
+      role: emp.role,
+      name: emp.name,
+      tools: emp.tools,
+      knowledgeScope: emp.knowledgeScope,
+      approvalPolicy: emp.approvalPolicy,
+      memoryConfig: emp.memoryConfig ?? null,
+      externalCallDailyLimit: 200,
     },
-    org: { id: orgRow.id, timezone: orgRow.timezone ?? 'Asia/Shanghai', sendRules: orgRow.sendRules ?? null, autoApproveTypes: [] },
-    task: { id: TASK, title: 'repro', input: { followUpTaskId: FT, customerId: CUS, conversationId: CONV } },
+    org: {
+      id: orgRow.id,
+      timezone: orgRow.timezone ?? 'Asia/Shanghai',
+      sendRules: orgRow.sendRules ?? null,
+      autoApproveTypes: [],
+      approvalTtlMsByType: {},
+    },
+    task: {
+      id: TASK,
+      title: 'repro',
+      input: { followUpTaskId: FT, customerId: CUS, conversationId: CONV },
+    },
     progressPct: 0,
     currentStep: '',
   } as never;
@@ -106,9 +156,15 @@ async function main(): Promise<void> {
   try {
     await graph.invoke(
       {
-        taskId: TASK, orgId: ORG, employeeId: EMP, taskType: 'follow_up',
+        taskId: TASK,
+        orgId: ORG,
+        employeeId: EMP,
+        taskType: 'follow_up',
         input: { followUpTaskId: FT, customerId: CUS, conversationId: CONV },
-        errors: [], followUpTaskId: FT, customerId: CUS, conversationId: CONV,
+        errors: [],
+        followUpTaskId: FT,
+        customerId: CUS,
+        conversationId: CONV,
       },
       ctx,
     );
@@ -123,7 +179,9 @@ async function main(): Promise<void> {
       await tx.delete(schema.aiTask).where(eq(schema.aiTask.orgId, ORG));
       await tx.delete(schema.approvalRequest).where(eq(schema.approvalRequest.orgId, ORG));
       await tx.delete(schema.followUpTask).where(eq(schema.followUpTask.orgId, ORG));
-      await tx.delete(schema.followUpStrategyStep).where(eq(schema.followUpStrategyStep.orgId, ORG));
+      await tx
+        .delete(schema.followUpStrategyStep)
+        .where(eq(schema.followUpStrategyStep.orgId, ORG));
       await tx.delete(schema.followUpStrategy).where(eq(schema.followUpStrategy.orgId, ORG));
       await tx.delete(schema.conversation).where(eq(schema.conversation.orgId, ORG));
       await tx.delete(schema.customer).where(eq(schema.customer.orgId, ORG));

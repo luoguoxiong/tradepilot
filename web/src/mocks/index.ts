@@ -1,5 +1,7 @@
 import { approvalHandlers } from './handlers/approvals'
 import { authHandlers } from './handlers/auth'
+import { customer360Handlers } from './handlers/customer360'
+import { customerHandlers } from './handlers/customers'
 import { employeeHandlers } from './handlers/employees'
 import { knowledgeHandlers } from './handlers/knowledge'
 import { leadHandlers } from './handlers/leads'
@@ -13,6 +15,8 @@ export const handlers = [
   ...orgHandlers,
   ...settingsHandlers,
   ...approvalHandlers,
+  ...customerHandlers,
+  ...customer360Handlers,
   ...knowledgeHandlers,
   ...employeeHandlers,
   ...leadHandlers,

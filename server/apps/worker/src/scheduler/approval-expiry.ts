@@ -8,7 +8,12 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { createId } from '@tradepilot/core';
 import { schema, withOrg, type Db } from '@tradepilot/db';
-import { buildDoneEvent, buildStatusEvent, type TaskEventPublisher } from '@tradepilot/runtime';
+import {
+  buildDoneEvent,
+  buildStatusEvent,
+  releaseEmployeeIdle,
+  type TaskEventPublisher,
+} from '@tradepilot/runtime';
 import type { TaskEnqueuer } from '@tradepilot/runtime';
 import type { Logger } from 'pino';
 
@@ -42,7 +47,10 @@ export class ApprovalExpiryScanner {
         })
         .from(schema.approvalRequest)
         .where(
-          and(eq(schema.approvalRequest.status, 'pending'), sql`${schema.approvalRequest.expiresAt} < ${now.toISOString()}`),
+          and(
+            eq(schema.approvalRequest.status, 'pending'),
+            sql`${schema.approvalRequest.expiresAt} < ${now.toISOString()}`,
+          ),
         )
         .limit(BATCH_SIZE);
     });
@@ -74,7 +82,9 @@ export class ApprovalExpiryScanner {
       const [logExists] = await tx
         .select({ id: schema.approvalLog.id })
         .from(schema.approvalLog)
-        .where(and(eq(schema.approvalLog.approvalId, req.id), eq(schema.approvalLog.action, 'expired')))
+        .where(
+          and(eq(schema.approvalLog.approvalId, req.id), eq(schema.approvalLog.action, 'expired')),
+        )
         .limit(1);
       if (logExists) {
         return false;
@@ -84,7 +94,9 @@ export class ApprovalExpiryScanner {
       const updated = await tx
         .update(schema.approvalRequest)
         .set({ status: 'expired', updatedAt: now })
-        .where(and(eq(schema.approvalRequest.id, req.id), eq(schema.approvalRequest.status, 'pending')))
+        .where(
+          and(eq(schema.approvalRequest.id, req.id), eq(schema.approvalRequest.status, 'pending')),
+        )
         .returning({ id: schema.approvalRequest.id });
       if (updated.length === 0) {
         return false;
@@ -94,7 +106,12 @@ export class ApprovalExpiryScanner {
       const [proxy] = await tx
         .select({ id: schema.userAccount.id, name: schema.userAccount.name })
         .from(schema.userAccount)
-        .where(and(eq(schema.userAccount.orgId, req.orgId), sql`${schema.userAccount.role} in ('manager','admin')`))
+        .where(
+          and(
+            eq(schema.userAccount.orgId, req.orgId),
+            sql`${schema.userAccount.role} in ('manager','admin')`,
+          ),
+        )
         .orderBy(schema.userAccount.createdAt)
         .limit(1);
       await tx.insert(schema.approvalLog).values({
@@ -118,16 +135,32 @@ export class ApprovalExpiryScanner {
         const [taskRow] = await tx
           .update(schema.aiTask)
           .set({ status: 'failed', error: 'approval_expired', finishedAt: now, updatedAt: now })
-          .where(and(eq(schema.aiTask.id, req.linkedTaskId), eq(schema.aiTask.status, 'waiting_approval')))
+          .where(
+            and(
+              eq(schema.aiTask.id, req.linkedTaskId),
+              eq(schema.aiTask.status, 'waiting_approval'),
+            ),
+          )
           .returning({ id: schema.aiTask.id, employeeId: schema.aiTask.employeeId });
         if (taskRow) {
           failedTaskId = taskRow.id;
-          await tx
-            .update(schema.aiEmployee)
-            .set({ status: 'idle', statusDetail: null, updatedAt: now })
-            .where(eq(schema.aiEmployee.id, taskRow.employeeId));
+          // M3-06：终态回写前置校验——员工仍占用其它任务则保持状态
+          const released = await releaseEmployeeIdle(tx, {
+            employeeId: taskRow.employeeId,
+            excludeTaskId: taskRow.id,
+            now,
+          });
+          if (!released) {
+            logger.warn(
+              { taskId: taskRow.id, employeeId: taskRow.employeeId },
+              '审批超时级联失败但员工仍占用其它任务，保持员工状态（终态回写前置校验）',
+            );
+          }
           // 级联 follow_up_task.paused（转人工；挂起时已同步 waiting_approval）
-          const followUpTaskId = typeof before?.input?.['followUpTaskId'] === 'string' ? before.input['followUpTaskId'] : null;
+          const followUpTaskId =
+            typeof before?.input?.['followUpTaskId'] === 'string'
+              ? before.input['followUpTaskId']
+              : null;
           if (followUpTaskId) {
             await tx
               .update(schema.followUpTask)
@@ -143,14 +176,28 @@ export class ApprovalExpiryScanner {
       }
 
       // 邮件提醒经理一次（q:notify；通知服务随 M5 实装，此处仅投递）
-      await enqueuer.enqueueNotify({ type: 'approval_expired', approvalId: req.id, orgId: req.orgId, title: req.title });
+      await enqueuer.enqueueNotify({
+        type: 'approval_expired',
+        approvalId: req.id,
+        orgId: req.orgId,
+        title: req.title,
+      });
 
       // SSE：任务侧 failed + done
       if (failedTaskId) {
-        await publisher.publish(failedTaskId, buildStatusEvent({ status: 'failed', error: 'approval_expired' }));
-        await publisher.publish(failedTaskId, buildDoneEvent({ status: 'failed', outputs: [], error: 'approval_expired' }));
+        await publisher.publish(
+          failedTaskId,
+          buildStatusEvent({ status: 'failed', error: 'approval_expired' }),
+        );
+        await publisher.publish(
+          failedTaskId,
+          buildDoneEvent({ status: 'failed', outputs: [], error: 'approval_expired' }),
+        );
       }
-      logger.info({ approvalId: req.id, taskId: failedTaskId }, '审批超时：expired 终态并级联转人工');
+      logger.info(
+        { approvalId: req.id, taskId: failedTaskId },
+        '审批超时：expired 终态并级联转人工',
+      );
       return true;
     });
   }

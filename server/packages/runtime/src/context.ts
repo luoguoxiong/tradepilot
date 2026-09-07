@@ -28,10 +28,15 @@ export interface OrgRuntime {
   sendRules: OrgSendRules | null;
   /** org 级 autoApprove 开关：从 role_permission.approval_rules 提取（16 FR-08，仅 medium 可开） */
   autoApproveTypes: string[];
+  /**
+   * 审批类型 → 超时毫秒数（M3-14：从员工角色 approval_rules 的 expireHours 提取，
+   * 12 §7.2「按类型默认 48h，16 可配」；未配置类型在 gate 侧回落 APPROVAL_TTL_MS）。
+   */
+  approvalTtlMsByType: Record<string, number>;
 }
 
-/** 组织级审批规则行（role_permission.approval_rules） */
-export type OrgApprovalRule = ApprovalRule & { autoApprove?: boolean };
+/** 组织级审批规则行（role_permission.approval_rules；autoApprove/expireHours 为 jsonb 运行时扩展） */
+export type OrgApprovalRule = ApprovalRule;
 
 /** 节点级事务化上下文：与 tools.ToolContext 兼容（结构化子集） */
 export interface NodeTxContext {

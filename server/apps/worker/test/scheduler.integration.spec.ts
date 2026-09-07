@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import pino from 'pino';
-import type { TaskEnqueuer } from '@tradepilot/runtime';
+import { releaseEmployeeIdle, type TaskEnqueuer } from '@tradepilot/runtime';
 import { computeDeferredNextRunAt, createId } from '@tradepilot/core';
 import { closeDb, createDb, schema, type Db } from '@tradepilot/db';
 import { Dispatcher } from '../src/scheduler/dispatcher.js';
@@ -10,14 +10,17 @@ import { FollowUpScanner } from '../src/scheduler/follow-up-scanner.js';
 
 /**
  * M3-17 调度器集成测试（后端技术方案 04 §3）：
- * - Dispatcher 并发闸门：员工并发=1（DB running + 本轮累加）、org 总并发=10、
- *   waiting_approval 不占并发、未到点定时任务不投、FIFO 投递；
+ * - Dispatcher 并发闸门：员工并发=1（DB running/waiting_approval + 本轮累加，M3-06 挂起占员工位）、
+ *   org 总并发=10（仅统计 running）、未到点定时任务不投、FIFO 投递；
+ * - releaseEmployeeIdle 终态回写前置校验（M3-06）；
  * - FollowUpScanner 频控预检：频控不满足 → 顺延 + skipped(frequency_capped) 留痕不入队；
  *   预检通过 → 建 ai_task(scheduled)；活跃 ai_task 防重。
  * 前置：docker compose up（PG 5432）；调度扫描经 superDb（BYPASSRLS，与生产 tradepilot_sched 等效语义）。
  */
 
-const SUPER_URL = 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
+// 连接串可用 TEST_DB_URL 覆盖（如本机 5432 被占时用独立容器 5433）；默认指向 compose PG
+const SUPER_URL =
+  process.env.TEST_DB_URL ?? 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
 const logger: Logger = pino({ level: 'silent' });
 
 let db: Db;
@@ -78,7 +81,7 @@ async function insertTask(values: {
 beforeAll(async () => {
   db = createDb(SUPER_URL, { max: 5 });
   dispatcher = new Dispatcher({ db, enqueuer: stubEnqueuer, logger });
-  scanner = new FollowUpScannerImpl({ db, logger });
+  scanner = new FollowUpScanner({ db, logger });
 
   await db.transaction(async (tx) => {
     await tx.insert(schema.org).values([
@@ -98,7 +101,7 @@ beforeAll(async () => {
 
   // ===== 租户 A：闸门语义 =====
   // emp[0]=有 1 running；emp[1]=空载 2 scheduled（本轮累加）；emp[2]=1 running + 1 scheduled；
-  // emp[3]=1 waiting_approval + 1 scheduled；emp[4]=未到点
+  // emp[3]=1 waiting_approval + 1 scheduled（挂起占员工位，M3-06 → 不投）；emp[4]=未到点
   const now = Date.now();
   await db.insert(schema.aiEmployee).values(
     EMP_IDS.slice(0, 5).map((id, i) => ({
@@ -109,18 +112,47 @@ beforeAll(async () => {
       goal: '测试',
       tools: [],
       permissions: {},
-      approvalPolicy: { email_send: 'high_value_only' as const, quote: 'always' as const, autoExecute: [] },
+      approvalPolicy: {
+        email_send: 'high_value_only' as const,
+        quote: 'always' as const,
+        autoExecute: [],
+      },
       kpiConfig: [{ metric: 'leads', target: 1, period: 'daily' as const }],
     })),
   );
   await insertTask({ orgId: ORG, employeeId: EMP_IDS[0], status: 'running' });
-  await insertTask({ orgId: ORG, employeeId: EMP_IDS[1], status: 'scheduled', scheduledAt: new Date(now - 3000) });
-  await insertTask({ orgId: ORG, employeeId: EMP_IDS[1], status: 'scheduled', scheduledAt: new Date(now - 2000) });
+  await insertTask({
+    orgId: ORG,
+    employeeId: EMP_IDS[1],
+    status: 'scheduled',
+    scheduledAt: new Date(now - 3000),
+  });
+  await insertTask({
+    orgId: ORG,
+    employeeId: EMP_IDS[1],
+    status: 'scheduled',
+    scheduledAt: new Date(now - 2000),
+  });
   await insertTask({ orgId: ORG, employeeId: EMP_IDS[2], status: 'running' });
-  await insertTask({ orgId: ORG, employeeId: EMP_IDS[2], status: 'scheduled', scheduledAt: new Date(now - 1000) });
+  await insertTask({
+    orgId: ORG,
+    employeeId: EMP_IDS[2],
+    status: 'scheduled',
+    scheduledAt: new Date(now - 1000),
+  });
   await insertTask({ orgId: ORG, employeeId: EMP_IDS[3], status: 'waiting_approval' });
-  await insertTask({ orgId: ORG, employeeId: EMP_IDS[3], status: 'scheduled', scheduledAt: new Date(now - 500) });
-  await insertTask({ orgId: ORG, employeeId: EMP_IDS[4], status: 'scheduled', scheduledAt: new Date(now + 10 * 60_000) });
+  await insertTask({
+    orgId: ORG,
+    employeeId: EMP_IDS[3],
+    status: 'scheduled',
+    scheduledAt: new Date(now - 500),
+  });
+  await insertTask({
+    orgId: ORG,
+    employeeId: EMP_IDS[4],
+    status: 'scheduled',
+    scheduledAt: new Date(now + 10 * 60_000),
+  });
 
   // ===== 租户 B：org 并发=10（10 running 跨 10 员工 + 1 scheduled）=====
   await db.insert(schema.aiEmployee).values(
@@ -132,14 +164,23 @@ beforeAll(async () => {
       goal: '测试',
       tools: [],
       permissions: {},
-      approvalPolicy: { email_send: 'high_value_only' as const, quote: 'always' as const, autoExecute: [] },
+      approvalPolicy: {
+        email_send: 'high_value_only' as const,
+        quote: 'always' as const,
+        autoExecute: [],
+      },
       kpiConfig: [{ metric: 'leads', target: 1, period: 'daily' as const }],
     })),
   );
   for (let i = 0; i < 10; i += 1) {
     await insertTask({ orgId: ORG_FULL, employeeId: EMP_IDS[i], status: 'running' });
   }
-  await insertTask({ orgId: ORG_FULL, employeeId: EMP_IDS[10], status: 'scheduled', scheduledAt: new Date(now - 100) });
+  await insertTask({
+    orgId: ORG_FULL,
+    employeeId: EMP_IDS[10],
+    status: 'scheduled',
+    scheduledAt: new Date(now - 100),
+  });
 
   // ===== 租户 A：跟进频控场景 =====
   await db.insert(schema.aiEmployee).values({
@@ -150,7 +191,11 @@ beforeAll(async () => {
     goal: '测试',
     tools: [],
     permissions: {},
-    approvalPolicy: { email_send: 'high_value_only' as const, quote: 'always' as const, autoExecute: [] },
+    approvalPolicy: {
+      email_send: 'high_value_only' as const,
+      quote: 'always' as const,
+      autoExecute: [],
+    },
     kpiConfig: [{ metric: 'touches', target: 1, period: 'daily' as const }],
   });
   await db.insert(schema.customer).values([
@@ -167,12 +212,39 @@ beforeAll(async () => {
   });
   const due = new Date(Date.now() - 60_000);
   await db.insert(schema.followUpTask).values([
-    { id: FT_CAPPED, orgId: ORG, customerId: CUS_CAPPED, strategyId: STRATEGY, status: 'scheduled', nextRunAt: due },
-    { id: FT_OK, orgId: ORG, customerId: CUS_OK, strategyId: STRATEGY, status: 'ready', nextRunAt: due },
-    { id: FT_BUSY, orgId: ORG, customerId: CUS_BUSY, strategyId: STRATEGY, status: 'scheduled', nextRunAt: due },
+    {
+      id: FT_CAPPED,
+      orgId: ORG,
+      customerId: CUS_CAPPED,
+      strategyId: STRATEGY,
+      status: 'scheduled',
+      nextRunAt: due,
+    },
+    {
+      id: FT_OK,
+      orgId: ORG,
+      customerId: CUS_OK,
+      strategyId: STRATEGY,
+      status: 'ready',
+      nextRunAt: due,
+    },
+    {
+      id: FT_BUSY,
+      orgId: ORG,
+      customerId: CUS_BUSY,
+      strategyId: STRATEGY,
+      status: 'scheduled',
+      nextRunAt: due,
+    },
   ]);
   // 频控不满足：1 天前刚人工外发过（L + 3d > next_run_at）
-  await db.insert(schema.conversation).values({ id: CONV_CAPPED, orgId: ORG, customerId: CUS_CAPPED, channel: 'email', subject: '频控会话' });
+  await db.insert(schema.conversation).values({
+    id: CONV_CAPPED,
+    orgId: ORG,
+    customerId: CUS_CAPPED,
+    channel: 'email',
+    subject: '频控会话',
+  });
   await db.insert(schema.message).values({
     id: createId('msg'),
     orgId: ORG,
@@ -201,7 +273,9 @@ afterAll(async () => {
   const orgIds = [ORG, ORG_FULL];
   await db.transaction(async (tx) => {
     await tx.delete(schema.aiTask).where(inArray(schema.aiTask.orgId, orgIds));
-    await tx.delete(schema.followUpExecution).where(inArray(schema.followUpExecution.orgId, orgIds));
+    await tx
+      .delete(schema.followUpExecution)
+      .where(inArray(schema.followUpExecution.orgId, orgIds));
     await tx.delete(schema.followUpTask).where(inArray(schema.followUpTask.orgId, orgIds));
     await tx.delete(schema.followUpStrategy).where(inArray(schema.followUpStrategy.orgId, orgIds));
     await tx.delete(schema.message).where(inArray(schema.message.orgId, orgIds));
@@ -215,39 +289,58 @@ afterAll(async () => {
 });
 
 describe('Dispatcher 并发闸门（04 §3.3）', () => {
-  it('员工并发=1 / 本轮累加 / waiting_approval 不占并发 / 未到点不投 / FIFO', async () => {
+  it('员工并发=1 / 本轮累加 / waiting_approval 占员工位 / 未到点不投 / FIFO', async () => {
     enqueued.length = 0;
     const dispatched = await dispatcher.tick();
 
-    // 期望投递：emp[1] 队首任务（FIFO 早者）、emp[3] 的 scheduled（waiting_approval 不占并发）
-    // 不投：emp[0]（无 scheduled）、emp[2]（DB running 占用）、emp[4]（未到点）
-    expect(dispatched).toBe(2);
-    expect(enqueued).toHaveLength(2);
+    // 期望投递：emp[1] 队首任务（FIFO 早者）
+    // 不投：emp[0]（无 scheduled）、emp[2]（DB running 占用）、emp[3]（waiting_approval 占员工位，M3-06）、emp[4]（未到点）
+    expect(dispatched).toBe(1);
+    expect(enqueued).toHaveLength(1);
 
     // emp[1] 只投队首（本轮累加：投递后 empUsed=1，同员工第二个任务不投）
     const emp1Tasks = await db
       .select({ id: schema.aiTask.id })
       .from(schema.aiTask)
-      .where(and(eq(schema.aiTask.orgId, ORG), eq(schema.aiTask.employeeId, EMP_IDS[1]), eq(schema.aiTask.status, 'scheduled')))
+      .where(
+        and(
+          eq(schema.aiTask.orgId, ORG),
+          eq(schema.aiTask.employeeId, EMP_IDS[1]),
+          eq(schema.aiTask.status, 'scheduled'),
+        ),
+      )
       .orderBy(asc(schema.aiTask.scheduledAt));
     expect(emp1Tasks).toHaveLength(2);
     const dispatchedIds = enqueued.map((e) => e.taskId);
     expect(dispatchedIds).toContain(emp1Tasks[0]!.id);
     expect(dispatchedIds).not.toContain(emp1Tasks[1]!.id);
 
-    // emp[2]（有 running）与 emp[4]（未到点）的 scheduled 保持不动
-    for (const empId of [EMP_IDS[2], EMP_IDS[4]]) {
+    // emp[2]（有 running）、emp[3]（waiting_approval 占员工位）与 emp[4]（未到点）的 scheduled 保持不动
+    for (const empId of [EMP_IDS[2], EMP_IDS[3], EMP_IDS[4]]) {
       const rows = await db
         .select({ status: schema.aiTask.status })
         .from(schema.aiTask)
-        .where(and(eq(schema.aiTask.orgId, ORG), eq(schema.aiTask.employeeId, empId), eq(schema.aiTask.status, 'scheduled')));
+        .where(
+          and(
+            eq(schema.aiTask.orgId, ORG),
+            eq(schema.aiTask.employeeId, empId),
+            eq(schema.aiTask.status, 'scheduled'),
+          ),
+        );
       expect(rows.length).toBeGreaterThan(0);
     }
   });
 
   it('org 并发=10：满载不投，腾出一个名额后恢复投递', async () => {
     enqueued.length = 0;
-    // 租户 B 10 个 running 已满 → B 的 scheduled 不投；A 无变化 → 本轮 0 投递
+    // 隔离租户 A 的闸门样本（置 completed，避免 stub 不置 running 导致的重复可投与 B 并发断言耦合）
+    await db
+      .update(schema.aiTask)
+      .set({ status: 'completed' })
+      .where(
+        and(eq(schema.aiTask.orgId, ORG), inArray(schema.aiTask.employeeId, EMP_IDS.slice(0, 5))),
+      );
+    // 租户 B 10 个 running 已满 → B 的 scheduled 不投；A 已清空 → 本轮 0 投递
     const dispatched1 = await dispatcher.tick();
     expect(dispatched1).toBe(0);
 
@@ -257,7 +350,10 @@ describe('Dispatcher 并发闸门（04 §3.3）', () => {
       .from(schema.aiTask)
       .where(and(eq(schema.aiTask.orgId, ORG_FULL), eq(schema.aiTask.status, 'running')))
       .limit(1);
-    await db.update(schema.aiTask).set({ status: 'completed' }).where(eq(schema.aiTask.id, runningTask!.id));
+    await db
+      .update(schema.aiTask)
+      .set({ status: 'completed' })
+      .where(eq(schema.aiTask.id, runningTask!.id));
 
     enqueued.length = 0;
     const dispatched2 = await dispatcher.tick();
@@ -270,6 +366,106 @@ describe('Dispatcher 并发闸门（04 §3.3）', () => {
       .limit(1);
     // 投递后任务行仍为 scheduled（置 running 由 TaskRunner.claim 唯一执行）
     expect(enqueued[0]?.taskId).toBe(releasedTask?.id);
+  });
+});
+
+describe('releaseEmployeeIdle 终态回写前置校验（04 §3.3 / M3-06）', () => {
+  it('员工仍占用其它 active 任务 → 不回 idle，保持现状态', async () => {
+    const empId = createId('aie');
+    const keepId = createId('task');
+    const finishId = createId('task');
+    const outcome = await db.transaction(async (tx) => {
+      await tx.insert(schema.aiEmployee).values({
+        id: empId,
+        orgId: ORG,
+        role: 'sales',
+        name: '释放校验A',
+        goal: '测试',
+        tools: [],
+        permissions: {},
+        approvalPolicy: {
+          email_send: 'high_value_only' as const,
+          quote: 'always' as const,
+          autoExecute: [],
+        },
+        kpiConfig: [{ metric: 'leads', target: 1, period: 'daily' as const }],
+        status: 'working',
+      });
+      await tx.insert(schema.aiTask).values([
+        {
+          id: keepId,
+          orgId: ORG,
+          employeeId: empId,
+          type: 'lead_hunting',
+          title: '占用任务',
+          status: 'running',
+        },
+        {
+          id: finishId,
+          orgId: ORG,
+          employeeId: empId,
+          type: 'lead_hunting',
+          title: '刚终态任务',
+          status: 'running',
+        },
+      ]);
+      const released = await releaseEmployeeIdle(tx, {
+        employeeId: empId,
+        excludeTaskId: finishId,
+        now: new Date(),
+      });
+      const [emp] = await tx
+        .select({ status: schema.aiEmployee.status })
+        .from(schema.aiEmployee)
+        .where(eq(schema.aiEmployee.id, empId));
+      return { released, status: emp?.status };
+    });
+    // 排除刚终态的任务后仍有其它 running → 保持员工状态（防「任务 A 结束把跑 B 的员工置 idle」）
+    expect(outcome.released).toBe(false);
+    expect(outcome.status).toBe('working');
+  });
+
+  it('员工无其它 active 任务 → 回写 idle', async () => {
+    const empId = createId('aie');
+    const finishId = createId('task');
+    const outcome = await db.transaction(async (tx) => {
+      await tx.insert(schema.aiEmployee).values({
+        id: empId,
+        orgId: ORG,
+        role: 'sales',
+        name: '释放校验B',
+        goal: '测试',
+        tools: [],
+        permissions: {},
+        approvalPolicy: {
+          email_send: 'high_value_only' as const,
+          quote: 'always' as const,
+          autoExecute: [],
+        },
+        kpiConfig: [{ metric: 'leads', target: 1, period: 'daily' as const }],
+        status: 'waiting_approval',
+      });
+      await tx.insert(schema.aiTask).values({
+        id: finishId,
+        orgId: ORG,
+        employeeId: empId,
+        type: 'lead_hunting',
+        title: '唯一任务',
+        status: 'running',
+      });
+      const released = await releaseEmployeeIdle(tx, {
+        employeeId: empId,
+        excludeTaskId: finishId,
+        now: new Date(),
+      });
+      const [emp] = await tx
+        .select({ status: schema.aiEmployee.status })
+        .from(schema.aiEmployee)
+        .where(eq(schema.aiEmployee.id, empId));
+      return { released, status: emp?.status };
+    });
+    expect(outcome.released).toBe(true);
+    expect(outcome.status).toBe('idle');
   });
 });
 
@@ -300,7 +496,10 @@ describe('FollowUpScanner 频控预检（04 §3.2 / 07 §7）', () => {
     expect(Math.abs(after.nextRunAt!.getTime() - expected.getTime())).toBeLessThan(60_000);
 
     const execs = await db
-      .select({ status: schema.followUpExecution.status, skipReason: schema.followUpExecution.skipReason })
+      .select({
+        status: schema.followUpExecution.status,
+        skipReason: schema.followUpExecution.skipReason,
+      })
       .from(schema.followUpExecution)
       .where(eq(schema.followUpExecution.followUpTaskId, FT_CAPPED));
     expect(execs).toHaveLength(1);
@@ -324,7 +523,12 @@ describe('FollowUpScanner 频控预检（04 §3.2 / 07 §7）', () => {
     expect(result.enqueued).toBe(1);
 
     const [task] = await db
-      .select({ id: schema.aiTask.id, employeeId: schema.aiTask.employeeId, status: schema.aiTask.status, input: schema.aiTask.input })
+      .select({
+        id: schema.aiTask.id,
+        employeeId: schema.aiTask.employeeId,
+        status: schema.aiTask.status,
+        input: schema.aiTask.input,
+      })
       .from(schema.aiTask)
       .where(sql`(${schema.aiTask.input} ->> 'followUpTaskId') = ${FT_OK}`);
     expect(task.status).toBe('scheduled');
@@ -347,5 +551,46 @@ describe('FollowUpScanner 频控预检（04 §3.2 / 07 §7）', () => {
     expect(tasks).toHaveLength(1);
     expect(tasks[0]!.id).toBe(TASK_BUSY);
     expect(result.enqueued).toBe(0);
+  });
+
+  it('M3-04 多实例并发预检不重复建 ai_task（行锁 SKIP LOCKED + 唯一索引兜底）', async () => {
+    // 新增一条到期跟进任务（无既有会话/外发 → 频控通过），双实例并发各自 tick
+    const CUS_RACE = createId('cus');
+    const FT_RACE = createId('ftask');
+    await db.insert(schema.customer).values({
+      id: CUS_RACE,
+      orgId: ORG,
+      companyName: '并发竞态客户',
+      country: 'US',
+      ownerId: USER,
+    });
+    await db.insert(schema.followUpTask).values({
+      id: FT_RACE,
+      orgId: ORG,
+      customerId: CUS_RACE,
+      strategyId: STRATEGY,
+      status: 'ready',
+      nextRunAt: new Date(Date.now() - 60_000),
+    });
+
+    // 模拟第二个 worker 实例（同库、独立扫描器）
+    const scanner2 = new FollowUpScanner({ db, logger });
+    const [a, b] = await Promise.all([scanner.tick(), scanner2.tick()]);
+
+    // 无论调度交错如何，同一 followUpTaskId 只允许一条活跃 ai_task
+    const tasks = await db
+      .select({ id: schema.aiTask.id, status: schema.aiTask.status })
+      .from(schema.aiTask)
+      .where(sql`(${schema.aiTask.input} ->> 'followUpTaskId') = ${FT_RACE}`);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]!.status).toBe('scheduled');
+    expect(a.enqueued + b.enqueued).toBe(1);
+
+    // 行锁串行化后败者让出：无孤儿会话产生
+    const convs = await db
+      .select({ id: schema.conversation.id })
+      .from(schema.conversation)
+      .where(and(eq(schema.conversation.orgId, ORG), eq(schema.conversation.customerId, CUS_RACE)));
+    expect(convs).toHaveLength(1);
   });
 });

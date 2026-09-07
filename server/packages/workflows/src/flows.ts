@@ -12,7 +12,12 @@ import { and, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import { createId } from '@tradepilot/core';
 import { computeDeferredNextRunAt, type SendWindow } from '@tradepilot/core';
 import { schema, withOrg } from '@tradepilot/db';
-import type { CompanyLead, LeadContact, LeadScore } from '@tradepilot/shared';
+import {
+  boundExternal,
+  type CompanyLead,
+  type LeadContact,
+  type LeadScore,
+} from '@tradepilot/shared';
 import {
   SimpleFlowRegistry,
   loadCustomerInsights,
@@ -37,7 +42,12 @@ function normDomain(domain: string | null | undefined): string | null {
   if (!domain) {
     return null;
   }
-  return domain.replace(/^www\./, '').toLowerCase().trim() || null;
+  return (
+    domain
+      .replace(/^www\./, '')
+      .toLowerCase()
+      .trim() || null
+  );
 }
 
 function leadKey(lead: Pick<CompanyLead, 'companyName' | 'domain'>): string {
@@ -45,9 +55,7 @@ function leadKey(lead: Pick<CompanyLead, 'companyName' | 'domain'>): string {
 }
 
 /** org.send_rules.sendWindow（'HH:MM'）→ core SendWindow（小时粒度） */
-function parseSendWindow(
-  sendRules: TaskRunContext['org']['sendRules'],
-): SendWindow | undefined {
+function parseSendWindow(sendRules: TaskRunContext['org']['sendRules']): SendWindow | undefined {
   if (!sendRules?.sendWindow) {
     return undefined;
   }
@@ -80,8 +88,10 @@ const dedupCheck: FlowNodeFn = async (state, ctx) => {
   const result = state['searchResult'] as { companies?: CompanyLead[] } | undefined;
   const companies = result?.companies ?? [];
   const advanced = readAdvanced(ctx);
-  const exclude = new Set((advanced.excludeDomains ?? []).map((d) => normDomain(d)).filter(Boolean));
-  const seen = ctx.bag.get('seenKeys') as Set<string> | undefined ?? new Set<string>();
+  const exclude = new Set(
+    (advanced.excludeDomains ?? []).map((d) => normDomain(d)).filter(Boolean),
+  );
+  const seen = (ctx.bag.get('seenKeys') as Set<string> | undefined) ?? new Set<string>();
 
   const candidates = companies.filter((c) => {
     const key = leadKey(c);
@@ -101,22 +111,26 @@ const dedupCheck: FlowNodeFn = async (state, ctx) => {
   if (candidates.length > 0) {
     const domains = candidates.map((c) => normDomain(c.domain)).filter((d): d is string => !!d);
     const names = candidates.map((c) => c.companyName.toLowerCase().trim());
-    fresh = (await withOrg(ctx.db, ctx.orgId, async (tx) => {
-      const rows = await tx
-        .select({ companyName: schema.aiLead.companyName, companyDomain: schema.aiLead.companyDomain })
-        .from(schema.aiLead)
-        .where(
-          and(
-            eq(schema.aiLead.orgId, ctx.orgId),
-            sql`(${schema.aiLead.companyDomain} = ANY(${domains}) or lower(${schema.aiLead.companyName}) = ANY(${names}))`,
-          ),
-        );
-      const existingKeys = new Set<string>();
-      for (const r of rows) {
-        existingKeys.add(normDomain(r.companyDomain) ?? r.companyName.toLowerCase().trim());
-      }
-      return candidates.find((c) => !existingKeys.has(leadKey(c))) ?? null;
-    })) ?? null;
+    fresh =
+      (await withOrg(ctx.db, ctx.orgId, async (tx) => {
+        const rows = await tx
+          .select({
+            companyName: schema.aiLead.companyName,
+            companyDomain: schema.aiLead.companyDomain,
+          })
+          .from(schema.aiLead)
+          .where(
+            and(
+              eq(schema.aiLead.orgId, ctx.orgId),
+              sql`(${schema.aiLead.companyDomain} = ANY(${domains}) or lower(${schema.aiLead.companyName}) = ANY(${names}))`,
+            ),
+          );
+        const existingKeys = new Set<string>();
+        for (const r of rows) {
+          existingKeys.add(normDomain(r.companyDomain) ?? r.companyName.toLowerCase().trim());
+        }
+        return candidates.find((c) => !existingKeys.has(leadKey(c))) ?? null;
+      })) ?? null;
   }
 
   for (const c of companies) {
@@ -127,7 +141,10 @@ const dedupCheck: FlowNodeFn = async (state, ctx) => {
   if (!fresh) {
     return { branch: 'duplicate' };
   }
-  ctx.bag.set('companyMeta', { ...(ctx.bag.get('companyMeta') as Record<string, string> | undefined), [fresh.companyName]: fresh.country ?? 'Unknown' });
+  ctx.bag.set('companyMeta', {
+    ...(ctx.bag.get('companyMeta') as Record<string, string> | undefined),
+    [fresh.companyName]: fresh.country ?? 'Unknown',
+  });
   return { patch: { discovered: [fresh] }, branch: 'new' };
 };
 
@@ -196,7 +213,12 @@ const assembleLeads: FlowNodeFn = (state, ctx) => {
     reasons: s.reasons,
     contacts: contacts
       .filter((c) => c.companyName === s.companyName)
-      .map((c) => ({ name: c.name, title: c.title, email: c.email, decisionInfluencePct: c.decisionInfluencePct })),
+      .map((c) => ({
+        name: c.name,
+        title: c.title,
+        email: c.email,
+        decisionInfluencePct: c.decisionInfluencePct,
+      })),
   }));
   return { patch: { crmLeads: leads } };
 };
@@ -207,7 +229,10 @@ const finalize: FlowNodeFn = (state, ctx) => {
   const highValue = scoredAll.filter((s) => s.scoreLevel === 'high').length;
   ctx.events.push({
     type: 'log',
-    payload: { type: 'found', content: `获客完成：分析 ${scoredAll.length} 家，高价值 ${highValue} 家` },
+    payload: {
+      type: 'found',
+      content: `获客完成：分析 ${scoredAll.length} 家，高价值 ${highValue} 家`,
+    },
   });
   return { patch: {} };
 };
@@ -242,7 +267,12 @@ const loadThread: FlowNodeFn = async (state, ctx) => {
     }
   });
 
-  const thread = conversationId ? await loadRecentMessages(ctx.db, ctx.orgId, conversationId) : [];
+  const thread = (
+    conversationId ? await loadRecentMessages(ctx.db, ctx.orgId, conversationId) : []
+  ).map((m) =>
+    // M3-16 / 08 §6：客户来信（direction=in）为不可信外部文本，进 prompt 前包边界标记防注入
+    m.direction === 'in' ? { ...m, body: boundExternal(m.body) } : m,
+  );
   const lastIn = [...thread].reverse().find((m) => m.direction === 'in');
   const customerSnapshot = customerId
     ? await loadCustomerInsights(ctx.db, ctx.orgId, customerId)
@@ -322,7 +352,8 @@ const loadContext: FlowNodeFn = async (state, ctx) => {
     patch: {
       customer: {
         id: customerId ?? '',
-        tier: score >= 85 ? ('high' as const) : score >= 60 ? ('medium' as const) : ('low' as const),
+        tier:
+          score >= 85 ? ('high' as const) : score >= 60 ? ('medium' as const) : ('low' as const),
         stage,
       },
     },
@@ -342,7 +373,10 @@ const checkReplied: FlowNodeFn = async (state, ctx) => {
   let lastOutboundAt: Date | null = null;
   await withOrg(ctx.db, ctx.orgId, async (tx) => {
     const [ft] = await tx
-      .select({ lastExecutedAt: schema.followUpTask.lastExecutedAt, createdAt: schema.followUpTask.createdAt })
+      .select({
+        lastExecutedAt: schema.followUpTask.lastExecutedAt,
+        createdAt: schema.followUpTask.createdAt,
+      })
       .from(schema.followUpTask)
       .where(eq(schema.followUpTask.id, followUpTaskId))
       .limit(1);
@@ -350,7 +384,12 @@ const checkReplied: FlowNodeFn = async (state, ctx) => {
     const convs = await tx
       .select({ id: schema.conversation.id })
       .from(schema.conversation)
-      .where(and(eq(schema.conversation.orgId, ctx.orgId), eq(schema.conversation.customerId, customerId)));
+      .where(
+        and(
+          eq(schema.conversation.orgId, ctx.orgId),
+          eq(schema.conversation.customerId, customerId),
+        ),
+      );
     const convIds = convs.map((c) => c.id);
     if (convIds.length === 0) {
       return;
@@ -367,7 +406,7 @@ const checkReplied: FlowNodeFn = async (state, ctx) => {
       )
       .orderBy(desc(schema.message.createdAt))
       .limit(1);
-    lastOutboundAt = (lastOut?.sentAt ?? lastOut?.createdAt) ?? null;
+    lastOutboundAt = lastOut?.sentAt ?? lastOut?.createdAt ?? null;
     const [recentIn] = await tx
       .select({ id: schema.message.id })
       .from(schema.message)
@@ -434,7 +473,12 @@ interface StrategyStepRow {
 }
 
 /** strategyStep 携带 id：writeback_execution 依此落 execution.strategy_step_id（消费标记的幂等锚点） */
-function toStrategyStep(step: StrategyStepRow): { id: string; seq: number; dayOffset: number; contentKind: string } {
+function toStrategyStep(step: StrategyStepRow): {
+  id: string;
+  seq: number;
+  dayOffset: number;
+  contentKind: string;
+} {
   const contentKind = step.isBreakup
     ? 'breakup'
     : step.seq === 1
@@ -445,7 +489,10 @@ function toStrategyStep(step: StrategyStepRow): { id: string; seq: number; dayOf
   return { id: step.id, seq: step.seq, dayOffset: step.dayOffset, contentKind };
 }
 
-async function pickNextStep(ctx: TaskRunContext, followUpTaskId: string): Promise<StrategyStepRow | null> {
+async function pickNextStep(
+  ctx: TaskRunContext,
+  followUpTaskId: string,
+): Promise<StrategyStepRow | null> {
   return withOrg(ctx.db, ctx.orgId, async (tx) => {
     const [ft] = await tx
       .select({ strategyId: schema.followUpTask.strategyId })
@@ -483,7 +530,8 @@ async function pickNextStep(ctx: TaskRunContext, followUpTaskId: string): Promis
 const writebackExecution: FlowNodeFn = async (state, ctx) => {
   const followUpTaskId = str(state['followUpTaskId']);
   const customerId = (state['customer'] as { id?: string } | undefined)?.id ?? '';
-  const step = state['strategyStep'] as { id?: string; seq?: number; contentKind?: string } | undefined;
+  const step = state['strategyStep'] as
+    { id?: string; seq?: number; contentKind?: string } | undefined;
   const content = state['content'] as { body?: string } | undefined;
   const messageId = str(state['messageId']);
   const now = ctx.now;

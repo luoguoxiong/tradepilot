@@ -2,6 +2,7 @@ import type {
   AddToCrmReq,
   AddToCrmResp,
   CreateLeadTaskReq,
+  LeadConvertResp,
   LeadHunterSummary,
   LeadItem,
   LeadListReq,
@@ -45,4 +46,9 @@ export function getLeadsSummary() {
 /** POST /leads/add-to-crm：单个/批量加入 CRM（03 §3.4） */
 export function addLeadsToCrm(data: AddToCrmReq) {
   return request<AddToCrmResp>({ url: '/leads/add-to-crm', method: 'POST', data })
+}
+
+/** POST /leads/{id}/convert：单条加入 CRM（04 §2：lead 预览态顶部动作） */
+export function convertLead(leadId: string) {
+  return request<LeadConvertResp>({ url: `/leads/${leadId}/convert`, method: 'POST' })
 }

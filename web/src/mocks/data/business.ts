@@ -1,5 +1,6 @@
 import { nextId } from './db'
 import type { EmployeeCard, RoleTemplate, SopParamDef } from '@/api/types/employees'
+import type { InsightCitation } from '@/api/types/insight'
 import type { LeadAdvancedSettings, LeadItem, LeadTaskParsed } from '@/api/types/leads'
 import type { TaskStatus, TaskType } from '@/api/types/tasks'
 
@@ -186,6 +187,7 @@ function lead(
   scoreLevel: 'high' | 'medium' | 'low',
   inCrm: boolean,
   reasonText: string,
+  citations?: InsightCitation[],
 ): LeadItem {
   return {
     leadId: id,
@@ -206,13 +208,19 @@ function lead(
           source: 'web_crawl',
         },
       ],
+      // M4-1：知识库引用样例（引用解析数据见 mocks/data/knowledge.ts）
+      ...(citations?.length ? { citations } : {}),
       generatedAt: '2026-09-06T08:00:00Z',
     },
   }
 }
 
 export const mockLeads: LeadItem[] = [
-  lead('lead_1', 'ABC Sports', 'US', 'Sports', 92, 'high', false, '产品高度匹配：在售跑鞋配件线'),
+  lead('lead_1', 'ABC Sports', 'US', 'Sports', 92, 'high', false, '产品高度匹配：在售跑鞋配件线', [
+    { docId: 'doc_1', docName: 'Carbon Fiber Catalog.pdf', chunkId: 'chk_12' },
+    { docId: 'doc_1', docName: 'Carbon Fiber Catalog.pdf', chunkId: 'chk_88' },
+    { docId: 'doc_2', docName: 'ABC Sports - Company Profile.pdf', chunkId: 'chk_3' },
+  ]),
   lead(
     'lead_2',
     'NorthPeak Outdoor',
@@ -223,7 +231,18 @@ export const mockLeads: LeadItem[] = [
     false,
     '官网主推登山/越野品类，匹配碳纤维鞋垫',
   ),
-  lead('lead_3', 'London Run Co', 'UK', 'Sports', 86, 'high', true, '有碳纤维鞋垫采购历史'),
+  lead(
+    'lead_3',
+    'London Run Co',
+    'UK',
+    'Sports',
+    86,
+    'high',
+    true,
+    '有碳纤维鞋垫采购历史',
+    // 软删文档引用样例：doc_3 已删，展示「已删除」禁跳转（11 §3.5 留痕回溯）
+    [{ docId: 'doc_3', docName: 'London Run RFQ History.pdf', chunkId: 'chk_5' }],
+  ),
   lead('lead_4', 'Marathon Gear FR', 'FR', 'Sports', 84, 'high', false, '跑鞋品牌，SKU 覆盖中高端'),
   lead('lead_5', 'Pacific Footwear', 'AU', 'Footwear', 72, 'medium', false, '鞋类分销商，规模匹配'),
   lead('lead_6', 'Rhein Trade GmbH', 'DE', 'Trading', 68, 'medium', false, '体育用品贸易商'),
@@ -234,11 +253,6 @@ export const mockLeads: LeadItem[] = [
   lead('lead_11', 'Sahara Trading', 'AE', 'Trading', 38, 'low', false, '综合贸易，无明确产品线'),
   lead('lead_12', 'Kanto Shoes', 'JP', 'Footwear', 35, 'low', true, '鞋类代工厂，非目标客户画像'),
 ]
-
-/** 已在 CRM 的公司（去重兜底口径：lower(company_name)） */
-export const crmCompanyNames = new Set(
-  mockLeads.filter((l) => l.inCrm).map((l) => l.companyName.toLowerCase()),
-)
 
 // ===== 任务引擎（时间驱动确定性脚本）=====
 
@@ -271,6 +285,8 @@ export interface MockTask {
   completedAt: number | null
   outputs: { type: string; payload: unknown }[] | null
   error?: string
+  /** 落终态回调（AI 分析等跨模块产出写入；由 syncTasks 在 completed 时触发） */
+  onComplete?: () => void
 }
 
 export const mockTasks = new Map<string, MockTask>()
@@ -447,6 +463,8 @@ export function syncTasks() {
       task.outputs =
         (task.script.find((e) => e.event === 'done')?.data.outputs as MockTask['outputs']) ?? null
       for (const makeLead of task.foundLeads) mockLeads.unshift(makeLead())
+      // 跨模块产出回调（AI 分析写洞察等）在落终态后同步执行，随后续查询自然可见
+      task.onComplete?.()
     }
   }
   // 队首出队
@@ -540,4 +558,74 @@ export function refreshEmployeeCards() {
     }
   }
   void highValue
+}
+
+/**
+ * 注册通用确定性短任务（客户 360° AI 分析 / 批量精化等跨模块异步操作）：
+ * - 脚本 = 若干日志 + 进度 + done，按 elapsed 实时重放（与获客任务同一引擎）；
+ * - 不进入员工排队队列（分析型任务单条存在，SOP 并行策略由后端契约定义）；
+ * - 落终态时 syncTasks 触发 onComplete 写入产出（洞察 / 决策影响力）。
+ */
+export function registerTimedTask(input: {
+  title: string
+  goal: string
+  employeeId?: string
+  /** 默认 customer_researcher（emp_2） */
+  type?: TaskType
+  durationMs?: number
+  onComplete?: () => void
+}): MockTask {
+  const employee =
+    mockEmployees.find((e) => e.employeeId === (input.employeeId ?? 'emp_2')) ?? mockEmployees[0]
+  const durationMs = input.durationMs ?? 8000
+
+  const script: ScriptEvent[] = []
+  let at = 500
+  const pushLog = (type: string, content: string) => {
+    script.push({
+      atMs: at,
+      event: 'log',
+      data: { logId: nextId('log'), time: '', type, content },
+    })
+    at += Math.round(durationMs / 6)
+  }
+  const pushProgress = (progressPct: number, currentStep: string) => {
+    script.push({ atMs: at, event: 'progress', data: { progressPct, currentStep } })
+  }
+
+  pushLog('analyze', `🧠 读取客户资料与公开信息：${input.title}`)
+  pushProgress(12, '收集背景信息')
+  pushLog('crawl', '🌐 交叉验证官网 / 行业知识库')
+  pushProgress(40, '核对产品匹配与公司规模')
+  pushLog('match', '🧠 计算采购概率与证据链')
+  pushProgress(75, '生成 AI 洞察')
+  pushLog('done', '✓ 分析完成，洞察已写入客户档案')
+  at += 400
+  pushProgress(100, '完成')
+  script.push({ atMs: durationMs, event: 'done', data: { outputs: null } })
+
+  const task: MockTask = {
+    taskId: nextId('task'),
+    title: input.title,
+    employeeId: employee.employeeId,
+    employeeName: employee.name,
+    role: employee.role,
+    type: input.type ?? 'product_analysis',
+    status: 'running',
+    createdAt: new Date().toISOString(),
+    startedAt: Date.now(),
+    goal: input.goal,
+    parsed: { targetMarket: '—', customerType: '—', targetProduct: '—' },
+    advancedSettings: undefined,
+    targetCount: 0,
+    script,
+    durationMs,
+    foundLeads: [],
+    completed: false,
+    completedAt: null,
+    outputs: null,
+    onComplete: input.onComplete,
+  }
+  mockTasks.set(task.taskId, task)
+  return task
 }

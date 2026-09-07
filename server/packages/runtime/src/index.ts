@@ -10,12 +10,22 @@ export type {
   OrgRuntime,
   TaskRunContext,
 } from './context.js';
-export { nextSeq, buildLogEvent, buildProgressEvent, buildStatusEvent, buildDoneEvent, TaskEventPublisher, flushBufferedEvents } from './events.js';
+export {
+  nextSeq,
+  buildLogEvent,
+  buildProgressEvent,
+  buildStatusEvent,
+  buildDoneEvent,
+  TaskEventPublisher,
+  flushBufferedEvents,
+} from './events.js';
 export { TaskEnqueuer, type EnqueueOptions } from './enqueue.js';
 export {
   LlmGateway,
   mockStructured,
   extractJson,
+  crossedBudget,
+  type BudgetAlertInfo,
   type GatewayOptions,
   type LlmInvokeMeta,
   type LlmProvider,
@@ -23,7 +33,13 @@ export {
   type ModelTarget,
   type StructuredResult,
 } from './llm-gateway.js';
-export { APPROVAL_TTL_MS, ApprovalGate, type GateToolMeta, type GateVerdict } from './approval-gate.js';
+export {
+  APPROVAL_TTL_MS,
+  ApprovalGate,
+  type GateToolMeta,
+  type GateVerdict,
+} from './approval-gate.js';
+export { releaseEmployeeIdle, type ReleaseEmployeeIdleParams } from './release-employee.js';
 export { createCheckpointer, type CheckpointerHandle } from './checkpoint.js';
 export {
   loadCustomerInsights,

@@ -4,7 +4,12 @@
  * → 逐任务 withOrg 频控预检（与图内 schedule_next 共用 @tradepilot/core 同一公式）：
  *   - 预检不满足 → next_run_at 顺延写入（单行乐观锁）+ follow_up_execution(skipped, frequency_capped) 留痕，不入队；
  *   - 预检通过 → 建 ai_task(follow_up, status='scheduled') 待 Dispatcher 启动（排期单一写入口：本扫描 + schedule_next）。
- * 防重复：该 follow_up_task 已有活跃 ai_task（scheduled/running/waiting_approval）则跳过。
+ * 防重复（多 worker 实例，04 §3.1，M3-04）：
+ *   - 快路径：tick 内活跃 ai_task 批量预筛（step ②，快照，非权威）；
+ *   - 权威：preCheck 以 follow_up_task 行锁 FOR UPDATE SKIP LOCKED 串行化领取，
+ *     锁内复核活跃 ai_task（scheduled/running/waiting_approval）存在即 busy；
+ *   - 兜底：ai_task.input ->> 'followUpTaskId' 部分唯一索引（uq_ai_task_active_followup，
+ *     manual 0004），insert onConflictDoNothing，败者按 busy 让出。
  */
 import { and, desc, eq, inArray, lte, sql } from 'drizzle-orm';
 import { createId, computeDeferredNextRunAt, type SendWindow } from '@tradepilot/core';
@@ -72,7 +77,7 @@ export class FollowUpScanner {
       return result;
     }
 
-    // ② 活跃 ai_task 防重（同轮批量查一次）
+    // ② 活跃 ai_task 防重快路径（同轮批量查一次；权威判重见 preCheck 行锁内复核）
     const dueIds = due.map((t) => t.id);
     const busy = new Set(
       await db.transaction(async (tx) => {
@@ -120,6 +125,38 @@ export class FollowUpScanner {
   ): Promise<'deferred' | 'enqueued' | 'busy'> {
     const { db, logger } = this.deps;
     return withOrg(db, ft.orgId, async (tx) => {
+      // ① 行锁领取（04 §3.1 SKIP LOCKED）：串行化同一 follow_up_task 的多实例并发预检；
+      // 行已被他实例领取 / 状态已变（paused/completed）/ 已被顺延出窗口 → 让出。
+      const claimed = await tx
+        .select({ id: schema.followUpTask.id })
+        .from(schema.followUpTask)
+        .where(
+          and(
+            eq(schema.followUpTask.id, ft.id),
+            inArray(schema.followUpTask.status, ['ready', 'scheduled']),
+            lte(schema.followUpTask.nextRunAt, now),
+          ),
+        )
+        .for('update', { skipLocked: true });
+      if (claimed.length === 0) {
+        return 'busy';
+      }
+
+      // ② 锁内复核活跃 ai_task：step② 快照可能过期（他实例刚提交），此处为准
+      const [active] = await tx
+        .select({ id: schema.aiTask.id })
+        .from(schema.aiTask)
+        .where(
+          and(
+            inArray(schema.aiTask.status, ['scheduled', 'running', 'waiting_approval']),
+            sql`(${schema.aiTask.input} ->> 'followUpTaskId') = ${ft.id}`,
+          ),
+        )
+        .limit(1);
+      if (active) {
+        return 'busy';
+      }
+
       const [orgRow] = await tx
         .select({ timezone: schema.org.timezone, sendRules: schema.org.sendRules })
         .from(schema.org)
@@ -184,7 +221,11 @@ export class FollowUpScanner {
           sentAt: null,
         });
         logger.info(
-          { followUpTaskId: ft.id, from: ft.nextRunAt?.toISOString(), to: deferredAt.toISOString() },
+          {
+            followUpTaskId: ft.id,
+            from: ft.nextRunAt?.toISOString(),
+            to: deferredAt.toISOString(),
+          },
           '频控预检未满足，顺延 next_run_at',
         );
         return 'deferred';
@@ -198,7 +239,10 @@ export class FollowUpScanner {
         .orderBy(schema.aiEmployee.createdAt)
         .limit(1);
       if (!employee) {
-        logger.warn({ orgId: ft.orgId, followUpTaskId: ft.id }, 'org 无 follow_up 角色 AI 员工，跳过本轮');
+        logger.warn(
+          { orgId: ft.orgId, followUpTaskId: ft.id },
+          'org 无 follow_up 角色 AI 员工，跳过本轮',
+        );
         return 'busy';
       }
 
@@ -206,7 +250,12 @@ export class FollowUpScanner {
       const [conv] = await tx
         .select({ id: schema.conversation.id })
         .from(schema.conversation)
-        .where(and(eq(schema.conversation.orgId, ft.orgId), eq(schema.conversation.customerId, ft.customerId)))
+        .where(
+          and(
+            eq(schema.conversation.orgId, ft.orgId),
+            eq(schema.conversation.customerId, ft.customerId),
+          ),
+        )
         .orderBy(desc(schema.conversation.lastMessageAt))
         .limit(1);
       const conversationId =
@@ -224,16 +273,28 @@ export class FollowUpScanner {
             .returning({ id: schema.conversation.id })
         )[0]?.id;
 
-      await tx.insert(schema.aiTask).values({
-        id: createId('task'),
-        orgId: ft.orgId,
-        employeeId: employee.id,
-        type: 'follow_up',
-        title: 'AI 自动跟进触达',
-        status: 'scheduled',
-        input: { followUpTaskId: ft.id, customerId: ft.customerId, conversationId },
-        createdBy: null,
-      });
+      const inserted = await tx
+        .insert(schema.aiTask)
+        .values({
+          id: createId('task'),
+          orgId: ft.orgId,
+          employeeId: employee.id,
+          type: 'follow_up',
+          title: 'AI 自动跟进触达',
+          status: 'scheduled',
+          input: { followUpTaskId: ft.id, customerId: ft.customerId, conversationId },
+          createdBy: null,
+        })
+        .onConflictDoNothing()
+        .returning({ id: schema.aiTask.id });
+      if (inserted.length === 0) {
+        // 兜底：并发实例已建活跃 ai_task（uq_ai_task_active_followup 唯一索引命中）
+        logger.info(
+          { followUpTaskId: ft.id, orgId: ft.orgId },
+          '跟进任务活跃 ai_task 已存在（唯一索引兜底），跳过本轮',
+        );
+        return 'busy';
+      }
       logger.info({ followUpTaskId: ft.id, orgId: ft.orgId }, '跟进到期，已建 follow_up 任务入队');
       return 'enqueued';
     });

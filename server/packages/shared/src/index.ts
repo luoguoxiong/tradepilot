@@ -6,3 +6,4 @@ export * from './contracts/env.js';
 export * from './sse/events.js';
 export * from './insight/schema.js';
 export * from './workflow-state.js';
+export * from './prompt-guard.js';

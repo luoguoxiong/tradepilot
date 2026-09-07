@@ -15,10 +15,19 @@ import type { AccessTokenPayload } from '../auth/token.service.js';
  * SSE 管道（后端技术方案 04 §6 / 接口 14 §3.4）：
  * 订阅先行（Redis SUBSCRIBE task:{id}:events）→ 按 after=logId 回放历史日志 → 当前 status
  * （终态补发 done 后关闭）→ 实时转发 → 15s 心跳。防丢事件：先订阅后回放，客户端按 seq 去重。
+ * 去重（M3-09）：回放与实时双通道都可能投递同一 log（订阅成功到回放之间 PUBLISH），服务端按 logId 去重。
+ * 连接泄漏（M3-10）：subscribe 抛错路径同样走 cleanup 递减连接计数。
+ * 终态丢失窗口（M3-03）：开流前快照仅作 404 校验；订阅成功后再读一次 DB 作为 status/done 依据——
+ * Worker 先提交终态再 PUBLISH，故此刻 DB 已可见，读快照(running)与订阅成功之间的终态提交不会丢。
+ * commit→PUBLISH 崩溃窗口（M3-11）：Worker 提交终态事务后、PUBLISH done 前崩溃 → 已开流客户端
+ * 收不到 done 会永久挂等心跳。兜底：对非终态连接每 5s 重读任务行（04 §6.3），DB 已终态且本连接
+ * 未发过 done → 按 DB 最新态补发 status+done 并关闭，弥合该崩溃窗口。
  * 单用户连接上限 5（进程内计数，MVP API 单实例）。
  */
 const MAX_CONNECTIONS_PER_USER = 5;
 const HEARTBEAT_MS = 15_000;
+/** M3-11 终态兜底轮询周期（04 §6.3：覆盖 Worker commit→PUBLISH 之间崩溃的丢 done 窗口） */
+const TERMINAL_POLL_MS = 5_000;
 const REPLAY_BATCH = 200;
 const REPLAY_MAX_ROUNDS = 5;
 
@@ -47,21 +56,8 @@ export class TaskStreamController {
     }
     const orgId = user.orgId;
 
-    // ① 任务校验（开流前，404 可正常走异常过滤器）
-    const task = await withOrg(this.db, orgId, async (tx) => {
-      const [row] = await tx
-        .select({
-          id: schema.aiTask.id,
-          status: schema.aiTask.status,
-          outputs: schema.aiTask.outputs,
-          error: schema.aiTask.error,
-          linkedApprovalId: schema.aiTask.linkedApprovalId,
-        })
-        .from(schema.aiTask)
-        .where(and(eq(schema.aiTask.id, taskId), eq(schema.aiTask.orgId, orgId)))
-        .limit(1);
-      return row ?? null;
-    });
+    // ① 任务校验（开流前，404 可正常走异常过滤器）；status 不在此时定稿，见 ⑤ 重读
+    const task = await this.loadTask(orgId, taskId);
     if (!task) {
       throw BizException.notFound(`任务不存在: ${taskId}`);
     }
@@ -88,19 +84,55 @@ export class TaskStreamController {
     // ④ 订阅先行（防丢：订阅成功后才回放）
     const subscriber = this.redis.duplicate();
     const channel = taskEventChannel(taskId);
+    // M3-09 去重：先订阅后回放期间 PUBLISH 的日志会被「回放查询」与「订阅回调」双收，
+    // 以 ai_task_log.logId 为唯一键（文档 04 §6.1 的 seq/logId 去重），先到者发出并登记、后到者丢弃。
+    const sentLogIds = new Set<string>();
+    const sendLog = (logId: string, data: unknown): void => {
+      if (sentLogIds.has(logId)) {
+        return;
+      }
+      sentLogIds.add(logId);
+      write('log', data);
+    };
+    // M3-11 终态兜底（04 §6.3）：本连接 done 一经投递（实时到达或兜底补发）即置位；
+    // DB 已终态且未置位 → 补发 status+done 并关闭，弥合 Worker commit→PUBLISH 崩溃的丢 done 窗口。
+    let doneSent = false;
+    let terminalPoll: NodeJS.Timeout | undefined;
+    let heartbeat: NodeJS.Timeout | undefined;
+    const stopTerminalPoll = (): void => {
+      if (terminalPoll) {
+        clearInterval(terminalPoll);
+        terminalPoll = undefined;
+      }
+    };
     const onMessage = (ch: string, message: string): void => {
       if (ch !== channel) {
         return;
       }
       try {
-        const parsed = JSON.parse(message) as { type?: string };
+        const parsed = JSON.parse(message) as { type?: string; payload?: { logId?: string } };
+        if (parsed.type === 'log' && typeof parsed.payload?.logId === 'string') {
+          sendLog(parsed.payload.logId, parsed);
+          return;
+        }
+        if (parsed.type === 'done') {
+          doneSent = true;
+          stopTerminalPoll(); // done 已实时到达 → 无需 DB 兜底轮询
+        }
         write(parsed.type ?? 'log', parsed);
       } catch {
         // 非契约消息忽略
       }
     };
     subscriber.on('message', onMessage);
-    await subscriber.subscribe(channel);
+    try {
+      await subscriber.subscribe(channel);
+    } catch {
+      // M3-10：subscribe 抛错路径（Redis 异常等）同样走 cleanup 递减连接计数，防泄漏；
+      // 响应头已 flush 无法改状态码，直接收尾断开。
+      await this.cleanup(subscriber, user.sub, res);
+      return;
+    }
 
     // ⑤ 回放：after 之后的日志 + 当前状态快照
     try {
@@ -108,23 +140,32 @@ export class TaskStreamController {
       for (let round = 0; round < REPLAY_MAX_ROUNDS; round += 1) {
         const page = await this.replayLogs(orgId, taskId, after, REPLAY_BATCH);
         for (const log of page.items) {
-          write('log', log);
+          sendLog(log.logId, log);
         }
         if (!page.hasMore) {
           break;
         }
         after = page.items[page.items.length - 1]?.logId;
       }
+
+      // 订阅成功后再读一次任务行（M3-03）：Worker 先提交终态再 PUBLISH（complete/fail 于
+      // 事务提交后发布），故此刻 DB 终态必已可见——弥合 ① 读快照与订阅成功之间的提交窗口：
+      // 已终态则按 DB 最新态补发 status+done 并关闭，杜绝客户端挂等心跳。
+      const latest = await this.loadTask(orgId, taskId);
+      if (!latest) {
+        await this.cleanup(subscriber, user.sub, res);
+        return;
+      }
       write('status', {
-        status: task.status,
-        ...(task.linkedApprovalId ? { linkedApprovalId: task.linkedApprovalId } : {}),
-        ...(task.error ? { error: task.error } : {}),
+        status: latest.status,
+        ...(latest.linkedApprovalId ? { linkedApprovalId: latest.linkedApprovalId } : {}),
+        ...(latest.error ? { error: latest.error } : {}),
       });
-      if (TERMINAL_STATUSES.has(task.status)) {
+      if (TERMINAL_STATUSES.has(latest.status)) {
         write('done', {
-          status: task.status,
-          outputs: task.outputs ?? [],
-          ...(task.error ? { error: task.error } : {}),
+          status: latest.status,
+          outputs: latest.outputs ?? [],
+          ...(latest.error ? { error: latest.error } : {}),
         });
         await this.cleanup(subscriber, user.sub, res);
         return;
@@ -134,14 +175,71 @@ export class TaskStreamController {
       return;
     }
 
+    // ⑤.5 M3-11 终态兜底轮询（04 §6.3）：Worker「commit 终态 → PUBLISH done」之间崩溃时，
+    // 实时通道与回放都不含该 done（回放只补 ai_task_log）→ 客户端会永久挂等心跳。
+    // 周期重读任务行：DB 已终态且本连接未发过 done → 按 DB 最新态补发 status+done 并关闭。
+    const pollTerminal = async (): Promise<void> => {
+      try {
+        const latest = await this.loadTask(orgId, taskId);
+        if (!latest || !TERMINAL_STATUSES.has(latest.status)) {
+          return; // 未终态 → 下轮再查
+        }
+        stopTerminalPoll();
+        if (!doneSent) {
+          doneSent = true;
+          write('status', {
+            status: latest.status,
+            ...(latest.linkedApprovalId ? { linkedApprovalId: latest.linkedApprovalId } : {}),
+            ...(latest.error ? { error: latest.error } : {}),
+          });
+          write('done', {
+            status: latest.status,
+            outputs: latest.outputs ?? [],
+            ...(latest.error ? { error: latest.error } : {}),
+          });
+          if (heartbeat) {
+            clearInterval(heartbeat);
+            heartbeat = undefined;
+          }
+          await this.cleanup(subscriber, user.sub, res);
+        }
+      } catch {
+        // 单轮查询失败静默：下个周期重试
+      }
+    };
+    terminalPoll = setInterval(() => void pollTerminal(), TERMINAL_POLL_MS);
+    terminalPoll.unref?.();
+
     // ⑥ 心跳 + 断开清理
-    const heartbeat = setInterval(() => {
+    heartbeat = setInterval(() => {
       res.write(': ping\n\n');
     }, HEARTBEAT_MS);
     heartbeat.unref?.();
     req.on('close', () => {
-      clearInterval(heartbeat);
+      stopTerminalPoll();
+      if (heartbeat) {
+        clearInterval(heartbeat);
+        heartbeat = undefined;
+      }
       void this.cleanup(subscriber, user.sub, res);
+    });
+  }
+
+  /** 读任务行（org 隔离；SSE 状态快照的统一数据源） */
+  private async loadTask(orgId: string, taskId: string) {
+    return withOrg(this.db, orgId, async (tx) => {
+      const [row] = await tx
+        .select({
+          id: schema.aiTask.id,
+          status: schema.aiTask.status,
+          outputs: schema.aiTask.outputs,
+          error: schema.aiTask.error,
+          linkedApprovalId: schema.aiTask.linkedApprovalId,
+        })
+        .from(schema.aiTask)
+        .where(and(eq(schema.aiTask.id, taskId), eq(schema.aiTask.orgId, orgId)))
+        .limit(1);
+      return row ?? null;
     });
   }
 

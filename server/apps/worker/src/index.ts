@@ -16,7 +16,7 @@ import {
   createPromptRegistry,
   workflowSopProvider,
 } from '@tradepilot/workflows';
-import { createDb, closeDb } from '@tradepilot/db';
+import { createDb } from '@tradepilot/db';
 import { loadEnv } from './env.js';
 import { createRootLogger } from './logger.js';
 import { createWorkers } from './queues/registry.js';
@@ -49,7 +49,22 @@ async function bootstrap(): Promise<void> {
 
   // ===== Runtime 装配 =====
   // M3 LLM 走 mock provider（Zod 驱动确定性产出，三工作流全链路可测）；真实 provider 随 M4
-  const gateway = new LlmGateway(db, logger, { provider: 'mock', defaultModel: 'mock-1' });
+  const enqueuer = new TaskEnqueuer(env.REDIS_URL);
+  const gateway = new LlmGateway(db, logger, {
+    provider: 'mock',
+    defaultModel: 'mock-1',
+    // M3-15：预算跨阈值超限 → q:notify（budget_limit；通知真实分发随 M5 #11，先入队留痕防静默吞）
+    alert: (info) => {
+      void enqueuer
+        .enqueueNotify({ type: 'budget_limit', ...info })
+        .catch((err: unknown) =>
+          logger.warn(
+            { orgId: info.orgId, err: err instanceof Error ? err.message : String(err) },
+            '预算告警入队失败（不阻断 LLM 调用）',
+          ),
+        );
+    },
+  });
   const gate = new ApprovalGate(db, redis, publisher, logger);
   const tools = createToolRegistry();
   const compiler = new GraphCompiler({
@@ -65,8 +80,14 @@ async function bootstrap(): Promise<void> {
     outputSchemas: createOutputSchemaRegistry(),
     checkpointer: checkpointer.saver,
   });
-  const runner = new TaskRunner({ db, redis, logger, publisher, compiler, sops: workflowSopProvider });
-  const enqueuer = new TaskEnqueuer(env.REDIS_URL);
+  const runner = new TaskRunner({
+    db,
+    redis,
+    logger,
+    publisher,
+    compiler,
+    sops: workflowSopProvider,
+  });
 
   // ===== 队列 =====
   const workers = createWorkers(env, env.REDIS_URL, logger, createProcessor({ runner, logger }));
@@ -92,7 +113,14 @@ async function bootstrap(): Promise<void> {
   logger.info(
     {
       queues: summary.length > 0 ? summary : ALL_QUEUES,
-      schedulers: ['Dispatcher', 'FollowUpScanner', 'ApprovalExpiry', 'Reconciler', 'ZombieReaper', 'QuotaReset'],
+      schedulers: [
+        'Dispatcher',
+        'FollowUpScanner',
+        'ApprovalExpiry',
+        'Reconciler',
+        'ZombieReaper',
+        'QuotaReset',
+      ],
       pid: process.pid,
     },
     'Worker 已启动（Runtime + 扫描循环就绪）',

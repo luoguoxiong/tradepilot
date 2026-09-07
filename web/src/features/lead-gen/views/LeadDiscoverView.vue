@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { ElMessage } from 'element-plus'
 
 import ProTable from '@/components/business/ProTable.vue'
+import InsightCard from '@/components/business/InsightCard.vue'
 import type { ProColumn } from '@/components/business/pro-table'
 import { addLeadsToCrm, getLeads, getLeadsSummary } from '@/api/resources/leads'
 import type { ApiError } from '@/api/http'
@@ -15,11 +17,12 @@ import { qk } from '@/query/keys'
 /**
  * 客户发现列表（03 §1.6 / 04 §3.3）：
  * Tab = 价值档 + 已加入 CRM（计数来自 /leads/summary）；ProTable 分页筛选；
- * 匹配度列 hover 展示 InsightCard 简态（reasons/低置信角标，完整组件随 M4）；
+ * 匹配度列评分环 hover 展示 InsightCard（04 §2.1 完整证据链：置信度/原因/引用溯源）；
  * 加入 CRM 走批量接口 + 乐观更新（行级 40301 回滚报错）。
  */
 const { t } = useI18n()
 const queryClient = useQueryClient()
+const router = useRouter()
 
 // ===== 价值档 Tab（计数 30s 聚合口径） =====
 const activeTab = ref<'all' | 'high' | 'medium' | 'low' | 'inCrm'>('all')
@@ -32,9 +35,6 @@ const summaryQuery = useQuery({
 
 const tabCount = (key: 'all' | 'high' | 'medium' | 'low' | 'inCrm') =>
   summaryQuery.data.value?.[key] ?? 0
-
-/** 置信度进度条文案（模板内不允许 TS 注解，提取到 script） */
-const confidenceFormat = (pct: number) => `${t('leadGen.confidence')} ${pct}%`
 
 /** Tab → 服务端筛选参数（03 §3.3 valueLevel/inCrm） */
 const externalQuery = computed<Record<string, unknown>>(() => {
@@ -50,7 +50,7 @@ const columns: ProColumn[] = [
   { prop: 'matchPct', labelKey: 'leadGen.matchPct', width: 120, sortable: 'custom' },
   { prop: 'scoreLevel', labelKey: 'leadGen.scoreLevel', width: 100, enumGroup: 'leadValue' },
   { prop: 'inCrm', labelKey: 'leadGen.crmState', width: 100 },
-  { prop: 'actions', labelKey: 'settings.actions', width: 110, fixed: 'right' },
+  { prop: 'actions', labelKey: 'settings.actions', width: 150, fixed: 'right' },
 ]
 
 /** ProTable 统一 query 形状 → LeadListReq（泛型推断 T = LeadItem） */
@@ -101,6 +101,11 @@ function addToCrm(leadIds: string[]) {
   addMutation.mutate(leadIds)
 }
 
+/** 查看 360°（lead 预览态 / 已入库 → 客户档案，04 §3.1 双源解析） */
+function viewLead(row: LeadItem) {
+  router.push(`/customers/${row.leadId}`)
+}
+
 /** 批量加入：过滤已转化行，成功后由 onSuccess 清选择 */
 function batchAddToCrm(rows: LeadItem[], clear: () => void) {
   const ids = rows.filter((r) => !r.inCrm).map((r) => r.leadId)
@@ -138,10 +143,11 @@ function batchAddToCrm(rows: LeadItem[], clear: () => void) {
       row-key="leadId"
       selectable
       :page-size="10"
+      @row-click="viewLead"
     >
-      <!-- 匹配度列：评分 + hover InsightCard 简态（04 §3.3） -->
+      <!-- 匹配度列：评分环 hover 展示 InsightCard（04 §2.1 / §3.3） -->
       <template #col-matchPct="{ row }">
-        <el-popover placement="top" :width="320" trigger="hover">
+        <el-popover placement="top" :width="340" trigger="hover" :disabled="!row.matchReasons">
           <template #reference>
             <span class="lead-discover__match">
               <el-progress
@@ -160,34 +166,11 @@ function batchAddToCrm(rows: LeadItem[], clear: () => void) {
               <span class="lead-discover__match-hint">AI</span>
             </span>
           </template>
-          <div class="lead-discover__insight">
-            <div class="lead-discover__insight-head">
-              <strong>{{ t('leadGen.matchReasons') }}</strong>
-              <el-tag v-if="(row.matchReasons?.confidence ?? 0) < 0.5" size="small" type="info">
-                {{ t('leadGen.scoreLowConfidence') }}
-              </el-tag>
-            </div>
-            <el-progress
-              :percentage="Math.round((row.matchReasons?.confidence ?? 0) * 100)"
-              :stroke-width="6"
-              :format="confidenceFormat"
-            />
-            <ul class="lead-discover__reasons">
-              <template v-if="row.matchReasons?.reasons?.length">
-                <li v-for="(reason, i) in row.matchReasons.reasons" :key="i">
-                  <span>{{ reason.text }}</span>
-                  <span v-if="reason.evidence" class="lead-discover__evidence">
-                    {{ reason.evidence }}
-                  </span>
-                  <el-tag v-if="reason.source" size="small" type="info">{{ reason.source }}</el-tag>
-                </li>
-              </template>
-              <li v-else>{{ t('leadGen.noReasons') }}</li>
-            </ul>
-            <p v-if="row.matchReasons?.generatedAt" class="lead-discover__analyzed">
-              {{ t('leadGen.analyzedAt') }} {{ row.matchReasons.generatedAt }}
-            </p>
-          </div>
+          <InsightCard
+            v-if="row.matchReasons"
+            :insight="row.matchReasons"
+            :value-label="t('leadGen.matchPct')"
+          />
         </el-popover>
       </template>
 
@@ -197,11 +180,13 @@ function batchAddToCrm(rows: LeadItem[], clear: () => void) {
         <span v-else class="lead-discover__new">{{ t('leadGen.inCrmNo') }}</span>
       </template>
 
-      <!-- 行内操作 -->
+      <!-- 行内操作：查看 360° + 加入 CRM -->
       <template #col-actions="{ row }">
+        <el-button link type="primary" size="small" @click.stop="viewLead(row)">
+          {{ t('crm.viewDetail') }}
+        </el-button>
         <el-button
           link
-          type="primary"
           size="small"
           :disabled="row.inCrm || addMutation.isPending.value"
           @click.stop="addToCrm([row.leadId])"
@@ -243,38 +228,6 @@ function batchAddToCrm(rows: LeadItem[], clear: () => void) {
     position: absolute;
     bottom: -2px;
     font-size: 10px;
-    color: var(--tp-text-tertiary);
-  }
-
-  &__insight {
-    &-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 8px;
-    }
-  }
-
-  &__reasons {
-    margin: 10px 0;
-    padding-left: 18px;
-    font-size: 13px;
-    color: var(--tp-text-primary);
-
-    li {
-      margin-bottom: 6px;
-    }
-  }
-
-  &__evidence {
-    display: block;
-    font-size: 12px;
-    color: var(--tp-text-tertiary);
-  }
-
-  &__analyzed {
-    margin: 0;
-    font-size: 12px;
     color: var(--tp-text-tertiary);
   }
 

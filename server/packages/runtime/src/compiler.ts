@@ -223,10 +223,19 @@ export class GraphCompiler {
 
   constructor(private readonly deps: CompilerDeps) {}
 
-  /** SOP 图编译（cacheKey = taskType@version；入参 Zod 校验 05 §2） */
-  compile(taskType: string, sopRaw: unknown, stateKeys: readonly string[]): CompiledTaskGraph {
+  /**
+   * SOP 图编译（入参 Zod 校验 05 §2）。
+   * cacheKey = orgId:taskType@version（M3-17：含 org 维度，防多租户缓存交叉——
+   * 未来 org 自定义 sop_template 落库后，同一 taskType@version 在不同 org 可能对应不同图）。
+   */
+  compile(
+    orgId: string,
+    taskType: string,
+    sopRaw: unknown,
+    stateKeys: readonly string[],
+  ): CompiledTaskGraph {
     const sop = sopGraphDefinitionSchema.parse(sopRaw) as SopGraphDefinition;
-    const cacheKey = `${taskType}@${sop.version}`;
+    const cacheKey = `${orgId}:${taskType}@${sop.version}`;
     const cached = this.cache.get(cacheKey);
     if (cached) {
       return cached;

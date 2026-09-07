@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 
 import { fetchNotificationSettings, updateNotificationSettings } from '@/api/resources/settings'
 import type { NotificationSettings } from '@/api/types/settings'
+import { useFormLeaveGuard } from '@/composables/useFormLeaveGuard'
 
 /**
  * 通知设置（16 FR-09 / §2.8，P0）：3 类事件 × 站内/邮件渠道开关，保存即时生效。
@@ -25,11 +26,24 @@ const form = reactive<NotificationSettings>({
   },
 })
 
+// 02 §6 表单离开拦截：加载完成后开关变更即置脏，保存成功复位
+const loaded = ref(false)
+const dirty = ref(false)
+watch(
+  form,
+  () => {
+    if (loaded.value && !saving.value) dirty.value = true
+  },
+  { deep: true },
+)
+useFormLeaveGuard({ isDirty: () => dirty.value })
+
 onMounted(async () => {
   loading.value = true
   try {
     const settings = await fetchNotificationSettings()
     Object.assign(form.events, settings.events)
+    loaded.value = true
   } finally {
     loading.value = false
   }
@@ -39,6 +53,7 @@ async function save() {
   saving.value = true
   try {
     await updateNotificationSettings({ events: form.events })
+    dirty.value = false
     ElMessage.success(t('settings.savedNow'))
   } finally {
     saving.value = false

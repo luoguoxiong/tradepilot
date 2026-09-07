@@ -123,7 +123,7 @@ export class TaskRunner {
     // ⑤ 图执行
     try {
       const { sop, stateKeys } = this.deps.sops.get(ctx.taskType);
-      const graph = this.deps.compiler.compile(ctx.taskType, sop, stateKeys);
+      const graph = this.deps.compiler.compile(ctx.orgId, ctx.taskType, sop, stateKeys);
       const finalState = await graph.invoke(buildInitialState(ctx, stateKeys), ctx);
       const outputs = buildOutputs(finalState);
       await this.complete(taskId, probe.orgId, snapshot.employee.id, outputs);

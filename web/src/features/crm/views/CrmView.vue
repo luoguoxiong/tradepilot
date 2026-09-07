@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
@@ -8,10 +8,13 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import ProTable from '@/components/business/ProTable.vue'
 import type { ProColumn } from '@/components/business/pro-table'
 import type { FilterField } from '@/components/business/FilterBar.vue'
+import ContactDetailDrawer from '@/components/business/ContactDetailDrawer.vue'
+import OutreachDraftDialog from '@/components/business/OutreachDraftDialog.vue'
 import CustomerListTable from '@/features/crm/components/CustomerListTable.vue'
 import CustomerFormDialog, {
   type OwnerOption,
 } from '@/features/crm/components/CustomerFormDialog.vue'
+import ContactFormDrawer from '@/features/crm/components/ContactFormDrawer.vue'
 import { fetchMembers } from '@/api/resources/org'
 import { deleteContact, getActivities, getContacts } from '@/api/resources/customers'
 import type {
@@ -24,9 +27,12 @@ import type { ApiError } from '@/api/http'
 import { qk } from '@/query/keys'
 import { staleTime } from '@/query/options'
 import { useAuthStore } from '@/stores/auth'
+import { useOutreachDraft } from '@/features/customer360/composables/useOutreachDraft'
 import { formatInOrgTz } from '@/utils/date'
 
 type CrmTab = 'potential' | 'formal' | 'contacts' | 'activities'
+
+defineOptions({ name: 'CrmView' })
 
 /**
  * 05 CRM 客户中心主视图（四页签）：
@@ -42,16 +48,11 @@ const auth = useAuthStore()
 
 const timezone = computed(() => auth.org?.timezone)
 
-// ===== 四页签（/crm/contacts 路由直达联系人页签） =====
+// ===== 四页签 =====
+// /crm 与 /crm/contacts 为不同路由（keep-alive key 按 path 隔离为独立实例，02 §6），
+// 初始页签由 route.path 决定即可；无需 watch path —— keep-alive 返回时保留内部页签态。
 const isCustomerTab = (tab: CrmTab) => tab === 'potential' || tab === 'formal'
 const activeTab = ref<CrmTab>(route.path.endsWith('/crm/contacts') ? 'contacts' : 'potential')
-
-watch(
-  () => route.path,
-  (path) => {
-    activeTab.value = path.endsWith('/crm/contacts') ? 'contacts' : 'potential'
-  },
-)
 
 // ===== owner 候选（当前用户 + 团队活跃成员，05 §4） =====
 const membersQuery = useQuery({
@@ -103,10 +104,41 @@ const contactColumns: ProColumn[] = [
   { prop: 'title', labelKey: 'crm.contactTitle', minWidth: 140 },
   { prop: 'email', labelKey: 'crm.contactEmail', minWidth: 200 },
   { prop: 'decisionInfluencePct', labelKey: 'crm.decisionInfluence', minWidth: 130 },
-  { prop: 'actions', labelKey: 'settings.actions', width: 90, fixed: 'right' },
+  { prop: 'actions', labelKey: 'settings.actions', width: 210, fixed: 'right' },
 ]
 
 const fetchContacts = (params: Record<string, unknown>) => getContacts(params as ContactListReq)
+
+// 新增 / 编辑联系人表单（编辑走 Drawer，02 §4.3）
+const contactFormVisible = ref(false)
+const contactFormMode = ref<'create' | 'edit'>('create')
+const editingContact = ref<ContactItem | null>(null)
+
+function openCreateContact() {
+  contactFormMode.value = 'create'
+  editingContact.value = null
+  contactFormVisible.value = true
+}
+
+function openEditContact(contact: ContactItem) {
+  contactFormMode.value = 'edit'
+  editingContact.value = contact
+  contactFormVisible.value = true
+}
+
+function onContactSaved() {
+  void queryClient.invalidateQueries({ queryKey: qk.contacts.all })
+}
+
+// 详情抽屉 + AI 开发信草稿（复用 04 组件）
+const contactDetailVisible = ref(false)
+const selectedContact = ref<ContactItem | null>(null)
+const outreach = useOutreachDraft()
+
+function openContactDetail(contact: ContactItem) {
+  selectedContact.value = contact
+  contactDetailVisible.value = true
+}
 
 const deleteContactMutation = useMutation({
   mutationFn: (contact: ContactItem) => deleteContact(contact.contactId),
@@ -174,7 +206,9 @@ const fetchActivities = (params: Record<string, unknown>) =>
           >
             <template #col-name="{ row }">
               <span class="crm__contact-name">
-                {{ row.name }}
+                <el-link type="primary" :underline="false" @click="openContactDetail(row)">
+                  {{ row.name }}
+                </el-link>
                 <el-tag v-if="row.isPrimary" size="small" type="success" effect="plain">
                   {{ t('crm.primary') }}
                 </el-tag>
@@ -188,6 +222,20 @@ const fetchActivities = (params: Record<string, unknown>) =>
               }}</span>
             </template>
             <template #col-actions="{ row }">
+              <el-button link type="primary" size="small" @click="openContactDetail(row)">
+                {{ t('crm.viewDetail') }}
+              </el-button>
+              <el-button link type="primary" size="small" @click="openEditContact(row)">
+                {{ t('crm.edit') }}
+              </el-button>
+              <el-button
+                link
+                size="small"
+                :loading="outreach.loading.value"
+                @click="outreach.generate(row.contactId, 'cold_outreach')"
+              >
+                {{ t('crm.contactOutreach') }}
+              </el-button>
               <el-button
                 link
                 type="danger"
@@ -236,6 +284,14 @@ const fetchActivities = (params: Record<string, unknown>) =>
       >
         {{ t('crm.addCustomer') }}
       </el-button>
+      <el-button
+        v-else-if="activeTab === 'contacts'"
+        type="primary"
+        class="crm__add"
+        @click="openCreateContact"
+      >
+        {{ t('crm.addContactButton') }}
+      </el-button>
     </div>
 
     <CustomerFormDialog
@@ -244,6 +300,23 @@ const fetchActivities = (params: Record<string, unknown>) =>
       :customer="editingCustomer"
       :owner-options="ownerOptions"
       @saved="onSaved"
+    />
+
+    <ContactFormDrawer
+      v-model="contactFormVisible"
+      :mode="contactFormMode"
+      :contact="editingContact"
+      @saved="onContactSaved"
+    />
+
+    <ContactDetailDrawer v-model="contactDetailVisible" :contact="selectedContact" />
+
+    <OutreachDraftDialog
+      v-model="outreach.visible.value"
+      :loading="outreach.loading.value"
+      :draft="outreach.draft.value"
+      @regenerate="outreach.regenerate"
+      @update:model-value="outreach.close"
     />
   </div>
 </template>

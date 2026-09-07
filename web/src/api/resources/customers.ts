@@ -9,6 +9,7 @@ import type {
   BatchOwnerResp,
   ContactItem,
   ContactListReq,
+  ContactPayload,
   ConversationItem,
   Customer360Insight,
   Customer360Profile,
@@ -70,6 +71,16 @@ export function batchReassignOwners(data: BatchOwnerReq) {
 /** GET /contacts：联系人列表（05 §2） */
 export function getContacts(params: ContactListReq) {
   return request<PageResp<ContactItem>>({ url: '/contacts', method: 'GET', params })
+}
+
+/** POST /contacts：新增联系人（普通写操作，owner 权限内，05 §2） */
+export function createContact(data: ContactPayload) {
+  return request<ContactItem>({ url: '/contacts', method: 'POST', data })
+}
+
+/** PUT /contacts/{id}：编辑联系人（05 §2；customerId 归属不可变更） */
+export function updateContact(contactId: string, data: Partial<ContactPayload>) {
+  return request<ContactItem>({ url: `/contacts/${contactId}`, method: 'PUT', data })
 }
 
 /** DELETE /contacts/{id}：删除联系人（单条，普通写操作，05 §3.5） */

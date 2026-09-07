@@ -152,7 +152,7 @@ async function main(): Promise<void> {
   } as never;
 
   const { sop, stateKeys } = workflowSopProvider.get('follow_up');
-  const graph = compiler.compile('follow_up', sop, stateKeys);
+  const graph = compiler.compile(ORG, 'follow_up', sop, stateKeys);
   try {
     await graph.invoke(
       {

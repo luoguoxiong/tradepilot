@@ -14,6 +14,8 @@ import type { LeadItem, LeadListReq } from '@/api/types/leads'
 import { staleTime } from '@/query/options'
 import { qk } from '@/query/keys'
 
+defineOptions({ name: 'LeadDiscoverView' })
+
 /**
  * 客户发现列表（03 §1.6 / 04 §3.3）：
  * Tab = 价值档 + 已加入 CRM（计数来自 /leads/summary）；ProTable 分页筛选；

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 
@@ -10,6 +10,7 @@ import { AUTO_APPROVABLE_TYPES, MANDATORY_APPROVAL_TYPES } from '@/api/types/set
 import EmptyState from '@/components/business/EmptyState.vue'
 import { useDictStore } from '@/stores/dict'
 import { usePermission } from '@/composables/usePermission'
+import { useFormLeaveGuard } from '@/composables/useFormLeaveGuard'
 
 /**
  * 权限与审批规则（16 FR-08，P0）：
@@ -33,6 +34,18 @@ const MATRIX_TYPES = AUTO_APPROVABLE_TYPES
 const MANDATORY = MANDATORY_APPROVAL_TYPES
 const roleOptions = dict.options('memberRole')
 
+// 02 §6 表单离开拦截：加载完成后规则/矩阵变更即置脏，保存成功复位
+const loaded = ref(false)
+const dirty = ref(false)
+watch(
+  [rules, rolePermissions],
+  () => {
+    if (loaded.value && !saving.value) dirty.value = true
+  },
+  { deep: true },
+)
+useFormLeaveGuard({ isDirty: () => dirty.value })
+
 onMounted(load)
 
 async function load() {
@@ -40,6 +53,7 @@ async function load() {
   try {
     rolePermissions.value = await Promise.all(ROLES.map((role) => fetchRolePermissions(role)))
     rules.value = rolePermissions.value.find((p) => p.role === 'admin')?.approvalRules ?? []
+    loaded.value = true
   } finally {
     loading.value = false
   }
@@ -88,6 +102,7 @@ async function save() {
       autoApprove: canAutoApprove(rule.approvalType) ? rule.autoApprove : false,
     }))
     await updateRolePermissions('admin', admin)
+    dirty.value = false
     ElMessage.success(t('settings.saved'))
   } finally {
     saving.value = false

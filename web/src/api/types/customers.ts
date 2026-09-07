@@ -97,6 +97,16 @@ export interface ContactListReq extends PageReq {
   keyword?: string
 }
 
+/** POST /contacts / PUT /contacts/{id} 请求体（05 接口文档 §2；ER contact：customer_id/name 必填） */
+export interface ContactPayload {
+  /** 所属客户（创建必填；归属不可变更） */
+  customerId: string
+  name: string
+  title?: string
+  /** 公开商务邮箱（org 内唯一，重复 40901） */
+  email?: string
+}
+
 /** GET /activities（05 接口文档 §3.4） */
 export interface ActivityListReq extends PageReq {
   customerId?: string

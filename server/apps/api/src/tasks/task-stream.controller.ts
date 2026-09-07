@@ -22,9 +22,12 @@ import type { AccessTokenPayload } from '../auth/token.service.js';
  * commit→PUBLISH 崩溃窗口（M3-11）：Worker 提交终态事务后、PUBLISH done 前崩溃 → 已开流客户端
  * 收不到 done 会永久挂等心跳。兜底：对非终态连接每 5s 重读任务行（04 §6.3），DB 已终态且本连接
  * 未发过 done → 按 DB 最新态补发 status+done 并关闭，弥合该崩溃窗口。
- * 单用户连接上限 5（进程内计数，MVP API 单实例）。
+ * 连接上限（04 §6.1 契约）：单用户 ≤ 10 条 SSE、org ≤ 200，超限 `42901`；
+ * 进程内计数（MVP API 单实例），多实例共享计数随 M4 部署扩展（Redis 计数）。
  */
-const MAX_CONNECTIONS_PER_USER = 5;
+const MAX_CONNECTIONS_PER_USER = 10;
+/** org 级 SSE 连接上限（04 §6.1：org ≤ 200，超限 42901） */
+const MAX_CONNECTIONS_PER_ORG = 200;
 const HEARTBEAT_MS = 15_000;
 /** M3-11 终态兜底轮询周期（04 §6.3：覆盖 Worker commit→PUBLISH 之间崩溃的丢 done 窗口） */
 const TERMINAL_POLL_MS = 5_000;
@@ -36,6 +39,7 @@ const TERMINAL_STATUSES = new Set(['completed', 'failed', 'canceled']);
 @Controller('tasks')
 export class TaskStreamController {
   private readonly connections = new Map<string, number>();
+  private readonly orgConnections = new Map<string, number>();
 
   constructor(
     @Inject(DB) private readonly db: Db,
@@ -62,12 +66,17 @@ export class TaskStreamController {
       throw BizException.notFound(`任务不存在: ${taskId}`);
     }
 
-    // ② 连接上限（开流前拒绝）
+    // ② 连接上限（开流前拒绝；04 §6.1：单用户 ≤ 10 / org ≤ 200，超限 42901）
     const current = this.connections.get(user.sub) ?? 0;
     if (current >= MAX_CONNECTIONS_PER_USER) {
-      throw BizException.bizValidation(`SSE 连接数超上限（${MAX_CONNECTIONS_PER_USER}）`);
+      throw BizException.rateLimited(`SSE 连接数超单用户上限（${MAX_CONNECTIONS_PER_USER}）`);
+    }
+    const orgCurrent = this.orgConnections.get(orgId) ?? 0;
+    if (orgCurrent >= MAX_CONNECTIONS_PER_ORG) {
+      throw BizException.rateLimited(`SSE 连接数超 org 上限（${MAX_CONNECTIONS_PER_ORG}）`);
     }
     this.connections.set(user.sub, current + 1);
+    this.orgConnections.set(orgId, orgCurrent + 1);
 
     // ③ 开流
     res.status(200);
@@ -130,7 +139,7 @@ export class TaskStreamController {
     } catch {
       // M3-10：subscribe 抛错路径（Redis 异常等）同样走 cleanup 递减连接计数，防泄漏；
       // 响应头已 flush 无法改状态码，直接收尾断开。
-      await this.cleanup(subscriber, user.sub, res);
+      await this.cleanup(subscriber, user.sub, orgId, res);
       return;
     }
 
@@ -153,7 +162,7 @@ export class TaskStreamController {
       // 已终态则按 DB 最新态补发 status+done 并关闭，杜绝客户端挂等心跳。
       const latest = await this.loadTask(orgId, taskId);
       if (!latest) {
-        await this.cleanup(subscriber, user.sub, res);
+        await this.cleanup(subscriber, user.sub, orgId, res);
         return;
       }
       write('status', {
@@ -167,11 +176,11 @@ export class TaskStreamController {
           outputs: latest.outputs ?? [],
           ...(latest.error ? { error: latest.error } : {}),
         });
-        await this.cleanup(subscriber, user.sub, res);
+        await this.cleanup(subscriber, user.sub, orgId, res);
         return;
       }
     } catch {
-      await this.cleanup(subscriber, user.sub, res);
+      await this.cleanup(subscriber, user.sub, orgId, res);
       return;
     }
 
@@ -201,7 +210,7 @@ export class TaskStreamController {
             clearInterval(heartbeat);
             heartbeat = undefined;
           }
-          await this.cleanup(subscriber, user.sub, res);
+          await this.cleanup(subscriber, user.sub, orgId, res);
         }
       } catch {
         // 单轮查询失败静默：下个周期重试
@@ -221,7 +230,7 @@ export class TaskStreamController {
         clearInterval(heartbeat);
         heartbeat = undefined;
       }
-      void this.cleanup(subscriber, user.sub, res);
+      void this.cleanup(subscriber, user.sub, orgId, res);
     });
   }
 
@@ -274,12 +283,23 @@ export class TaskStreamController {
     });
   }
 
-  private async cleanup(subscriber: Redis, userId: string, res: Response): Promise<void> {
+  private async cleanup(
+    subscriber: Redis,
+    userId: string,
+    orgId: string,
+    res: Response,
+  ): Promise<void> {
     const count = (this.connections.get(userId) ?? 1) - 1;
     if (count <= 0) {
       this.connections.delete(userId);
     } else {
       this.connections.set(userId, count);
+    }
+    const orgCount = (this.orgConnections.get(orgId) ?? 1) - 1;
+    if (orgCount <= 0) {
+      this.orgConnections.delete(orgId);
+    } else {
+      this.orgConnections.set(orgId, orgCount);
     }
     await subscriber.unsubscribe().catch(() => undefined);
     await subscriber.quit().catch(() => subscriber.disconnect());

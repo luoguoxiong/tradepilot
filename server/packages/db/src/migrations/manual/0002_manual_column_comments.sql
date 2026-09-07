@@ -166,7 +166,7 @@ COMMENT ON COLUMN ai_task.org_id IS '所属企业';
 COMMENT ON COLUMN ai_task.employee_id IS '执行员工 ID（单员工并发=1 的调度键）';
 COMMENT ON COLUMN ai_task.type IS '任务类型（决定 BullMQ 队列 q.<type>）';
 COMMENT ON COLUMN ai_task.title IS '任务标题';
-COMMENT ON COLUMN ai_task.status IS '任务状态（默认 running；waiting_approval 不占并发）';
+COMMENT ON COLUMN ai_task.status IS '任务状态（默认 scheduled；running 由 Runner.claim 置位并补 started_at；waiting_approval 不占并发）';
 COMMENT ON COLUMN ai_task.progress_pct IS '进度百分比 0-100（check 约束）';
 COMMENT ON COLUMN ai_task.current_step IS '当前步骤名称（员工卡片轻列表展示用，不落步骤表）';
 COMMENT ON COLUMN ai_task.input IS '任务入参 jsonb';

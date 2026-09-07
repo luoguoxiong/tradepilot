@@ -1,7 +1,7 @@
 import { http, delay } from 'msw'
 
 import { ErrorCode } from '@/api/error-codes'
-import type { CustomerPayload } from '@/api/types/customers'
+import type { ContactPayload, CustomerPayload } from '@/api/types/customers'
 import type { CustomerStage } from '@/utils/enum-map'
 
 import {
@@ -48,6 +48,23 @@ function customerSort(items: typeof mockCustomers, sortBy: string, order: 'asc' 
     }
     return 0
   })
+}
+
+/** 联系人公共校验：姓名必填 / 邮箱格式 / 邮箱 org 内唯一（ER uq_contact_org_email → 40901） */
+function validateContactPayload(
+  body: Partial<ContactPayload>,
+  excludeContactId?: string,
+): string | null {
+  if (!body.name?.trim()) return '联系人姓名为必填项'
+  if (body.email) {
+    const email = body.email.toLowerCase()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return '邮箱格式不正确'
+    const duplicated = mockContacts.some(
+      (c) => c.contactId !== excludeContactId && (c.email ?? '').toLowerCase() === email,
+    )
+    if (duplicated) return '该邮箱已被其他联系人使用'
+  }
+  return null
 }
 
 /** 05 CRM 客户中心（05 接口文档 §2/§3） */
@@ -308,6 +325,43 @@ export const customerHandlers = [
         pageSize,
       ),
     )
+  }),
+
+  http.post('/api/v1/contacts', async ({ request }) => {
+    await delay(LATENCY)
+    const body = await readJson<ContactPayload>(request)
+    const invalid = validateContactPayload(body)
+    if (invalid) return fail(ErrorCode.BAD_REQUEST, invalid)
+    const customer = findCustomer(body.customerId!)
+    if (!customer) return fail(ErrorCode.NOT_FOUND, '所属客户不存在或已被删除')
+    const created = {
+      contactId: nextId('con'),
+      name: body.name!.trim(),
+      title: body.title?.trim() ?? '',
+      email: body.email ?? '',
+      customerId: customer.customerId,
+      companyName: customer.companyName,
+      decisionInfluencePct: null,
+      isPrimary: false,
+    }
+    mockContacts.push(created)
+    // 普通写操作：不走审批、不写客户活动（05 §7 问题 3）
+    return ok(created)
+  }),
+
+  http.put('/api/v1/contacts/:id', async ({ request, params }) => {
+    await delay(LATENCY)
+    const item = mockContacts.find((c) => c.contactId === String(params.id))
+    if (!item) return fail(ErrorCode.NOT_FOUND, '联系人不存在')
+    const body = await readJson<Partial<ContactPayload>>(request)
+    const invalid = validateContactPayload(body, item.contactId)
+    if (invalid) {
+      return fail(ErrorCode.CONFLICT, invalid)
+    }
+    if (body.name !== undefined) item.name = body.name.trim()
+    if (body.title !== undefined) item.title = body.title.trim()
+    if (body.email !== undefined) item.email = body.email
+    return ok(item)
   }),
 
   http.delete('/api/v1/contacts/:id', async ({ params }) => {

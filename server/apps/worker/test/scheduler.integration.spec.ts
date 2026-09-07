@@ -86,7 +86,14 @@ beforeAll(async () => {
 
   await db.transaction(async (tx) => {
     await tx.insert(schema.org).values([
-      { id: ORG, name: 'M3调度租户A', timezone: 'Asia/Shanghai' },
+      {
+        id: ORG,
+        name: 'M3调度租户A',
+        timezone: 'Asia/Shanghai',
+        // 全天窗口（endHour 语义为「不含」，24 覆盖 0~23 全部当地小时）：
+        // 频控预检的窗口对齐与墙钟时段无关，用例可在任意时间运行
+        sendRules: { sendWindow: { start: '00:00', end: '24:00' }, minTouchIntervalDays: 3 },
+      },
       { id: ORG_FULL, name: 'M3调度租户B', timezone: 'Asia/Shanghai' },
     ]);
     await tx.insert(schema.userAccount).values({
@@ -222,11 +229,13 @@ beforeAll(async () => {
       nextRunAt: due,
     },
     {
+      // 预检通过场景：先置 paused 使其不被首轮扫描（「频控不满足」用例断言该轮仅顺延 FT_CAPPED），
+      // 「预检通过」用例内恢复 ready 后单独验证建任务
       id: FT_OK,
       orgId: ORG,
       customerId: CUS_OK,
       strategyId: STRATEGY,
-      status: 'ready',
+      status: 'paused',
       nextRunAt: due,
     },
     {
@@ -258,7 +267,8 @@ beforeAll(async () => {
     sentAt: new Date(Date.now() - 86_400_000),
     createdAt: new Date(Date.now() - 86_400_000),
   });
-  // 防重：该跟进任务已有活跃 ai_task
+  // 防重：该跟进任务已有活跃 ai_task（scheduledAt 置未来，避免被 Dispatcher 当作到期任务误投递，
+  // 污染并发闸门用例的投递计数；Scanner 防重仅按 status 判定，不受影响）
   await db.insert(schema.aiTask).values({
     id: TASK_BUSY,
     orgId: ORG,
@@ -266,6 +276,7 @@ beforeAll(async () => {
     type: 'follow_up',
     title: '既有跟进任务',
     status: 'scheduled',
+    scheduledAt: new Date(Date.now() + 10 * 60_000),
     input: { followUpTaskId: FT_BUSY, customerId: CUS_BUSY },
   });
 });
@@ -487,12 +498,14 @@ describe('FollowUpScanner 频控预检（04 §3.2 / 07 §7）', () => {
     expect(after.status).toBe('scheduled');
     expect(after.nextRunAt!.getTime()).toBeGreaterThan(before!.nextRunAt!.getTime());
     // 与 Scheduler/图内共用的唯一公式（P1-4）：候选 = max(next_run_at, L + 3d) → 窗口对齐
+    // （fixture org 配置全天窗口 00:00–24:00，与 Scanner 的 parseSendWindow 结果一致）
     const expected = computeDeferredNextRunAt({
       now: new Date(),
       nextRunAt: before!.nextRunAt!,
       lastOutboundAt: new Date(Date.now() - 86_400_000),
       minTouchIntervalDays: 3,
       timeZone: 'Asia/Shanghai',
+      window: { startHour: 0, endHour: 24 },
     });
     expect(Math.abs(after.nextRunAt!.getTime() - expected.getTime())).toBeLessThan(60_000);
 
@@ -520,6 +533,11 @@ describe('FollowUpScanner 频控预检（04 §3.2 / 07 §7）', () => {
   });
 
   it('预检通过 → 建 follow_up ai_task(scheduled)，无会话则补建会话', async () => {
+    // 恢复为到期可扫（seed 时置 paused，见 beforeAll 注释）
+    await db
+      .update(schema.followUpTask)
+      .set({ status: 'ready' })
+      .where(eq(schema.followUpTask.id, FT_OK));
     const result = await scanner.tick();
     expect(result.enqueued).toBe(1);
 

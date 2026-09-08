@@ -28,8 +28,11 @@ const ORG_FULL = createId('org');
 const USER = createId('usr');
 
 const enqueued = new Map<string, string>();
+// 默认实现：TASK_HAS_JOB 视为 BullMQ 已有活跃 job（首个用例的「job 存在 → 跳过」分支依赖此拦截；
+// 若恒 false，TASK_HAS_JOB 会因员工空闲被补投，requeued=2 破坏用例语义）
+const hasActiveJobDefault = async (taskId: string) => taskId === TASK_HAS_JOB;
 const enqueuer = {
-  hasActiveJob: vi.fn(async () => false),
+  hasActiveJob: vi.fn(hasActiveJobDefault),
   enqueueTask: vi.fn(async (taskId: string, type: string) => {
     enqueued.set(taskId, type);
   }),
@@ -242,14 +245,16 @@ describe('DelayedJobReconciler（04 §3.1/§3.4）', () => {
   });
 
   it('幂等：同任务补投后（job 出现）下轮跳过，不重复投递', async () => {
-    // 模拟 TASK_OK 已有活跃 job（补投成功后的正常态）
-    vi.mocked(enqueuer.hasActiveJob).mockImplementation(async (taskId) => taskId === TASK_OK);
+    // 模拟 TASK_OK 补投成功后已有活跃 job（TASK_HAS_JOB 维持默认有 job 语义）
+    vi.mocked(enqueuer.hasActiveJob).mockImplementation(
+      async (taskId) => taskId === TASK_OK || taskId === TASK_HAS_JOB,
+    );
     try {
       const requeued = await reconciler.tick();
       expect(requeued).toBe(0);
       expect(enqueuer.enqueueTask).toHaveBeenCalledTimes(1); // 仅首轮那一次
     } finally {
-      vi.mocked(enqueuer.hasActiveJob).mockImplementation(async () => false);
+      vi.mocked(enqueuer.hasActiveJob).mockImplementation(hasActiveJobDefault);
     }
   });
 });

@@ -8,6 +8,7 @@ export {
   setMailboxDriverFactory,
   type MailboxDriverFactory,
 } from './mailbox/factory.js';
+export { createSmtpImapDriver } from './mailbox/smtp-imap.js';
 export { MailboxAuthError, MailboxSendError, isMailboxAuthError } from './mailbox/errors.js';
 export {
   decryptChannelCredential,

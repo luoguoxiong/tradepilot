@@ -97,7 +97,7 @@ export class TaskEnqueuer {
   }
 
   /**
-   * email_sync 队列（M4 #4 收信链路）：jobId=`mbxsync:{mailboxId}` 防重复入队
+   * email_sync 队列（M4 #4 收信链路）：jobId=`mbxsync.{mailboxId}` 防重复入队
    * （同 mailbox 活跃 job 唯一——调度器 5min 周期与长同步天然互斥，不堆积）。
    */
   async enqueueEmailSync(mailboxId: string): Promise<void> {
@@ -108,21 +108,23 @@ export class TaskEnqueuer {
     await queue.add(
       'email_sync',
       { mailboxId },
-      { jobId: `mbxsync:${mailboxId}` },
+      // jobId 禁含 ':'（BullMQ 5 校验），用 '.' 分隔
+      { jobId: `mbxsync.${mailboxId}` },
     );
   }
 
   /**
-   * 知识索引投递（M4 #7 入库流水线，07 §2）：q:knowledge_index，jobId=`kidx:{docId}`
+   * 知识索引投递（M4 #7 入库流水线，07 §2）：q:knowledge_index，jobId=`kidx.{docId}`
    * 防重复入队（同文档重试/并发上传互斥）。job.data={ docId }，processor 按 docId 分流到
    * KnowledgeIndexProcessor（区别于走 TaskRunner 的 ai_task job——后者 job.data 带 taskType）。
+   * jobId 禁含 ':'（BullMQ 5 校验，与队列名 q.xxx 同规则），用 '.' 分隔。
    */
   async enqueueKnowledgeIndex(docId: string): Promise<void> {
     const queue = this.queues.get(QUEUE_NAME.KNOWLEDGE_INDEX);
     if (!queue) {
       return;
     }
-    await queue.add('knowledge_index', { docId }, { jobId: `kidx:${docId}` });
+    await queue.add('knowledge_index', { docId }, { jobId: `kidx.${docId}` });
   }
 
   /**

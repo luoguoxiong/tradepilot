@@ -5,7 +5,7 @@
  *   → ④ embed（批量 ≤100/批）→ ⑤ 事务落库：旧 chunk 物理清除 + knowledge_chunk 批量插入
  *   → status='indexed'。失败 → status='failed' + error 文案（重试由 11 接口 retry 重跑 ①起）。
  *
- * 说明：索引流水线为系统消费者（job.data={docId}，jobId=`kidx:{docId}`），不落 ai_task——
+ * 说明：索引流水线为系统消费者（job.data={docId}，jobId=`kidx.{docId}`），不落 ai_task——
  * 知识上传无 AI 员工归属，终态/错误/耗时留痕在 knowledge_document 行上（11 接口轮询可见）。
  * 覆盖式更新（11 §7.2）= 软删旧文档 + 新文档新 ID 走全流水线，引用不迁移。
  */

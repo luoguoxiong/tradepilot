@@ -1,7 +1,7 @@
 /**
  * MailboxSyncScheduler 邮箱同步周期触发（后端技术方案 04 §3.1 / 06 §2.2，M4 #4、M3-13 承接）：
  * 每 5min 扫描全部非 disconnected 邮箱（sched_scan 跨租户 SELECT）→ 逐个投递 q:email_sync
- * （jobId=mbxsync:{mailboxId}，同 mailbox 活跃 job 唯一，防长同步 + 周期触发堆积）。
+ * （jobId=mbxsync.{mailboxId}，同 mailbox 活跃 job 唯一，防长同步 + 周期触发堆积）。
  * 首次同步回填：since = last_synced_at ?? now - syncScope.historyDays（消费侧计算，04 §3.4 delayed 语义不需要）。
  */
 import { ne } from 'drizzle-orm';

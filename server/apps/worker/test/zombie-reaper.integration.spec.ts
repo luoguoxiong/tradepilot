@@ -29,6 +29,7 @@ let redis: Redis;
 const ORG = createId('org');
 const USER = createId('usr');
 const EMP = createId('aie');
+const EMP_FRESH = createId('aie');
 const EMP_BUSY = createId('aie');
 const TASK_STALE = createId('task');
 const TASK_ALIVE = createId('task');
@@ -101,6 +102,22 @@ beforeAll(async () => {
         status: 'working',
       },
       {
+        id: EMP_FRESH,
+        orgId: ORG,
+        role: 'sales' as const,
+        name: '新鲜任务员工',
+        goal: '测试',
+        tools: [],
+        permissions: {},
+        approvalPolicy: {
+          email_send: 'high_value_only' as const,
+          quote: 'always' as const,
+          autoExecute: [],
+        },
+        kpiConfig: [{ metric: 'leads', target: 1, period: 'daily' as const }],
+        status: 'working',
+      },
+      {
         id: EMP_BUSY,
         orgId: ORG,
         role: 'sales' as const,
@@ -134,7 +151,7 @@ beforeAll(async () => {
   });
   await insertRunningTask({
     id: TASK_FRESH,
-    employeeId: EMP,
+    employeeId: EMP_FRESH,
     startedAt: new Date(),
     title: 'A3 新鲜运行任务',
   });
@@ -155,10 +172,10 @@ beforeAll(async () => {
     startedAt: new Date(),
   });
 
-  // 心跳存活场景：TASK_ALIVE 心跳在（90s TTL，04 §5.4 心跳 30s）
+  // 心跳存活场景：TASK_ALIVE 心跳在（90s TTL，04 §5.4 心跳 30s）。
+  // 注意：不能为 TASK_BUSY 预置心跳 key——扫描器语义是「心跳存在=图仍在跑 → 跳过收割」，
+  // 预置会让 TASK_BUSY 永不被收割（reap 内的 del 仅兜底清扫描-收割竞态窗口的残留）。
   await redis.set(heartbeatKey(TASK_ALIVE), '1', 'EX', 90);
-  // 心跳残留 key（模拟崩溃后遗留）→ 收割时清理
-  await redis.set(heartbeatKey(TASK_BUSY), '1', 'EX', 90);
 });
 
 afterAll(async () => {

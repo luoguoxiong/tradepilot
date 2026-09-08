@@ -28,7 +28,7 @@ export interface WorkerRuntime {
  */
 export function createProcessor(rt: WorkerRuntime): Processor {
   return async (job: Job) => {
-    // q:knowledge_index 双语义分流（M4 #7）：job.data.docId → 知识索引流水线（jobId=`kidx:{docId}`）；
+    // q:knowledge_index 双语义分流（M4 #7）：job.data.docId → 知识索引流水线（jobId=`kidx.{docId}`）；
     // 其余（job.id=ai_task.id，14 接口创建的 knowledge_index/product_analysis 任务）→ TaskRunner。
     if (
       job.queueName === QUEUE_NAME.KNOWLEDGE_INDEX &&

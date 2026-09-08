@@ -151,6 +151,10 @@ export class TaskRunner {
         return { status: TASK_STATUS.PAUSED, error: err.message };
       }
       const error = err instanceof Error ? err.message : String(err);
+      this.deps.logger.warn(
+        { taskId, error, err: err instanceof Error ? err : undefined },
+        '任务失败（堆栈见 err 字段）',
+      );
       await this.fail(taskId, probe.orgId, snapshot.employee.id, error);
       return { status: TASK_STATUS.FAILED, error };
     } finally {

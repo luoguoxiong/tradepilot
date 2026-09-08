@@ -7,7 +7,7 @@ import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import type { z } from 'zod';
 import { schema, type Tx } from '@tradepilot/db';
-import { BizException, ErrorCode, createId } from '@tradepilot/core';
+import { BizException, ErrorCode, createId, zonedDayKey } from '@tradepilot/core';
 import type { ApprovalType, RiskLevel, TaskLogType } from '@tradepilot/shared';
 
 const { aiTaskLog } = schema;
@@ -95,10 +95,14 @@ export class ToolRegistry {
 
   /**
    * 校验链④：外部配额令牌桶（员工级 externalCallDailyLimit 默认 200，03 §3.7）。
-   * Redis key 按日期分片（quota:{org}:{emp}:{yyyyMMdd}，TTL 48h），超限 42901。
+   * M4 #6：日 key 按 org 时区墙钟日分片（zonedDayKey，06 §3 日界精确轮换；
+   * TTL 48h 自动过期，QuotaReset 扫描器仅巡检留痕），超限 42901。
+   * timezone 由调用方提供（TaskRunContext.org.timezone 快照，不在此查库）。
    */
   async assertQuota(
-    ctx: Pick<ToolContext, 'orgId' | 'employeeId' | 'redis' | 'now'>,
+    ctx: Pick<ToolContext, 'orgId' | 'employeeId' | 'redis' | 'now'> & {
+      timezone?: string | null;
+    },
     tool: ToolDefinition,
     dailyLimit: number,
   ): Promise<void> {
@@ -106,7 +110,7 @@ export class ToolRegistry {
     if (weight === 0) {
       return;
     }
-    const day = ctx.now.toISOString().slice(0, 10).replaceAll('-', '');
+    const day = zonedDayKey(ctx.now, ctx.timezone || 'UTC');
     const key = `quota:${ctx.orgId}:${ctx.employeeId}:${day}`;
     const used = await ctx.redis.incrby(key, weight);
     if (used === weight) {

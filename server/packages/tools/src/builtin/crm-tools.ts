@@ -8,12 +8,14 @@ import { createHash } from 'node:crypto';
 import { and, desc, eq, gt, ilike, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema, withOrg, type Tx } from '@tradepilot/db';
-import { BizException, ErrorCode, createId, getZonedWallTime } from '@tradepilot/core';
+import { BizException, ErrorCode, createId, getZonedWallTime, type SearchScene } from '@tradepilot/core';
 import { createMailboxDriver, isMailboxAuthError } from '@tradepilot/integrations';
 import { TASK_LOG_TYPE } from '@tradepilot/shared';
 import type { ToolContext, ToolDefinition } from '../registry.js';
 import { toolIdempotencyKey, withIdempotency, writeToolLog } from '../registry.js';
 import { getEmailSendConfig, isEmailSendConfigured } from './email-send-config.js';
+import { searchKnowledgeChunks } from './knowledge-search.js';
+import { assertEmailContentCompliance } from './content-compliance.js';
 
 const {
   conversation,
@@ -24,8 +26,6 @@ const {
   aiLead,
   aiLeadContact,
   customerActivity,
-  knowledgeChunk,
-  knowledgeDocument,
   message,
 } = schema;
 
@@ -466,6 +466,8 @@ export const emailSendTool: ToolDefinition<
 
       // 发信唯一出口统一校验：窗口 + 频控（06 §2.3，org.send_rules，04 §3.2）
       await assertSendWindowAndPacing(ctx, conv.customerId);
+      // 外发内容合规钩子（08 §6 外发滥用防护：内置基线 + 注入扩展，违规 42201）
+      await assertEmailContentCompliance({ subject: input.subject, body: input.body });
 
       // 邮箱解析：入参显式 > 会话关联（会话未关联 → org 任一 connected 兜底，06 §2.3 通知语义同源）
       const mailboxId = input.mailboxId ?? conv.mailboxId;
@@ -571,7 +573,7 @@ export const emailSendTool: ToolDefinition<
   },
 };
 
-// ===== knowledge_search（M3 ILIKE 骨架；pgvector+pg_trgm+RRF 混合检索随 M4）=====
+// ===== knowledge_search（M4 #8 实装：pgvector+tsquery+trgm 三路召回 + RRF 融合 + citations）=====
 
 export const knowledgeSearchTool: ToolDefinition<
   { query: string; scene?: string; topK?: number },
@@ -582,11 +584,12 @@ export const knowledgeSearchTool: ToolDefinition<
       title: string;
       category: string;
       excerpt: string;
+      score: number;
     }[];
   }
 > = {
   name: 'knowledge_search',
-  description: '知识库检索（按 knowledge_scope 过滤；业务参数唯一结构化来源，06 §4）',
+  description: '知识库混合检索（向量+全文+相似 RRF 融合，引用可溯源 docId/chunkId；业务参数唯一结构化来源，06 §4）',
   inputSchema: z.object({
     query: z.string().min(1),
     scene: z.string().optional(),
@@ -594,27 +597,33 @@ export const knowledgeSearchTool: ToolDefinition<
   }),
   riskLevel: 'low',
   async execute(ctx, input) {
-    const rows = await ctx.tx
-      .select({
-        chunkId: knowledgeChunk.id,
-        documentId: knowledgeDocument.id,
-        title: knowledgeDocument.fileName,
-        category: knowledgeDocument.category,
-        content: knowledgeChunk.content,
-      })
-      .from(knowledgeChunk)
-      .innerJoin(knowledgeDocument, eq(knowledgeDocument.id, knowledgeChunk.documentId))
-      .where(
-        and(ilike(knowledgeChunk.content, `%${input.query}%`), isNull(knowledgeDocument.deletedAt)),
-      )
-      .limit(input.topK ?? 5);
+    const { results, noResult } = await searchKnowledgeChunks(ctx.tx, ctx.orgId, {
+      query: input.query,
+      scene: (input.scene ?? null) as SearchScene | null,
+      topK: input.topK,
+    });
+    if (noResult) {
+      // 11 §3.3：无命中必须显式提示，禁止编造
+      await writeToolLog(
+        ctx,
+        TASK_LOG_TYPE.LOOKUP,
+        `知识库检索无结果：「${input.query.slice(0, 60)}」（需向用户提示，不得编造）`,
+      );
+      return { chunks: [] };
+    }
+    await writeToolLog(
+      ctx,
+      TASK_LOG_TYPE.LOOKUP,
+      `知识库检索命中 ${results.length} 块：「${input.query.slice(0, 60)}」`,
+    );
     return {
-      chunks: rows.map((r) => ({
+      chunks: results.map((r) => ({
         chunkId: r.chunkId,
-        documentId: r.documentId,
-        title: r.title,
+        documentId: r.docId,
+        title: r.docName,
         category: r.category,
         excerpt: r.content.slice(0, 200),
+        score: Number(r.score.toFixed(4)),
       })),
     };
   },

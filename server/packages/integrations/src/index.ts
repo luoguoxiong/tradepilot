@@ -25,3 +25,36 @@ export type {
   DriverTestResult,
   SendMessageResult,
 } from './mailbox/types.js';
+
+// ===== M4 #6/#7：搜索抓取 / 嵌入服务 / 对象存储适配（06 §3 / 07 §2）=====
+export {
+  createEmbeddingProvider,
+  configureEmbedding,
+  getEmbeddingProvider,
+  mockEmbed,
+  MockEmbeddingProvider,
+  OpenAiEmbeddingProvider,
+  MOCK_EMBEDDING_DIMENSIONS,
+} from './embedding/index.js';
+export type { EmbeddingProvider, EmbeddingOptions } from './embedding/index.js';
+export {
+  createS3Storage,
+  configureObjectStorage,
+  getObjectStorage,
+  isObjectStorageConfigured,
+  knowledgeDocKey,
+} from './storage/index.js';
+export type { ObjectStorage, S3StorageOptions } from './storage/index.js';
+export {
+  createSearchProvider,
+  configureSearchProvider,
+  getSearchProvider,
+  MockSearchProvider,
+  HttpSearchProvider,
+} from './search/index.js';
+export type {
+  SearchProvider,
+  WebSearchHit,
+  SiteCrawlResult,
+  HttpSearchOptions,
+} from './search/index.js';

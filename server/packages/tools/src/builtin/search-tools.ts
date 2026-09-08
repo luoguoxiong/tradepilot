@@ -1,13 +1,17 @@
 /**
  * 外部信息类工具（05 §3）：web_search / site_crawl / find_contact / lookup_contact / lead_scoring。
  * M4-1：lead_hunting 图真实链路落地——搜索轮次换词、联系人发现与公开渠道查找、
- * 决策影响力 90/75/40 档确定性映射（04 需求 §3.2）；供应商适配器（06 §3）为 M4-6 集成项，
- * 当前返回确定性 mock 数据，保证工作流可测。
+ * 决策影响力 90/75/40 档确定性映射（04 需求 §3.2）。
+ * M4-6：web_search/site_crawl 接供应商适配器（06 §3，@tradepilot/integrations getSearchProvider，
+ * 默认 mock 兜底；worker 启动时 configureSearchProvider 注入真实供应商）+ org 级日额度令牌桶。
+ * find_contact/lookup_contact/lead_scoring 保持确定性规则（联系人供应商属 P1 扩展）。
  */
 import { z } from 'zod';
 import { TASK_LOG_TYPE, type CompanyLead, type LeadContact } from '@tradepilot/shared';
+import { MockSearchProvider, getSearchProvider } from '@tradepilot/integrations';
 import type { ToolContext, ToolDefinition } from '../registry.js';
 import { writeToolLog } from '../registry.js';
+import { assertOrgSearchQuota } from './quotas.js';
 
 /** 默认职衔白名单（03 §3.4 jobTitles 缺省值） */
 export const DEFAULT_JOB_TITLES = [
@@ -70,40 +74,73 @@ function bagContacts(ctx: ToolContext): LeadContact[] {
   return (ctx.bag.get('contactsAll') as LeadContact[] | undefined) ?? [];
 }
 
+/** 搜索 hit → 公司候选（域名提取 + 标题派生公司名；country 缺省由 assemble_leads 兜底） */
+function hitToCompany(hit: { title: string; url: string }): CompanyLead | null {
+  let domain: string | null = null;
+  try {
+    domain = new URL(hit.url).hostname.replace(/^www\./, '');
+  } catch {
+    domain = null;
+  }
+  if (!domain) {
+    return null;
+  }
+  const fromTitle = hit.title.split(/[|–—-]/)[0]?.trim() ?? '';
+  const companyName =
+    fromTitle.length >= 2
+      ? fromTitle.slice(0, 80)
+      : domain.split('.')[0]?.replace(/^\w/, (c) => c.toUpperCase()) ?? domain;
+  return {
+    companyName,
+    domain,
+    website: `https://${domain}`,
+    source: 'web_search',
+  };
+}
+
 export const webSearchTool: ToolDefinition<
   { queries: string[] },
   { companies: (CompanyLead & { source: string })[] }
 > = {
   name: 'web_search',
-  description: '按搜索词执行网页搜索，返回公司候选（外部配额 ×1）',
+  description: '按搜索词执行网页搜索，返回公司候选（外部配额 ×1 + org 级搜索日额度）',
   inputSchema: z.object({ queries: z.array(z.string().min(1)).min(1).max(20) }),
   riskLevel: 'low',
   quotaWeight: 1,
   async execute(ctx, input) {
-    // 翻页/换词（LangGraph 00 §2.2 C2）：轮次计数由 bag 承载，逐轮轮换搜索词；
-    // 真实供应商适配（M4-6）按轮次映射到分页/同义改写。
+    // 翻页/换词（LangGraph 00 §2.2 C2）：轮次计数由 bag 承载，逐轮轮换搜索词映射到供应商分页。
     const round = ((ctx.bag.get('searchRound') as number | undefined) ?? 0) + 1;
     ctx.bag.set('searchRound', round);
     const query = input.queries[(round - 1) % input.queries.length] ?? input.queries[0] ?? '';
     await writeToolLog(ctx, TASK_LOG_TYPE.SEARCH, `第 ${round} 轮搜索：${query}`);
 
-    const slug = `r${round}-${query.length}`;
-    const companies: (CompanyLead & { source: string })[] = [
-      {
-        companyName: `${query.slice(0, 24)} Trading Co.`,
-        domain: `vendor-${slug}.example.com`,
-        country: round % 2 === 0 ? 'Germany' : 'USA',
-        website: `https://vendor-${slug}.example.com`,
-        source: 'web_search',
-        // 员工数确定性伪随机（companySizeRange 硬过滤可测，03 §3.4）
-        employeeCount: 40 + ((round * 97 + query.length * 13) % 460),
-      },
-    ];
+    // org 级供应商日额度（06 §3 令牌桶，org 时区日界）
+    await assertOrgSearchQuota(ctx, 1);
+
+    const provider = getSearchProvider();
+    const hits = await provider.webSearch(query, round);
+    const companies: (CompanyLead & { source: string })[] = hits
+      .map(hitToCompany)
+      .filter((c): c is CompanyLead & { source: string } => c !== null);
+
+    // mock 供应商保留确定性员工数（companySizeRange 硬过滤可测，03 §3.4）；
+    // 真实供应商不产伪数据（无依据字段缺失，硬过滤跳过——CompanyLead 契约）
+    if (provider instanceof MockSearchProvider && companies.length > 0) {
+      for (const c of companies) {
+        c.employeeCount = 40 + ((round * 97 + query.length * 13) % 460);
+        c.country = round % 2 === 0 ? 'Germany' : 'USA';
+      }
+    }
+
+    if (companies.length === 0) {
+      await writeToolLog(ctx, TASK_LOG_TYPE.FOUND, `第 ${round} 轮搜索无新候选`);
+      return { companies: [] };
+    }
     for (const c of companies) {
       await writeToolLog(
         ctx,
         TASK_LOG_TYPE.FOUND,
-        `发现公司 ${c.companyName}（${c.country}，${c.website}）`,
+        `发现公司 ${c.companyName}（${c.domain}）`,
       );
     }
     return { companies };
@@ -120,11 +157,16 @@ export const siteCrawlTool: ToolDefinition<
   riskLevel: 'low',
   quotaWeight: 2,
   async execute(ctx, input) {
-    const summary = `[mock 抓取] ${input.companyName}（${input.domain}）：主营产品与公司介绍摘要（M3 mock，M4 接 Playwright 渲染）`;
-    const products = ['mock product line A', 'mock product line B'];
-    const crawledPages = ['/', '/products', '/about'];
-    await writeToolLog(ctx, TASK_LOG_TYPE.CRAWL, `抓取 ${input.domain} 完成（${crawledPages.length} 页）`);
-    return { summary, products, crawledPages };
+    // org 级供应商日额度（crawl ×2）
+    await assertOrgSearchQuota(ctx, 2);
+    const provider = getSearchProvider();
+    const result = await provider.crawlSite(input.domain);
+    await writeToolLog(
+      ctx,
+      TASK_LOG_TYPE.CRAWL,
+      `抓取 ${input.domain} 完成（${result.crawledPages.length} 页）`,
+    );
+    return result;
   },
 };
 

@@ -30,6 +30,23 @@ export const apiEnvSchema = baseEnvSchema.extend({
   /** Outlook OAuth 客户端（outlook 驱动；M4 §2.4） */
   MICROSOFT_CLIENT_ID: z.string().default(''),
   MICROSOFT_CLIENT_SECRET: z.string().default(''),
+  /** S3 兼容对象存储（MinIO，知识原文 07 §2；缺省对齐 docker-compose 本地值） */
+  S3_ENDPOINT: z.string().default('http://localhost:9000'),
+  S3_BUCKET: z.string().default('tradepilot-local'),
+  S3_REGION: z.string().default('us-east-1'),
+  S3_ACCESS_KEY_ID: z.string().default('tradepilot'),
+  S3_SECRET_ACCESS_KEY: z.string().default('tradepilot_dev'),
+  /** 嵌入服务（07 §2：mock = 确定性向量，测试/离线可用；openai = OpenAI 兼容接口） */
+  EMBEDDING_PROVIDER: z.enum(['mock', 'openai']).default('mock'),
+  EMBEDDING_BASE_URL: z.string().default('https://api.openai.com/v1'),
+  EMBEDDING_API_KEY: z.string().default(''),
+  EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
+  /** 搜索供应商（06 §3：mock = 确定性 mock；http = Serper 兼容搜索 API） */
+  SEARCH_PROVIDER: z.enum(['mock', 'http']).default('mock'),
+  SEARCH_BASE_URL: z.string().default('https://google.serper.dev'),
+  SEARCH_API_KEY: z.string().default(''),
+  /** org 级搜索/抓取日额度（06 §3 令牌桶，按 org 时区日界轮换） */
+  ORG_SEARCH_DAILY_LIMIT: z.coerce.number().int().min(1).default(2000),
 });
 export type ApiEnv = z.infer<typeof apiEnvSchema>;
 
@@ -51,6 +68,21 @@ export const workerEnvSchema = baseEnvSchema.extend({
   GOOGLE_CLIENT_SECRET: z.string().default(''),
   MICROSOFT_CLIENT_ID: z.string().default(''),
   MICROSOFT_CLIENT_SECRET: z.string().default(''),
+  /** S3 兼容对象存储（MinIO，知识原文 07 §2；缺省对齐 docker-compose 本地值） */
+  S3_ENDPOINT: z.string().default('http://localhost:9000'),
+  S3_BUCKET: z.string().default('tradepilot-local'),
+  S3_REGION: z.string().default('us-east-1'),
+  S3_ACCESS_KEY_ID: z.string().default('tradepilot'),
+  S3_SECRET_ACCESS_KEY: z.string().default('tradepilot_dev'),
+  /** 嵌入服务（07 §2：mock = 确定性向量，测试/离线可用；openai = OpenAI 兼容接口） */
+  EMBEDDING_PROVIDER: z.enum(['mock', 'openai']).default('mock'),
+  EMBEDDING_BASE_URL: z.string().default('https://api.openai.com/v1'),
+  EMBEDDING_API_KEY: z.string().default(''),
+  EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
+  /** 搜索供应商（06 §3：mock = 确定性 mock；http = Serper 兼容搜索 API） */
+  SEARCH_PROVIDER: z.enum(['mock', 'http']).default('mock'),
+  SEARCH_BASE_URL: z.string().default('https://google.serper.dev'),
+  SEARCH_API_KEY: z.string().default(''),
 });
 export type WorkerEnv = z.infer<typeof workerEnvSchema>;
 

@@ -3,8 +3,22 @@ import {
   alignToSendWindow,
   computeDeferredNextRunAt,
   DEFAULT_SEND_WINDOW,
+  zonedDayKey,
   zonedWallTimeToUtc,
 } from '../src/index.js';
+
+describe('zonedDayKey（org 时区墙钟日 key，M4 #6 配额日界）', () => {
+  it('同一 UTC 时刻在不同时区产出不同当地日（Shanghai UTC+8 vs UTC）', () => {
+    const t = new Date('2026-09-08T16:30:00Z'); // Shanghai 09-09 00:30 / UTC 09-08 16:30
+    expect(zonedDayKey(t, 'Asia/Shanghai')).toBe('20260909');
+    expect(zonedDayKey(t, 'UTC')).toBe('20260908');
+  });
+
+  it('格式为 yyyyMMdd（补零）', () => {
+    const t = new Date('2026-01-03T00:00:00Z');
+    expect(zonedDayKey(t, 'UTC')).toBe('20260103');
+  });
+});
 
 describe('alignToSendWindow（Asia/Shanghai，UTC+8）', () => {
   const TZ = 'Asia/Shanghai';

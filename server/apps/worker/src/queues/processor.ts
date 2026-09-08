@@ -3,6 +3,7 @@ import type { ResumeHint, TaskRunner } from '@tradepilot/runtime';
 import { QUEUE_NAME, TASK_TYPE_QUEUE } from '@tradepilot/shared';
 import type { Logger } from 'pino';
 import type { EmailSyncProcessor } from './email-sync.js';
+import type { KnowledgeIndexProcessor } from './knowledge-index.js';
 
 /** worker 内部装配依赖（index.ts 构建，避免循环 import queues/registry） */
 export interface WorkerRuntime {
@@ -10,6 +11,8 @@ export interface WorkerRuntime {
   logger: Logger;
   /** q:email_sync 消费者（M4 #4 收信链路；缺省 = 邮箱同步未装配，留痕降级） */
   emailSync?: EmailSyncProcessor;
+  /** q:knowledge_index 知识索引流水线消费者（M4 #7 RAG 入库；缺省 = 降级留痕） */
+  knowledgeIndex?: KnowledgeIndexProcessor;
 }
 
 /**
@@ -25,6 +28,23 @@ export interface WorkerRuntime {
  */
 export function createProcessor(rt: WorkerRuntime): Processor {
   return async (job: Job) => {
+    // q:knowledge_index 双语义分流（M4 #7）：job.data.docId → 知识索引流水线（jobId=`kidx:{docId}`）；
+    // 其余（job.id=ai_task.id，14 接口创建的 knowledge_index/product_analysis 任务）→ TaskRunner。
+    if (
+      job.queueName === QUEUE_NAME.KNOWLEDGE_INDEX &&
+      typeof job.data?.['docId'] === 'string'
+    ) {
+      if (!rt.knowledgeIndex) {
+        rt.logger.warn(
+          { queue: job.queueName, jobId: job.id, docId: job.data?.['docId'] },
+          'q:knowledge_index job 被消费但索引流水线未装配（降级留痕）',
+        );
+        return undefined;
+      }
+      const outcome = await rt.knowledgeIndex.process(String(job.data['docId']));
+      rt.logger.info({ queue: job.queueName, ...outcome }, '知识索引 job 处理结束');
+      return outcome;
+    }
     if (!TASK_QUEUES.has(job.queueName)) {
       return handleSystemJob(job, rt);
     }

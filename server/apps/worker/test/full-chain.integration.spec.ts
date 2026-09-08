@@ -532,17 +532,31 @@ describe('M4-1 lead_hunting：阈值映射 / 硬过滤 / 轮次守卫 / 额度 p
         await tx.delete(schema.aiTaskStep).where(eq(schema.aiTaskStep.orgId, orgId));
         await tx.delete(schema.aiLeadContact).where(eq(schema.aiLeadContact.orgId, orgId));
         await tx.delete(schema.aiLead).where(eq(schema.aiLead.orgId, orgId));
+        // 审批闭环留痕（follow_up 场景的 email_send 审批单）
+        await tx.delete(schema.approvalLog).where(eq(schema.approvalLog.orgId, orgId));
+        await tx.delete(schema.approvalRequest).where(eq(schema.approvalRequest.orgId, orgId));
         await tx.delete(schema.aiTask).where(eq(schema.aiTask.orgId, orgId));
+        // 跟进链路（漏删会跨文件污染 scheduler 扫描：scanner 跨租户扫所有到期 follow_up_task）
+        await tx.delete(schema.followUpExecution).where(eq(schema.followUpExecution.orgId, orgId));
+        await tx.delete(schema.followUpTask).where(eq(schema.followUpTask.orgId, orgId));
+        await tx.delete(schema.followUpStrategyStep).where(eq(schema.followUpStrategyStep.orgId, orgId));
+        await tx.delete(schema.followUpStrategy).where(eq(schema.followUpStrategy.orgId, orgId));
+        await tx.delete(schema.message).where(eq(schema.message.orgId, orgId));
+        await tx.delete(schema.conversation).where(eq(schema.conversation.orgId, orgId));
+        await tx.delete(schema.customerActivity).where(eq(schema.customerActivity.orgId, orgId));
+        await tx.delete(schema.customer).where(eq(schema.customer.orgId, orgId));
         await tx.delete(schema.aiEmployee).where(eq(schema.aiEmployee.orgId, orgId));
         await tx.delete(schema.userAccount).where(eq(schema.userAccount.orgId, orgId));
         await tx.delete(schema.org).where(eq(schema.org.id, orgId));
       }
     });
-    // 配额键（quota:{org}:{emp}:{day}）清理，防跨套件残留
+    // 配额键（quota:{org}:{emp}:{day} + M4 org 级搜索/抓取键）清理，防跨套件残留
     for (const orgId of orgIds) {
       const keys = await redis.keys(`quota:${orgId}:*`);
-      if (keys.length > 0) {
-        await redis.del(...keys);
+      const orgSearchKeys = await redis.keys(`orgsearch:${orgId}:*`);
+      const allKeys = [...keys, ...orgSearchKeys];
+      if (allKeys.length > 0) {
+        await redis.del(...allKeys);
       }
     }
   });

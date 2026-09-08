@@ -128,6 +128,14 @@ export interface MailboxSyncScope {
   folders: string[];
 }
 
+/**
+ * OAuth 凭据（gmail/outlook，06 §2.4）：refresh token 信封加密存储（08 §2）；
+ * access token 按需刷新不落盘；刷新失败 → status='disconnected'。
+ */
+export interface MailboxOAuthConfig {
+  refresh_token_enc?: string;
+}
+
 export const mailbox = pgTable(
   'mailbox',
   {
@@ -140,6 +148,7 @@ export const mailbox = pgTable(
     account: text('account').notNull(),
     imap: jsonb('imap').$type<MailboxChannelConfig>(),
     smtp: jsonb('smtp').$type<MailboxChannelConfig>(),
+    oauth: jsonb('oauth').$type<MailboxOAuthConfig>(),
     syncScope: jsonb('sync_scope').$type<MailboxSyncScope>().notNull(),
     status: mailboxStatus('status').notNull(),
     lastSyncAt: timestamp('last_sync_at', { withTimezone: true }),

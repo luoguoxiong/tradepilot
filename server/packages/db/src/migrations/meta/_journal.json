@@ -15,6 +15,13 @@
       "when": 1788702956292,
       "tag": "0001_jittery_vindicator",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788875012515,
+      "tag": "0002_dusty_hammerhead",
+      "breakpoints": true
     }
   ]
 }

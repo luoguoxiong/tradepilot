@@ -17,6 +17,7 @@
     "@nestjs/platform-express": "^10.4.15",
     "@tradepilot/core": "workspace:*",
     "@tradepilot/db": "workspace:*",
+    "@tradepilot/integrations": "workspace:*",
     "@tradepilot/runtime": "workspace:*",
     "@tradepilot/shared": "workspace:*",
     "bcryptjs": "^3.0.3",

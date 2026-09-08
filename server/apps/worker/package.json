@@ -14,6 +14,7 @@
   "dependencies": {
     "@tradepilot/core": "workspace:*",
     "@tradepilot/db": "workspace:*",
+    "@tradepilot/integrations": "workspace:*",
     "@tradepilot/runtime": "workspace:*",
     "@tradepilot/shared": "workspace:*",
     "@tradepilot/tools": "workspace:*",

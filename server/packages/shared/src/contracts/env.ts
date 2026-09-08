@@ -24,6 +24,12 @@ export const apiEnvSchema = baseEnvSchema.extend({
   /** 凭据加密主密钥：64 位 hex（32 字节，08 §2） */
   ENCRYPTION_KEY: z.string().regex(/^[0-9a-fA-F]{64}$/, 'ENCRYPTION_KEY 必须为 64 位 hex'),
   SCHED_DATABASE_URL: z.string().min(1).optional(),
+  /** Gmail OAuth 客户端（gmail 驱动连接测试/同步发信；M4 §2.4） */
+  GOOGLE_CLIENT_ID: z.string().default(''),
+  GOOGLE_CLIENT_SECRET: z.string().default(''),
+  /** Outlook OAuth 客户端（outlook 驱动；M4 §2.4） */
+  MICROSOFT_CLIENT_ID: z.string().default(''),
+  MICROSOFT_CLIENT_SECRET: z.string().default(''),
 });
 export type ApiEnv = z.infer<typeof apiEnvSchema>;
 
@@ -39,6 +45,12 @@ export const workerEnvSchema = baseEnvSchema.extend({
         .map((q) => q.trim())
         .filter((q) => q.length > 0),
     ),
+  /** 凭据加密主密钥（收发/同步瞬间解密凭据与 OAuth token，06 §2.4） */
+  ENCRYPTION_KEY: z.string().regex(/^[0-9a-fA-F]{64}$/, 'ENCRYPTION_KEY 必须为 64 位 hex'),
+  GOOGLE_CLIENT_ID: z.string().default(''),
+  GOOGLE_CLIENT_SECRET: z.string().default(''),
+  MICROSOFT_CLIENT_ID: z.string().default(''),
+  MICROSOFT_CLIENT_SECRET: z.string().default(''),
 });
 export type WorkerEnv = z.infer<typeof workerEnvSchema>;
 

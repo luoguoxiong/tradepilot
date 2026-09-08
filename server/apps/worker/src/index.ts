@@ -9,7 +9,8 @@ import {
   TaskRunner,
   createCheckpointer,
 } from '@tradepilot/runtime';
-import { createToolRegistry } from '@tradepilot/tools';
+import { createToolRegistry, configureEmailSend } from '@tradepilot/tools';
+import type { MailboxDriverOptions } from '@tradepilot/integrations';
 import {
   createFlowRegistry,
   createOutputSchemaRegistry,
@@ -21,8 +22,10 @@ import { loadEnv } from './env.js';
 import { createRootLogger } from './logger.js';
 import { createWorkers } from './queues/registry.js';
 import { createProcessor } from './queues/processor.js';
+import { EmailSyncProcessor } from './queues/email-sync.js';
 import { Dispatcher, DISPATCH_INTERVAL_MS } from './scheduler/dispatcher.js';
 import { FollowUpScanner, FOLLOW_UP_SCAN_INTERVAL_MS } from './scheduler/follow-up-scanner.js';
+import { MailboxSyncScheduler, MAILBOX_SYNC_INTERVAL_MS } from './scheduler/mailbox-sync.js';
 import { ApprovalExpiryScanner, APPROVAL_EXPIRY_INTERVAL_MS } from './scheduler/approval-expiry.js';
 import { DelayedJobReconciler, RECONCILE_INTERVAL_MS } from './scheduler/delayed-reconciler.js';
 import { ZombieReaper, ZOMBIE_SCAN_INTERVAL_MS } from './scheduler/zombie-reaper.js';
@@ -90,7 +93,31 @@ async function bootstrap(): Promise<void> {
   });
 
   // ===== 队列 =====
-  const workers = createWorkers(env, env.REDIS_URL, logger, createProcessor({ runner, logger }));
+  // 邮箱驱动选项（M4 #4/#5：凭据解密主密钥 + OAuth 客户端，06 §2.4）
+  const mailboxDriverOptions: MailboxDriverOptions = {
+    encryptionKey: env.ENCRYPTION_KEY,
+    oauth: {
+      googleClientId: env.GOOGLE_CLIENT_ID || undefined,
+      googleClientSecret: env.GOOGLE_CLIENT_SECRET || undefined,
+      microsoftClientId: env.MICROSOFT_CLIENT_ID || undefined,
+      microsoftClientSecret: env.MICROSOFT_CLIENT_SECRET || undefined,
+    },
+  };
+  // email_send 真实外发唯一出口（06 §2.3）：tools 包进程级注入
+  // （凭据解密 + OAuth 客户端 + 失败留痕独立事务连接）
+  configureEmailSend({ ...mailboxDriverOptions, db });
+  const emailSync = new EmailSyncProcessor({
+    db,
+    redis,
+    logger,
+    driverOptions: mailboxDriverOptions,
+  });
+  const workers = createWorkers(
+    env,
+    env.REDIS_URL,
+    logger,
+    createProcessor({ runner, logger, emailSync }),
+  );
   const summary = workers.map(
     (w) => `${w.name}(${QUEUE_CONCURRENCY[w.name as keyof typeof QUEUE_CONCURRENCY] ?? '?'})`,
   );
@@ -98,12 +125,14 @@ async function bootstrap(): Promise<void> {
   // ===== 扫描循环（04 §3.1）=====
   const dispatcher = new Dispatcher({ db, enqueuer, logger });
   const followUpScanner = new FollowUpScanner({ db, logger });
+  const mailboxSyncScheduler = new MailboxSyncScheduler({ db, enqueuer, logger });
   const approvalExpiry = new ApprovalExpiryScanner({ db, publisher, enqueuer, logger });
   const reconciler = new DelayedJobReconciler({ db, enqueuer, logger });
   const reaper = new ZombieReaper({ db, redis, publisher, logger });
   const stopLoops = [
     startLoop('Dispatcher', DISPATCH_INTERVAL_MS, () => dispatcher.tick(), logger),
     startLoop('FollowUpScanner', FOLLOW_UP_SCAN_INTERVAL_MS, () => followUpScanner.tick(), logger),
+    startLoop('MailboxSync', MAILBOX_SYNC_INTERVAL_MS, () => mailboxSyncScheduler.tick(), logger),
     startLoop('ApprovalExpiry', APPROVAL_EXPIRY_INTERVAL_MS, () => approvalExpiry.tick(), logger),
     startLoop('Reconciler', RECONCILE_INTERVAL_MS, () => reconciler.tick(), logger),
     startLoop('ZombieReaper', ZOMBIE_SCAN_INTERVAL_MS, () => reaper.tick(), logger),
@@ -116,6 +145,7 @@ async function bootstrap(): Promise<void> {
       schedulers: [
         'Dispatcher',
         'FollowUpScanner',
+        'MailboxSync',
         'ApprovalExpiry',
         'Reconciler',
         'ZombieReaper',

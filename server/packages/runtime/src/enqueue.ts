@@ -89,6 +89,22 @@ export class TaskEnqueuer {
     await queue.add('notify', payload);
   }
 
+  /**
+   * email_sync 队列（M4 #4 收信链路）：jobId=`mbxsync:{mailboxId}` 防重复入队
+   * （同 mailbox 活跃 job 唯一——调度器 5min 周期与长同步天然互斥，不堆积）。
+   */
+  async enqueueEmailSync(mailboxId: string): Promise<void> {
+    const queue = this.queues.get(QUEUE_NAME.EMAIL_SYNC);
+    if (!queue) {
+      return;
+    }
+    await queue.add(
+      'email_sync',
+      { mailboxId },
+      { jobId: `mbxsync:${mailboxId}` },
+    );
+  }
+
   async close(): Promise<void> {
     await Promise.allSettled([...this.queues.values()].map((q) => q.close()));
   }

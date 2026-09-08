@@ -19,6 +19,11 @@ export {
   writeCustomerActivity,
   type EmailSendInput,
 } from './builtin/crm-tools.js';
+export {
+  configureEmailSend,
+  isEmailSendConfigured,
+  getEmailSendConfig,
+} from './builtin/email-send-config.js';
 
 import { ToolRegistry } from './registry.js';
 import { registerSearchTools } from './builtin/search-tools.js';

@@ -4,6 +4,10 @@ import { Redis } from 'ioredis';
 import * as net from 'node:net';
 import { BizException, createId, decryptSecret } from '@tradepilot/core';
 import { closeDb, createDb, schema, type Db } from '@tradepilot/db';
+import {
+  setMailboxDriverFactory,
+  type MailboxDriver,
+} from '@tradepilot/integrations';
 import { EnvService } from '../src/config/env.service.js';
 import { AuthService } from '../src/auth/auth.service.js';
 import { TokenService } from '../src/auth/token.service.js';
@@ -268,13 +272,26 @@ describe('邮箱连接（16 §1.5/§3.3/§3.4）', () => {
     );
   });
 
-  it('连接测试：可达 → connected；不可达 → error + lastError', async () => {
+  it('连接测试：协议级可达 → connected；不可达 → error + lastError（M4 #4）', async () => {
+    // 可达路径：注入 mock 驱动（真实 IMAP/SMTP 登录由驱动层负责；此处验证服务编排与状态机）
+    const okDriver: MailboxDriver = {
+      async testConnection() {
+        return { imap: 'ok', smtp: 'ok' };
+      },
+      async *syncMessages() {},
+      async sendMessage() {
+        return { externalId: 'x' };
+      },
+    };
+    setMailboxDriverFactory(() => okDriver);
     const okResult = await mailboxService.test(orgId, mailboxId);
     expect(okResult).toMatchObject({ ok: true, imap: 'ok', smtp: 'ok' });
+    setMailboxDriverFactory(null);
 
-    // 更新为不可达端口（保留原凭据）
+    // 更新为不可达端口（保留原凭据）→ 驱动连接失败 → error + lastError
     await mailboxService.update(orgId, mailboxId, {
       imap: { host: '127.0.0.1', port: 1, ssl: false, credential: 'imap-plain-secret' },
+      smtp: { host: '127.0.0.1', port: 1, ssl: false, credential: 'smtp-plain-secret' },
     });
     const failResult = await mailboxService.test(orgId, mailboxId);
     expect(failResult.ok).toBe(false);
@@ -286,7 +303,7 @@ describe('邮箱连接（16 §1.5/§3.3/§3.4）', () => {
       .limit(1);
     expect(row?.status).toBe('error');
     expect(row?.lastError).not.toBeNull();
-  });
+  }, 30_000);
 
   it('凭据与配置可分开更新（不传 credential 保留密文）', async () => {
     await mailboxService.update(orgId, mailboxId, {

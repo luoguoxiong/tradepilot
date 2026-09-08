@@ -2,11 +2,14 @@ import type { Job, Processor } from 'bullmq';
 import type { ResumeHint, TaskRunner } from '@tradepilot/runtime';
 import { QUEUE_NAME, TASK_TYPE_QUEUE } from '@tradepilot/shared';
 import type { Logger } from 'pino';
+import type { EmailSyncProcessor } from './email-sync.js';
 
 /** worker 内部装配依赖（index.ts 构建，避免循环 import queues/registry） */
 export interface WorkerRuntime {
   runner: TaskRunner;
   logger: Logger;
+  /** q:email_sync 消费者（M4 #4 收信链路；缺省 = 邮箱同步未装配，留痕降级） */
+  emailSync?: EmailSyncProcessor;
 }
 
 /**
@@ -23,7 +26,7 @@ export interface WorkerRuntime {
 export function createProcessor(rt: WorkerRuntime): Processor {
   return async (job: Job) => {
     if (!TASK_QUEUES.has(job.queueName)) {
-      return handleSystemJob(job, rt.logger);
+      return handleSystemJob(job, rt);
     }
     const taskId = String(job.id);
     const resumeRaw: unknown = job.data?.['resume'];
@@ -41,24 +44,36 @@ export function createProcessor(rt: WorkerRuntime): Processor {
 const TASK_QUEUES = new Set<string>(Object.values(TASK_TYPE_QUEUE));
 
 /**
- * 系统队列处理器（M3-12）：
- * - q:notify：通知分发随 M5 通知服务实装（后端开发计划表 M5 #11）；M3 仅 approval-expiry 等
- *   投递留痕（q:notify = 削峰占位，见 04 §1）。消费即 ack + info 留痕，防无主 job 堆积——
- *   代价：M3/M4 期间通知不送达（审批 expired 已有 approval_log 留痕，M5 实装发送端时另行收口）。
- * - q:email_sync：收信链路随 M4 邮箱驱动实装（MailboxSyncScheduler 届时投递，04 §3.1）；M3 无
- *   生产者，收到即说明链路提前接线 → warn 显式留痕。
- * 两者接入真实消费时替换本分支（04 §6.3 / M3-12 收口说明）。
+ * 系统队列处理器（M3-12 分流，M4/M5 接真实消费）：
+ * - q:email_sync（M4 #4 实装）：job.data = { mailboxId }（enqueueEmailSync 投递契约）→
+ *   EmailSyncProcessor 收信入库（conversation/message、跟进 pause、email_reply 任务派发）。
+ * - q:notify：通知分发随 M5 通知服务实装；消费即 ack + info 留痕，防无主 job 堆积。
  */
-async function handleSystemJob(job: Job, logger: Logger): Promise<void> {
-  const detail = { queue: job.queueName, jobId: job.id, data: job.data };
+async function handleSystemJob(job: Job, rt: WorkerRuntime): Promise<void> {
   if (job.queueName === QUEUE_NAME.EMAIL_SYNC) {
-    logger.warn(detail, 'q:email_sync job 被消费（M3 无收信链路，随 M4 邮箱驱动实装）');
-  } else {
-    logger.info(
-      detail,
-      'q:notify job 被消费（M3 通知服务未实装，仅留痕；随 M5 通知服务实装发送端）',
-    );
+    if (!rt.emailSync) {
+      rt.logger.warn(
+        { queue: job.queueName, jobId: job.id, data: job.data },
+        'q:email_sync job 被消费但邮箱同步处理器未装配（降级留痕）',
+      );
+      return undefined;
+    }
+    const mailboxId = String(job.data?.['mailboxId'] ?? '');
+    if (!mailboxId) {
+      rt.logger.warn(
+        { queue: job.queueName, jobId: job.id },
+        'q:email_sync job 缺少 mailboxId，跳过',
+      );
+      return undefined;
+    }
+    const outcome = await rt.emailSync.process(mailboxId);
+    rt.logger.info({ queue: job.queueName, ...outcome }, '邮箱同步 job 处理结束');
+    return undefined;
   }
+  rt.logger.info(
+    { queue: job.queueName, jobId: job.id, data: job.data },
+    'q:notify job 被消费（M3 通知服务未实装，仅留痕；随 M5 通知服务实装发送端）',
+  );
   return undefined;
 }
 

@@ -23,6 +23,7 @@ export type {
   EmployeeKpiConfig,
   SopContent,
   MailboxChannelConfig,
+  MailboxOAuthConfig,
   MailboxSyncScope,
   NotificationChannels,
   NotificationEventKey,

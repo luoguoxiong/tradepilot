@@ -8,6 +8,7 @@
 import { BizException, ErrorCode } from '@tradepilot/core';
 import type { SopGraphDefinition } from '@tradepilot/shared';
 import type { TaskSopProvider } from '@tradepilot/runtime';
+import { buildWorkflowOutputs } from './outputs.js';
 
 /** BaseTaskState 六键（通道声明必需） */
 const BASE_KEYS = ['taskId', 'orgId', 'employeeId', 'taskType', 'input', 'errors'] as const;
@@ -61,7 +62,7 @@ const EMAIL_REPLY_SOP: SopGraphDefinition = {
     { id: 'retrieve_knowledge', kind: 'tool', tool: 'knowledge_search', input: { scene: 'email_reply', topK: 5 }, inputMap: { query: 'intent.label' }, outputKey: 'knowledgeChunks', title: '知识检索', progress: 10 },
     { id: 'draft_reply', kind: 'llm', promptRef: 'sales.draftReply', outputSchema: 'draftReply', outputKey: 'draft', title: '生成回复草稿', progress: 25 },
     { id: 'draft_branch', kind: 'flow', route: 'draft_branch', title: '依据校验分流' },
-    { id: 'email_send', kind: 'tool', tool: 'email_send', risk: 'medium', approvalType: 'email_send', inputMap: { conversationId: 'conversationId', subject: 'draft.subject', body: 'draft.body', inboxMessageId: 'inboxMessageId', customerId: 'customerId' }, title: '发送回复邮件', progress: 20 },
+    { id: 'email_send', kind: 'tool', tool: 'email_send', risk: 'medium', approvalType: 'email_send', inputMap: { conversationId: 'conversationId', subject: 'draft.subject', body: 'draft.body', inboxMessageId: 'inboxMessageId', customerId: 'customerId', language: 'detectedLanguage' }, title: '发送回复邮件', progress: 20 },
     { id: 'writeback', kind: 'flow', route: 'writeback', title: '回写 CRM 活动', progress: 10 },
     { id: 'need_info', kind: 'flow', route: 'need_info', title: '缺料收尾' },
   ],
@@ -145,6 +146,13 @@ export const workflowSopProvider: TaskSopProvider = {
       throw new BizException(ErrorCode.NOT_FOUND, `task_type 无内置 SOP: ${taskType}`);
     }
     return { sop: entry.sop, stateKeys: entry.stateKeys };
+  },
+  /** 14 §1.2 类型化 outputs（LangGraph 工作流 §7）；未注册类型返回 null 走 runner 通用兜底 */
+  buildOutputs(
+    taskType: string,
+    finalState: Record<string, unknown>,
+  ): Record<string, unknown>[] | null {
+    return buildWorkflowOutputs(taskType, finalState);
   },
 };
 

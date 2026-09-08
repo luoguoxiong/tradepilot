@@ -304,6 +304,8 @@ export interface EmailSendInput {
   conversationId: string;
   subject: string;
   body: string;
+  /** 回复语言（email_reply 图透传 detectedLanguage，外发 message.language 落库；06 §7） */
+  language?: string;
   /** Break-up Email 标记（强制人工审例外，07 §4） */
   contentKind?: 'initial' | 'value' | 'case' | 'breakup';
   /** reply 模式的触发消息（兼新鲜度基准）；缺省视为 follow_up 模式（基准 = 最近一次 outbound） */
@@ -323,6 +325,7 @@ export const emailSendTool: ToolDefinition<
     conversationId: z.string().min(1),
     subject: z.string().min(1).max(200),
     body: z.string().min(1),
+    language: z.string().max(10).optional(),
     contentKind: z.enum(['initial', 'value', 'case', 'breakup']).optional(),
     inboxMessageId: z.string().optional(),
     customerId: z.string().optional(),
@@ -426,7 +429,8 @@ export const emailSendTool: ToolDefinition<
           senderName: 'AI 销售员工',
           mailboxId: input.mailboxId ?? conv?.mailboxId ?? null,
           content: input.body,
-          language: ctx.bag.get('detectedLanguage') as string | null,
+          // 语言跟随（06 §7）：图经 inputMap 透传 detectedLanguage；未传（如 follow_up 无语言信号）落 null
+          language: input.language ?? null,
           status: 'sent',
           externalMessageId,
           sentAt: ctx.now,

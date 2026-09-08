@@ -17,4 +17,5 @@ export {
   searchPlanSchema,
 } from './output-schemas.js';
 export { createFlowRegistry, mapScoreLevel, registerFlows } from './flows.js';
+export { buildWorkflowOutputs } from './outputs.js';
 export { WORKFLOW_SOP_DEFINITIONS, workflowSopProvider } from './sops.js';

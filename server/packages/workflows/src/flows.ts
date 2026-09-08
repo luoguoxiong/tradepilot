@@ -14,6 +14,7 @@ import { computeDeferredNextRunAt, type SendWindow } from '@tradepilot/core';
 import { schema, withOrg } from '@tradepilot/db';
 import {
   boundExternal,
+  detectEmailLanguage,
   type CompanyLead,
   type LeadContact,
   type LeadScore,
@@ -264,7 +265,8 @@ const finalize: FlowNodeFn = (state, ctx) => {
 
 /**
  * load_thread（M3 flow 承载）：inboxMessageId/conversationId → 会话最近消息 + 语言检测
- * （跟随最近一条 in 消息 language，缺省英文 06 §7）+ 客户画像快照。
+ * （跟随最近一条 in 消息 language；缺失时按正文确定性检测 zh/en，无信号默认英文 06 §7）
+ * + 客户画像快照。
  */
 const loadThread: FlowNodeFn = async (state, ctx) => {
   const inboxMessageId = str(state['inboxMessageId']);
@@ -297,13 +299,17 @@ const loadThread: FlowNodeFn = async (state, ctx) => {
     m.direction === 'in' ? { ...m, body: boundExternal(m.body) } : m,
   );
   const lastIn = [...thread].reverse().find((m) => m.direction === 'in');
+  // 语言跟随（06 §7）：落库 language 优先，缺失按正文确定性检测 zh/en，无 in 信号默认英文
+  const detectedLanguage = lastIn
+    ? (lastIn.language?.trim() || detectEmailLanguage(lastIn.body))
+    : 'en';
   const customerSnapshot = customerId
     ? await loadCustomerInsights(ctx.db, ctx.orgId, customerId)
     : null;
 
   const patch: State = {
     thread,
-    detectedLanguage: lastIn?.language ?? 'en',
+    detectedLanguage,
     ...(conversationId ? { conversationId } : {}),
     ...(customerId ? { customerId } : {}),
     ...(customerSnapshot ? { customerSnapshot } : {}),

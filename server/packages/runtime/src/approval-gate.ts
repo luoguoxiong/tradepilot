@@ -252,9 +252,21 @@ export class ApprovalGate {
           decidedAt: ctx.now,
         });
       }
+      // SSE log 契约要求 logId：先落 ai_task_log 再推事件（events.ts §log）
+      const logId = createId('tlog');
+      await tx.insert(schema.aiTaskLog).values({
+        id: logId,
+        orgId: ctx.orgId,
+        taskId: ctx.taskId,
+        occurredAt: ctx.now,
+        type: TASK_LOG_TYPE.FOUND,
+        content: `命中 autoApprove，自动放行（${tool.name}）`,
+        leadId: null,
+      });
       ctx.events.push({
         type: 'log',
         payload: {
+          logId,
           type: TASK_LOG_TYPE.FOUND,
           content: `命中 autoApprove，自动放行（${tool.name}）`,
         },

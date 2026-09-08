@@ -240,7 +240,7 @@ describe('全链路：lead_hunting 入队 → Runner → 图执行 → 落库 �
     // ③ Runner 执行（processor 语义 = runner.run）
     const result = await runner.run(taskId);
     expect(result.status).toBe('completed');
-    expect(result.outputs?.[0]?.['type']).toBe('result');
+    expect(result.outputs?.[0]?.['type']).toBe('leads');
 
     // ④ 落库：任务终态 + 员工回 idle + 心跳清理
     const [task] = await db
@@ -250,7 +250,11 @@ describe('全链路：lead_hunting 入队 → Runner → 图执行 → 落库 �
     expect(task.status).toBe('completed');
     expect(task.progressPct).toBe(100);
     expect(task.finishedAt).not.toBeNull();
-    expect((task.outputs as Record<string, unknown>[])[0]?.['data']).toBeTruthy();
+    // 14 §1.2 类型化 outputs：leads payload（发现池列表 + 统计）
+    const leadsOut = (task.outputs as Record<string, unknown>[])[0];
+    expect(leadsOut?.['type']).toBe('leads');
+    expect((leadsOut?.['payload'] as Record<string, unknown>)['leads']).toHaveLength(1);
+    expect((leadsOut?.['payload'] as Record<string, unknown>)['foundCount']).toBe(1);
     const [emp] = await db.select({ status: schema.aiEmployee.status }).from(schema.aiEmployee).where(eq(schema.aiEmployee.id, EMP_LEAD));
     expect(emp.status).toBe('idle');
     expect(await redis.exists(heartbeatKey(taskId))).toBe(0);
@@ -373,7 +377,11 @@ describe('全链路：follow_up 审批挂起 → 批准 → resume 续跑 → �
       .where(eq(schema.followUpTask.id, FT));
     expect(ft2.status).toBe('scheduled');
     expect((ft2.nextRunAt as Date).getTime()).toBeGreaterThan(frozenAt.getTime());
-    expect(resumed.outputs?.[0]?.['data']).toMatchObject({ nextStep: { seq: 2 } });
+    // 14 §1.2 类型化 outputs：draft + insight（触达记录 + 排期）
+    const draftOut = resumed.outputs?.find((o) => o?.['type'] === 'draft');
+    expect((draftOut?.['payload'] as Record<string, unknown>)['subject']).toBeTruthy();
+    const insightOut = resumed.outputs?.find((o) => o?.['type'] === 'insight');
+    expect(insightOut?.['payload']).toMatchObject({ nextStep: { seq: 2 } });
 
     // 终态收口：任务 completed + 员工 idle + done 事件
     const [task2] = await db.select({ status: schema.aiTask.status }).from(schema.aiTask).where(eq(schema.aiTask.id, taskId));

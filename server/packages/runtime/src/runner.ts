@@ -29,6 +29,14 @@ const DEFAULT_EXTERNAL_CALL_LIMIT = 200;
 /** taskType → { sop 图定义, State 通道键 }（workflows 内置三图；org 自定义 SOP 随 P1） */
 export interface TaskSopProvider {
   get(taskType: string): { sop: unknown; stateKeys: string[] };
+  /**
+   * 终态 outputs 组装（14 §1.2：`[{ type, payload }]` 类型化契约 / LangGraph 工作流 §7）。
+   * 返回 null / 未实现 → runner 回落通用 result 包裹（剥离运行时键后的全量 State）。
+   */
+  buildOutputs?(
+    taskType: string,
+    finalState: Record<string, unknown>,
+  ): Record<string, unknown>[] | null;
 }
 
 /** 审批通过后的续跑指引（12 处置接口重入队时随 job 携带） */
@@ -125,7 +133,8 @@ export class TaskRunner {
       const { sop, stateKeys } = this.deps.sops.get(ctx.taskType);
       const graph = this.deps.compiler.compile(ctx.orgId, ctx.taskType, sop, stateKeys);
       const finalState = await graph.invoke(buildInitialState(ctx, stateKeys), ctx);
-      const outputs = buildOutputs(finalState);
+      const outputs =
+        this.deps.sops.buildOutputs?.(ctx.taskType, finalState) ?? buildOutputs(finalState);
       await this.complete(taskId, probe.orgId, snapshot.employee.id, outputs);
       return { status: TASK_STATUS.COMPLETED, outputs };
     } catch (err) {

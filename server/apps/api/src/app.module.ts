@@ -15,6 +15,8 @@ import { SettingsModule } from './settings/settings.module.js';
 import { TasksModule } from './tasks/tasks.module.js';
 import { KnowledgeModule } from './knowledge/knowledge.module.js';
 import { ApprovalsModule } from './approvals/approvals.module.js';
+import { ConversationsModule } from './conversations/conversations.module.js';
+import { CustomersModule } from './customers/customers.module.js';
 
 /**
  * API 根模块（后端技术方案 01 §4）。
@@ -36,6 +38,8 @@ import { ApprovalsModule } from './approvals/approvals.module.js';
     TasksModule,
     KnowledgeModule,
     ApprovalsModule,
+    ConversationsModule,
+    CustomersModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: HttpExceptionFilter },

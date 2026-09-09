@@ -10,6 +10,7 @@ import {
   type RolePermissionMatrix,
   type Tx,
 } from '@tradepilot/db';
+import { DEFAULT_NOTIFICATION_EVENTS } from '@tradepilot/shared';
 import { DB } from '../db/db.module.js';
 import { highRiskApprovalTypes, mandatoryApprovalTypes } from './settings.dto.js';
 import type {
@@ -44,11 +45,8 @@ export interface AiModelSettingView {
   budgetLimit: string | null;
 }
 
-const DEFAULT_EVENTS: NotificationEvents = {
-  approval_pending: { site: true, email: true },
-  risk_alert: { site: true, email: true },
-  task_failed: { site: true, email: false },
-};
+/** 缺省开关矩阵（16 §1.8；与 worker 通知分发兜底同源，shared 单一事实源） */
+const DEFAULT_EVENTS: NotificationEvents = DEFAULT_NOTIFICATION_EVENTS;
 
 @Injectable()
 export class SettingsService {

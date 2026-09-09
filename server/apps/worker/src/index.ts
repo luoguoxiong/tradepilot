@@ -32,6 +32,7 @@ import { createWorkers } from './queues/registry.js';
 import { createProcessor } from './queues/processor.js';
 import { EmailSyncProcessor } from './queues/email-sync.js';
 import { KnowledgeIndexProcessor } from './queues/knowledge-index.js';
+import { NotifyProcessor } from './queues/notify.js';
 import { Dispatcher, DISPATCH_INTERVAL_MS } from './scheduler/dispatcher.js';
 import { FollowUpScanner, FOLLOW_UP_SCAN_INTERVAL_MS } from './scheduler/follow-up-scanner.js';
 import { MailboxSyncScheduler, MAILBOX_SYNC_INTERVAL_MS } from './scheduler/mailbox-sync.js';
@@ -77,7 +78,26 @@ async function bootstrap(): Promise<void> {
         );
     },
   });
-  const gate = new ApprovalGate(db, redis, publisher, logger);
+  const gate = new ApprovalGate(db, redis, publisher, logger, {
+    // M5-A2：新建审批单 → q:notify（approval_pending；分发按 notification_setting 矩阵）
+    onPendingApproval: (info) => {
+      void enqueuer
+        .enqueueNotify({
+          type: 'approval_pending',
+          orgId: info.orgId,
+          title: `审批待处理：${info.title}`,
+          content: `审批类型 ${info.approvalType}，关联任务 ${info.taskId}`,
+          refType: 'approval',
+          refId: info.approvalId,
+        })
+        .catch((err: unknown) =>
+          logger.warn(
+            { approvalId: info.approvalId, err: err instanceof Error ? err.message : String(err) },
+            '审批待处理通知入队失败（不阻断）',
+          ),
+        );
+    },
+  });
   const tools = createToolRegistry();
   const compiler = new GraphCompiler({
     db,
@@ -99,6 +119,24 @@ async function bootstrap(): Promise<void> {
     publisher,
     compiler,
     sops: workflowSopProvider,
+    // M5-A2：任务失败 → q:notify（task_failed；分发按 notification_setting 矩阵）
+    onTaskFailed: (info) => {
+      void enqueuer
+        .enqueueNotify({
+          type: 'task_failed',
+          orgId: info.orgId,
+          title: `任务失败：${info.title}`,
+          content: info.error,
+          refType: 'task',
+          refId: info.taskId,
+        })
+        .catch((err: unknown) =>
+          logger.warn(
+            { taskId: info.taskId, err: err instanceof Error ? err.message : String(err) },
+            '任务失败通知入队失败（不阻断）',
+          ),
+        );
+    },
   });
 
   // ===== 队列 =====
@@ -148,11 +186,12 @@ async function bootstrap(): Promise<void> {
     driverOptions: mailboxDriverOptions,
   });
   const knowledgeIndex = new KnowledgeIndexProcessor({ db, logger });
+  const notify = new NotifyProcessor({ db, logger, driverOptions: mailboxDriverOptions });
   const workers = createWorkers(
     env,
     env.REDIS_URL,
     logger,
-    createProcessor({ runner, logger, emailSync, knowledgeIndex }),
+    createProcessor({ runner, logger, emailSync, knowledgeIndex, notify }),
   );
   const summary = workers.map(
     (w) => `${w.name}(${QUEUE_CONCURRENCY[w.name as keyof typeof QUEUE_CONCURRENCY] ?? '?'})`,

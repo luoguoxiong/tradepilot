@@ -172,6 +172,10 @@ export const ID_PREFIX = {
   followUpTask: 'ftask',
   report: 'rpt',
   trace: 'trc',
+  /** 通知设置行（notification_setting） */
+  notificationSetting: 'ntf',
+  /** 站内通知收件箱行（notification，M5-A2 增补表） */
+  notification: 'ntfn',
 } as const;
 
 export type IdPrefix = (typeof ID_PREFIX)[keyof typeof ID_PREFIX];

@@ -1,6 +1,6 @@
 /**
- * 05 CRM 客户中心 DTO（接口 05 §1.2/§3，M5-A4）。
- * 软删/批量操作/contacts/activities 接口随 M5-B1 交付。
+ * 05 CRM 客户中心 DTO（接口 05 §1.2/§3，M5-A4/B1）。
+ * 软删/批量操作/contacts/activities 接 M5-B1。
  */
 import { z } from 'zod';
 
@@ -65,3 +65,59 @@ export const stageTransitionSchema = z.object({
 });
 
 export type StageTransitionDto = z.infer<typeof stageTransitionSchema>;
+
+// ===== B1 新增 DTO =====
+
+/** B1 §1 单条软删 / 批量删除 */
+export const batchDeleteSchema = z.object({
+  customerIds: z.array(z.string().trim().min(1)).min(1).max(100),
+});
+
+export type BatchDeleteDto = z.infer<typeof batchDeleteSchema>;
+
+/** B1 §2 batch-owner 批量转交（仅 manager/admin） */
+export const batchOwnerSchema = z.object({
+  ownerId: z.string().trim().min(1),
+  customerIds: z.array(z.string().trim().min(1)).min(1).max(100),
+});
+
+export type BatchOwnerDto = z.infer<typeof batchOwnerSchema>;
+
+/** B1 §3 联系人创建 */
+export const createContactSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  title: z.string().trim().max(200).default(''),
+  email: z.string().trim().email().optional(),
+  phone: z.string().trim().max(50).optional(),
+  isPrimary: z.boolean().optional().default(false),
+});
+
+export type CreateContactDto = z.infer<typeof createContactSchema>;
+
+/** B1 §3 联系人编辑 */
+export const updateContactSchema = z.object({
+  name: z.string().trim().min(1).max(200).optional(),
+  title: z.string().trim().max(200).optional(),
+  email: z.string().trim().email().optional(),
+  phone: z.string().trim().max(50).optional(),
+  isPrimary: z.boolean().optional(),
+});
+
+export type UpdateContactDto = z.infer<typeof updateContactSchema>;
+
+/** B1 §4 活动列表查询 */
+export const listActivitiesQuerySchema = z.object({
+  refType: z.string().trim().min(1).optional(),
+  refId: z.string().trim().min(1).optional(),
+  type: z.enum([
+    'stage_change',
+    'owner_change',
+    'email',
+    'quote',
+    'follow_up',
+    'note',
+    'ai_action',
+  ]).optional(),
+});
+
+export type ListActivitiesQuery = z.infer<typeof listActivitiesQuerySchema>;

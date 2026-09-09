@@ -15,19 +15,24 @@ import {
 } from '@tradepilot/db';
 import { DB } from '../db/db.module.js';
 import type {
+  BatchDeleteDto,
+  BatchOwnerDto,
+  CreateContactDto,
   CreateCustomerDto,
   CustomerStage,
+  ListActivitiesQuery,
   ListCustomersQuery,
   StageTransitionDto,
+  UpdateContactDto,
   UpdateCustomerDto,
 } from './customers.dto.js';
 
 /**
- * 05 CRM 客户中心服务（接口 05 §3，M5-A4）：
+ * 05 CRM 客户中心服务（接口 05 §3，M5-A4/B1）：
  * - 列表：tab(potential/formal) / keyword / country / stage / ownerId / overdueDays + scope 注入；
  * - 创建/编辑：ownerId 指派与转交仅 manager/admin（sales 越权 40301）；转交写 owner_change 活动；
- * - stage 流转：沿阶段机正向或回退 contacted（非法 40901），写 stage_change 活动留痕。
- * 软删/batch-delete/batch-owner/contacts/activities 随 M5-B1。
+ * - stage 流转：沿阶段机正向或回退 contacted（非法 40901），写 stage_change 活动留痕；
+ * - B1 软删/batch-delete（锁定态走审批联动）/batch-owner/contacts/activities。
  */
 
 /** 阶段机顺序（05 §3.2：正向 = 序号递增；仅允许回退到 contacted） */
@@ -47,6 +52,18 @@ export interface CustomerListItem {
   country: string;
   ownerId: string;
   reactivateSuggestion: { reasons: { text: string; evidence?: string; source?: string }[]; confidence: number } | null;
+}
+
+export interface ActivityItem {
+  activityId: string;
+  customerId: string;
+  companyName: string;
+  type: string;
+  summary: string;
+  operatorName: string | null;
+  createdAt: string;
+  refType: string | null;
+  refId: string | null;
 }
 
 @Injectable()
@@ -85,7 +102,6 @@ export class CustomersService {
         conditions.push(ilike(schema.customer.companyName, `%${query.keyword}%`));
       }
       if (query.overdueDays !== undefined) {
-        // 超期未联系：最近活动（无活动回落创建时间）早于 N 天前
         conditions.push(
           sql`coalesce(${lastActivityExpr}, ${schema.customer.createdAt}) < now() - make_interval(days => ${query.overdueDays})`,
         );
@@ -253,7 +269,6 @@ export class CustomersService {
         ownerChanged = true;
         newOwnerId = dto.ownerId;
 
-        // owner_change 活动留痕（§4：数据权限随新负责人即时切换）
         const [oldOwner] = await tx
           .select({ name: schema.userAccount.name })
           .from(schema.userAccount)
@@ -360,6 +375,305 @@ export class CustomersService {
       });
 
       return { customerId, stage: to, activityId };
+    });
+  }
+
+  // ===== B1-1 软删 / batch-delete =====
+
+  /** B1 §1 单条软删：锁定态走审批，非锁定态直接删 */
+  async delete(ctx: OrgScopeContext, customerId: string): Promise<{ customerId: string; approvalId?: string }> {
+    return withOrg(this.db, ctx.orgId, async (tx) => {
+      const [raw] = await tx
+        .select()
+        .from(schema.customer)
+        .where(and(eq(schema.customer.id, customerId), notDeleted(schema.customer.deletedAt)))
+        .limit(1);
+      const row = assertResourceAccess(raw, ctx);
+
+      const now = new Date();
+      await tx
+        .update(schema.customer)
+        .set({ deletedAt: now, updatedAt: now })
+        .where(eq(schema.customer.id, customerId));
+
+      let approvalId: string | undefined;
+      if (row.deleteLocked) {
+        approvalId = createId('appr');
+        const expiresAt = new Date(now.getTime() + 48 * 60 * 60 * 1000);
+        await tx.insert(schema.approvalRequest).values({
+          id: approvalId,
+          orgId: ctx.orgId,
+          approvalType: 'customer_delete',
+          riskLevel: 'medium',
+          title: `删除客户：${row.companyName}`,
+          bizType: 'customer',
+          bizId: customerId,
+          context: { companyName: row.companyName, deletedBy: ctx.userId, deletedAt: now.toISOString() },
+          aiProposal: {},
+          requestedByUserId: ctx.userId,
+          expiresAt,
+        });
+      }
+
+      return { customerId, approvalId };
+    });
+  }
+
+  /** B1 §1 批量删除（逐客户走 delete 逻辑） */
+  async batchDelete(
+    ctx: OrgScopeContext,
+    dto: BatchDeleteDto,
+  ): Promise<{ results: { customerId: string; approvalId?: string }[] }> {
+    if (ctx.role === 'sales') {
+      throw new BizException(ErrorCode.FORBIDDEN, '批量删除仅经理/管理员可操作');
+    }
+    const results: { customerId: string; approvalId?: string }[] = [];
+    for (const cid of dto.customerIds) {
+      try {
+        const r = await this.delete(ctx, cid);
+        results.push(r);
+      } catch {
+        results.push({ customerId: cid });
+      }
+    }
+    return { results };
+  }
+
+  // ===== B1-2 batch-owner =====
+
+  /** B1 §2 批量转交负责人（仅 manager/admin；逐客户写 owner_change 活动） */
+  async batchOwner(
+    ctx: OrgScopeContext,
+    dto: BatchOwnerDto,
+  ): Promise<{ results: { customerId: string; ownerId: string }[] }> {
+    if (ctx.role === 'sales') {
+      throw new BizException(ErrorCode.FORBIDDEN, '批量转交仅经理/管理员可操作');
+    }
+    return withOrg(this.db, ctx.orgId, async (tx) => {
+      await this.assertOwnerExists(tx, ctx.orgId, dto.ownerId);
+
+      const rows = await tx
+        .select()
+        .from(schema.customer)
+        .where(
+          and(
+            eq(schema.customer.orgId, ctx.orgId),
+            inArray(schema.customer.id, dto.customerIds),
+            notDeleted(schema.customer.deletedAt),
+          ),
+        );
+
+      const now = new Date();
+      const results: { customerId: string; ownerId: string }[] = [];
+
+      for (const row of rows) {
+        if (row.ownerId === dto.ownerId) {
+          results.push({ customerId: row.id, ownerId: dto.ownerId });
+          continue;
+        }
+        // 转交前校验权限（sales 不可操作他人客户）
+        assertResourceAccess(row, ctx);
+
+        const [oldOwner] = await tx
+          .select({ name: schema.userAccount.name })
+          .from(schema.userAccount)
+          .where(eq(schema.userAccount.id, row.ownerId))
+          .limit(1);
+        const [newOwner] = await tx
+          .select({ name: schema.userAccount.name })
+          .from(schema.userAccount)
+          .where(eq(schema.userAccount.id, dto.ownerId))
+          .limit(1);
+        const operatorName = await this.userName(tx, ctx.orgId, ctx.userId);
+
+        await tx
+          .update(schema.customer)
+          .set({ ownerId: dto.ownerId, updatedAt: now })
+          .where(eq(schema.customer.id, row.id));
+
+        await tx.insert(schema.customerActivity).values({
+          id: createId('act'),
+          orgId: ctx.orgId,
+          customerId: row.id,
+          type: 'owner_change',
+          summary: `负责人变更：${oldOwner?.name ?? row.ownerId} → ${newOwner?.name ?? dto.ownerId}`,
+          operatorType: 'user',
+          operatorId: ctx.userId,
+          operatorName,
+          refType: 'customer',
+          refId: row.id,
+        });
+
+        results.push({ customerId: row.id, ownerId: dto.ownerId });
+      }
+
+      return { results };
+    });
+  }
+
+  // ===== B1-3 contacts CRUD =====
+
+  /** B1 §3 创建联系人（单条） */
+  async createContact(
+    ctx: OrgScopeContext,
+    customerId: string,
+    dto: CreateContactDto,
+  ): Promise<{ contactId: string }> {
+    return withOrg(this.db, ctx.orgId, async (tx) => {
+      const [raw] = await tx
+        .select({ id: schema.customer.id, ownerId: schema.customer.ownerId, deletedAt: schema.customer.deletedAt })
+        .from(schema.customer)
+        .where(and(eq(schema.customer.id, customerId), notDeleted(schema.customer.deletedAt)))
+        .limit(1);
+      assertResourceAccess(raw, ctx);
+
+      const contactId = createId('cont');
+      await tx.insert(schema.contact).values({
+        id: contactId,
+        orgId: ctx.orgId,
+        customerId,
+        name: dto.name,
+        title: dto.title,
+        email: dto.email ?? null,
+        phone: dto.phone ?? null,
+        isPrimary: dto.isPrimary,
+      });
+      return { contactId };
+    });
+  }
+
+  /** B1 §3 编辑联系人 */
+  async updateContact(
+    ctx: OrgScopeContext,
+    customerId: string,
+    contactId: string,
+    dto: UpdateContactDto,
+  ): Promise<{ contactId: string }> {
+    return withOrg(this.db, ctx.orgId, async (tx) => {
+      const [raw] = await tx
+        .select({ id: schema.customer.id, ownerId: schema.customer.ownerId, deletedAt: schema.customer.deletedAt })
+        .from(schema.customer)
+        .where(and(eq(schema.customer.id, customerId), notDeleted(schema.customer.deletedAt)))
+        .limit(1);
+      assertResourceAccess(raw, ctx);
+
+      const [contact] = await tx
+        .select()
+        .from(schema.contact)
+        .where(and(eq(schema.contact.id, contactId), eq(schema.contact.customerId, customerId)))
+        .limit(1);
+      if (!contact) {
+        throw new BizException(ErrorCode.NOT_FOUND, '联系人不存在');
+      }
+
+      await tx
+        .update(schema.contact)
+        .set({
+          ...(dto.name !== undefined && { name: dto.name }),
+          ...(dto.title !== undefined && { title: dto.title }),
+          ...(dto.email !== undefined && { email: dto.email }),
+          ...(dto.phone !== undefined && { phone: dto.phone }),
+          ...(dto.isPrimary !== undefined && { isPrimary: dto.isPrimary }),
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.contact.id, contactId));
+
+      return { contactId };
+    });
+  }
+
+  /** B1 §3 删除单条联系人（不走审批） */
+  async deleteContact(
+    ctx: OrgScopeContext,
+    customerId: string,
+    contactId: string,
+  ): Promise<{ contactId: string }> {
+    return withOrg(this.db, ctx.orgId, async (tx) => {
+      const [raw] = await tx
+        .select({ id: schema.customer.id, ownerId: schema.customer.ownerId, deletedAt: schema.customer.deletedAt })
+        .from(schema.customer)
+        .where(and(eq(schema.customer.id, customerId), notDeleted(schema.customer.deletedAt)))
+        .limit(1);
+      assertResourceAccess(raw, ctx);
+
+      const [contact] = await tx
+        .select({ id: schema.contact.id })
+        .from(schema.contact)
+        .where(and(eq(schema.contact.id, contactId), eq(schema.contact.customerId, customerId)))
+        .limit(1);
+      if (!contact) {
+        throw new BizException(ErrorCode.NOT_FOUND, '联系人不存在');
+      }
+
+      await tx.delete(schema.contact).where(eq(schema.contact.id, contactId));
+      return { contactId };
+    });
+  }
+
+  // ===== B1-4 activities 全局列表 =====
+
+  /** B1 §4 活动全局列表（refType+refId 跳转语义 + type 筛选 + 分页） */
+  async listActivities(
+    ctx: OrgScopeContext,
+    query: ListActivitiesQuery & { page: number; pageSize: number },
+  ): Promise<{ items: ActivityItem[]; total: number; page: number; pageSize: number }> {
+    const scope = resolveScope(ctx.role, ctx.scope);
+    return withOrg(this.db, ctx.orgId, async (tx) => {
+      const conditions: SQL[] = [
+        eq(schema.customerActivity.orgId, ctx.orgId),
+      ];
+      if (query.refType) {
+        conditions.push(eq(schema.customerActivity.refType, query.refType));
+      }
+      if (query.refId) {
+        conditions.push(eq(schema.customerActivity.refId, query.refId));
+      }
+      if (query.type) {
+        conditions.push(eq(schema.customerActivity.type, query.type));
+      }
+
+      // scope 注入：通过 customer.ownerId 过滤
+      const scopeCond = applyOwnerScope(schema.customer.ownerId, { ...ctx, scope });
+      if (scopeCond) {
+        conditions.push(scopeCond);
+      }
+
+      const where = and(...conditions);
+
+      const rows = await tx
+        .select({
+          activityId: schema.customerActivity.id,
+          customerId: schema.customerActivity.customerId,
+          companyName: schema.customer.companyName,
+          type: schema.customerActivity.type,
+          summary: schema.customerActivity.summary,
+          operatorName: schema.customerActivity.operatorName,
+          createdAt: schema.customerActivity.createdAt,
+          refType: schema.customerActivity.refType,
+          refId: schema.customerActivity.refId,
+        })
+        .from(schema.customerActivity)
+        .innerJoin(schema.customer, eq(schema.customer.id, schema.customerActivity.customerId))
+        .where(where)
+        .orderBy(desc(schema.customerActivity.createdAt))
+        .limit(query.pageSize)
+        .offset((query.page - 1) * query.pageSize);
+
+      const [countRow] = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.customerActivity)
+        .innerJoin(schema.customer, eq(schema.customer.id, schema.customerActivity.customerId))
+        .where(where);
+
+      return {
+        items: rows.map((r) => ({
+          ...r,
+          createdAt: r.createdAt.toISOString(),
+        })),
+        total: countRow?.n ?? 0,
+        page: query.page,
+        pageSize: query.pageSize,
+      };
     });
   }
 

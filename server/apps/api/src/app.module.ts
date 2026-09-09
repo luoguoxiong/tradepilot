@@ -17,6 +17,7 @@ import { KnowledgeModule } from './knowledge/knowledge.module.js';
 import { ApprovalsModule } from './approvals/approvals.module.js';
 import { ConversationsModule } from './conversations/conversations.module.js';
 import { CustomersModule } from './customers/customers.module.js';
+import { LeadsModule } from './leads/leads.module.js';
 
 /**
  * API 根模块（后端技术方案 01 §4）。
@@ -40,6 +41,7 @@ import { CustomersModule } from './customers/customers.module.js';
     ApprovalsModule,
     ConversationsModule,
     CustomersModule,
+    LeadsModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: HttpExceptionFilter },

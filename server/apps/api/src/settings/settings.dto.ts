@@ -20,6 +20,13 @@ export const createMailboxSchema = z.object({
   account: z.string().email('邮箱格式不正确').max(254),
   imap: mailboxChannelSchema.optional(),
   smtp: mailboxChannelSchema.optional(),
+  /** OAuth 凭据（gmail/outlook，06 §2.4）：refresh token 信封加密落库，响应永不回显 */
+  oauth: z
+    .object({
+      /** OAuth 授权流程产出的 refresh token（仅请求携带） */
+      refreshToken: z.string().min(1).max(2048),
+    })
+    .optional(),
   syncScope: z.object({
     historyDays: z.number().int().min(1).max(365),
     folders: z.array(z.string().min(1).max(64)).min(1).max(10),
@@ -30,6 +37,11 @@ export type CreateMailboxDto = z.infer<typeof createMailboxSchema>;
 export const updateMailboxSchema = z.object({
   imap: mailboxChannelSchema.optional(),
   smtp: mailboxChannelSchema.optional(),
+  oauth: z
+    .object({
+      refreshToken: z.string().min(1).max(2048).optional(),
+    })
+    .optional(),
   syncScope: z
     .object({
       historyDays: z.number().int().min(1).max(365),

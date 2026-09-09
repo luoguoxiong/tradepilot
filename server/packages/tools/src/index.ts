@@ -19,6 +19,29 @@ export {
   writeCustomerActivity,
   type EmailSendInput,
 } from './builtin/crm-tools.js';
+export {
+  configureEmailSend,
+  isEmailSendConfigured,
+  getEmailSendConfig,
+} from './builtin/email-send-config.js';
+export {
+  getOrgTimezone,
+  assertOrgSearchQuota,
+  configureOrgSearchQuota,
+} from './builtin/quotas.js';
+export {
+  checkEmailContentCompliance,
+  assertEmailContentCompliance,
+  setEmailComplianceHook,
+  resetEmailCompliance,
+} from './builtin/content-compliance.js';
+export type { ComplianceFinding } from './builtin/content-compliance.js';
+export { searchKnowledgeChunks } from './builtin/knowledge-search.js';
+export type {
+  KnowledgeSearchParams,
+  KnowledgeSearchHit,
+  KnowledgeSearchResult,
+} from './builtin/knowledge-search.js';
 
 import { ToolRegistry } from './registry.js';
 import { registerSearchTools } from './builtin/search-tools.js';

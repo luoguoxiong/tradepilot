@@ -84,6 +84,16 @@ beforeAll(async () => {
   dispatcher = new Dispatcher({ db, enqueuer: stubEnqueuer, logger });
   scanner = new FollowUpScanner({ db, logger });
 
+  // 跨租户扫描器（Dispatcher/FollowUpScanner 经 sched 角色扫全表）对 DB 残留敏感：
+  // 前序集成测试文件若 afterAll 漏删 follow_up_task/ai_task，会污染本套件计数断言。
+  // beforeAll 全局清表（测试库，TRUNCATE CASCADE 跳过 FK 顺序），保证干净基线
+  // （本套件用唯一 org/员工 id，自建数据不受影响）。
+  await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`TRUNCATE TABLE follow_up_task, follow_up_execution, ai_task, ai_task_log, ai_task_step RESTART IDENTITY CASCADE`,
+    );
+  });
+
   await db.transaction(async (tx) => {
     await tx.insert(schema.org).values([
       {

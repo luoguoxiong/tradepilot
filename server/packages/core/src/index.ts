@@ -5,3 +5,5 @@ export * from './time-window.js';
 export * from './money.js';
 export * from './scope.js';
 export * from './crypto.js';
+export * from './text-chunk.js';
+export * from './rrf.js';

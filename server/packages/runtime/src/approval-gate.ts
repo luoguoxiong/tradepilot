@@ -44,12 +44,24 @@ export interface GateToolMeta {
   approvalType?: string;
 }
 
+/** 审批挂起通知钩子（M5-A2：新建审批单后投递 q:notify，装配方注入；缺省不通知） */
+export interface ApprovalGateHooks {
+  onPendingApproval?: (info: {
+    orgId: string;
+    taskId: string;
+    approvalId: string;
+    title: string;
+    approvalType: string;
+  }) => void | Promise<void>;
+}
+
 export class ApprovalGate {
   constructor(
     private readonly db: Db,
     private readonly redis: Redis,
     private readonly publisher: TaskEventPublisher,
     private readonly logger: Logger,
+    private readonly hooks: ApprovalGateHooks = {},
   ) {}
 
   /** 分流放行链（不落库；interrupt 前置态由 enterWaiting 落库） */
@@ -136,7 +148,9 @@ export class ApprovalGate {
     ctx: TaskRunContext,
     input: Record<string, unknown>,
   ): Promise<string> {
-    return withOrg(this.db, ctx.orgId, async (tx) => {
+    // 新建审批单才触发通知（复用既有 pending 单的 resume 重放不重复提醒）
+    const approvalType = tool.approvalType ?? 'email_send';
+    const { approvalId, created } = await withOrg(this.db, ctx.orgId, async (tx) => {
       // 幂等：同 (task, node) 已有 pending 审批单则复用（resume 重放节点时防重复建单）
       const [existing] = await tx
         .select({ id: schema.approvalRequest.id })
@@ -153,14 +167,16 @@ export class ApprovalGate {
         .limit(1);
 
       let approvalId: string;
+      let created = false;
       if (existing) {
         approvalId = existing.id;
       } else {
+        created = true;
         approvalId = createId('appr');
         await tx.insert(schema.approvalRequest).values({
           id: approvalId,
           orgId: ctx.orgId,
-          approvalType: (tool.approvalType ?? 'email_send') as never,
+          approvalType: approvalType as never,
           riskLevel: tool.riskLevel,
           title: ctx.task.title,
           bizType: 'ai_task',
@@ -211,8 +227,27 @@ export class ApprovalGate {
         buildStatusEvent({ status: TASK_STATUS.WAITING_APPROVAL, linkedApprovalId: approvalId }),
       );
       this.logger.info({ taskId: ctx.taskId, approvalId, tool: tool.name }, '任务进入审批挂起');
-      return approvalId;
+      return { approvalId, created };
     });
+
+    // 事务提交后投递通知（失败不阻断挂起语义；分发由 q:notify 消费端按设置矩阵执行）
+    if (created && this.hooks.onPendingApproval) {
+      try {
+        await this.hooks.onPendingApproval({
+          orgId: ctx.orgId,
+          taskId: ctx.taskId,
+          approvalId,
+          title: ctx.task.title,
+          approvalType,
+        });
+      } catch (err: unknown) {
+        this.logger.warn(
+          { approvalId, err: err instanceof Error ? err.message : String(err) },
+          '审批挂起通知投递失败（不阻断）',
+        );
+      }
+    }
+    return approvalId;
   }
 
   /** autoApprove 直发留痕：approval_request(auto_approved) + approval_log（12 §7.1 口径） */

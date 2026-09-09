@@ -96,12 +96,14 @@ export class TaskStreamController {
     // M3-09 去重：先订阅后回放期间 PUBLISH 的日志会被「回放查询」与「订阅回调」双收，
     // 以 ai_task_log.logId 为唯一键（文档 04 §6.1 的 seq/logId 去重），先到者发出并登记、后到者丢弃。
     const sentLogIds = new Set<string>();
-    const sendLog = (logId: string, data: unknown): void => {
+    // 统一 log 事件契约（04 §6.1）：data 形状恒为 { type:'log', payload:{ logId, ... } }，
+    // 回放（payload 取自 DB 行）与实时（payload 取自 PUBLISH 消息）同构，客户端按 payload.logId 去重。
+    const sendLog = (logId: string, payload: unknown): void => {
       if (sentLogIds.has(logId)) {
         return;
       }
       sentLogIds.add(logId);
-      write('log', data);
+      write('log', { type: 'log', payload });
     };
     // M3-11 终态兜底（04 §6.3）：本连接 done 一经投递（实时到达或兜底补发）即置位；
     // DB 已终态且未置位 → 补发 status+done 并关闭，弥合 Worker commit→PUBLISH 崩溃的丢 done 窗口。
@@ -114,6 +116,18 @@ export class TaskStreamController {
         terminalPoll = undefined;
       }
     };
+    // M3-03 终态关闭：done 实时到达即关闭流（回放/兜底/实时三路径统一走此出口），
+    // 杜绝客户端收 done 后仍挂等心跳。
+    const finishDone = async (data: Record<string, unknown>): Promise<void> => {
+      doneSent = true;
+      stopTerminalPoll();
+      if (heartbeat) {
+        clearInterval(heartbeat);
+        heartbeat = undefined;
+      }
+      write('done', data);
+      await this.cleanup(subscriber, user.sub, orgId, res);
+    };
     const onMessage = (ch: string, message: string): void => {
       if (ch !== channel) {
         return;
@@ -121,12 +135,14 @@ export class TaskStreamController {
       try {
         const parsed = JSON.parse(message) as { type?: string; payload?: { logId?: string } };
         if (parsed.type === 'log' && typeof parsed.payload?.logId === 'string') {
-          sendLog(parsed.payload.logId, parsed);
+          sendLog(parsed.payload.logId, parsed.payload);
           return;
         }
         if (parsed.type === 'done') {
-          doneSent = true;
-          stopTerminalPoll(); // done 已实时到达 → 无需 DB 兜底轮询
+          if (!doneSent) {
+            void finishDone(parsed as Record<string, unknown>);
+          }
+          return; // done 已（将）关闭流，不再 write 其它事件
         }
         write(parsed.type ?? 'log', parsed);
       } catch {
@@ -171,12 +187,11 @@ export class TaskStreamController {
         ...(latest.error ? { error: latest.error } : {}),
       });
       if (TERMINAL_STATUSES.has(latest.status)) {
-        write('done', {
+        await finishDone({
           status: latest.status,
           outputs: latest.outputs ?? [],
           ...(latest.error ? { error: latest.error } : {}),
         });
-        await this.cleanup(subscriber, user.sub, orgId, res);
         return;
       }
     } catch {
@@ -193,24 +208,17 @@ export class TaskStreamController {
         if (!latest || !TERMINAL_STATUSES.has(latest.status)) {
           return; // 未终态 → 下轮再查
         }
-        stopTerminalPoll();
         if (!doneSent) {
-          doneSent = true;
           write('status', {
             status: latest.status,
             ...(latest.linkedApprovalId ? { linkedApprovalId: latest.linkedApprovalId } : {}),
             ...(latest.error ? { error: latest.error } : {}),
           });
-          write('done', {
+          await finishDone({
             status: latest.status,
             outputs: latest.outputs ?? [],
             ...(latest.error ? { error: latest.error } : {}),
           });
-          if (heartbeat) {
-            clearInterval(heartbeat);
-            heartbeat = undefined;
-          }
-          await this.cleanup(subscriber, user.sub, orgId, res);
         }
       } catch {
         // 单轮查询失败静默：下个周期重试
@@ -289,6 +297,13 @@ export class TaskStreamController {
     orgId: string,
     res: Response,
   ): Promise<void> {
+    // 幂等防重入：finishDone 与 req.close 可能并发触发 cleanup，仅首个执行关闭；
+    // 标记挂在 subscriber 实例上，避免双重递减连接计数 / 重复 res.end。
+    if ((subscriber as unknown as { __cleaned?: boolean }).__cleaned) {
+      return;
+    }
+    (subscriber as unknown as { __cleaned?: boolean }).__cleaned = true;
+
     const count = (this.connections.get(userId) ?? 1) - 1;
     if (count <= 0) {
       this.connections.delete(userId);
@@ -301,8 +316,10 @@ export class TaskStreamController {
     } else {
       this.orgConnections.set(orgId, orgCount);
     }
+    // 先关闭响应，让客户端立即收到流结束（done 后不再等待 subscriber 清理）；
+    // subscriber 退订/断开为收尾，失败不影响客户端语义。
+    res.end();
     await subscriber.unsubscribe().catch(() => undefined);
     await subscriber.quit().catch(() => subscriber.disconnect());
-    res.end();
   }
 }

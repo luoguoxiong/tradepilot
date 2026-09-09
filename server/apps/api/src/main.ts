@@ -5,6 +5,12 @@ import { AppModule } from './app.module.js';
 import { loadEnv } from './config/env.js';
 import { createRootLogger } from './common/logger/logger.factory.js';
 import { NestPinoLogger } from './common/logger/nest-pino.logger.js';
+import {
+  configureEmbedding,
+  configureObjectStorage,
+  createEmbeddingProvider,
+  createS3Storage,
+} from '@tradepilot/integrations';
 
 /**
  * API 启动入口（后端技术方案 00 §4 / 01）：
@@ -13,6 +19,25 @@ import { NestPinoLogger } from './common/logger/nest-pino.logger.js';
 async function bootstrap(): Promise<void> {
   const env = loadEnv();
   const root = createRootLogger(env);
+
+  // M4 #7/#8：嵌入服务（检索 query 向量化）+ S3 对象存储（知识原文）进程级注入（07 §2）
+  configureEmbedding(
+    createEmbeddingProvider({
+      provider: env.EMBEDDING_PROVIDER,
+      baseUrl: env.EMBEDDING_BASE_URL,
+      apiKey: env.EMBEDDING_API_KEY,
+      model: env.EMBEDDING_MODEL,
+    }),
+  );
+  configureObjectStorage(
+    createS3Storage({
+      endpoint: env.S3_ENDPOINT,
+      bucket: env.S3_BUCKET,
+      region: env.S3_REGION,
+      accessKeyId: env.S3_ACCESS_KEY_ID,
+      secretAccessKey: env.S3_SECRET_ACCESS_KEY,
+    }),
+  );
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     // Nest 生命周期日志（含模块初始化异常）转发到 pino；请求日志由 pino-http 承担

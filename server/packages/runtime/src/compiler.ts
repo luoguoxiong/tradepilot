@@ -426,7 +426,12 @@ export class GraphCompiler {
       const tool = this.deps.tools.get(node.tool);
       this.deps.tools.assertAllowed(tool, ctx.employee.tools);
       const input = this.deps.tools.parseInput(tool, buildToolInput(node, state));
-      await this.deps.tools.assertQuota(ctx, tool, ctx.employee.externalCallDailyLimit);
+      // M4 #6：配额日 key 按 org 时区墙钟日分片（06 §3），时区取 org 运行时快照
+      await this.deps.tools.assertQuota(
+        { ...ctx, timezone: ctx.org.timezone },
+        tool,
+        ctx.employee.externalCallDailyLimit,
+      );
 
       // M3-08 风险单一口径：节点 risk 优先（SOP 内可对同一工具实例化抬高/放行），
       // 缺省回落工具注册表 riskLevel；避免「SOP 标注了 risk 但门控只看工具」的双轨漂移。

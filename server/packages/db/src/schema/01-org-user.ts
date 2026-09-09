@@ -128,6 +128,14 @@ export interface MailboxSyncScope {
   folders: string[];
 }
 
+/**
+ * OAuth 凭据（gmail/outlook，06 §2.4）：refresh token 信封加密存储（08 §2）；
+ * access token 按需刷新不落盘；刷新失败 → status='disconnected'。
+ */
+export interface MailboxOAuthConfig {
+  refresh_token_enc?: string;
+}
+
 export const mailbox = pgTable(
   'mailbox',
   {
@@ -140,6 +148,7 @@ export const mailbox = pgTable(
     account: text('account').notNull(),
     imap: jsonb('imap').$type<MailboxChannelConfig>(),
     smtp: jsonb('smtp').$type<MailboxChannelConfig>(),
+    oauth: jsonb('oauth').$type<MailboxOAuthConfig>(),
     syncScope: jsonb('sync_scope').$type<MailboxSyncScope>().notNull(),
     status: mailboxStatus('status').notNull(),
     lastSyncAt: timestamp('last_sync_at', { withTimezone: true }),
@@ -213,6 +222,34 @@ export const notificationSetting = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [unique('uq_notification_org').on(t.orgId)],
+);
+
+/**
+ * 站内通知收件箱（M5-A2 通知服务增补，ER 01 外补充表——对齐 llm_call 记账表增补先例）：
+ * q:notify 消费端按 notification_setting 规则分发时 site 渠道落库（06 §2.3）；
+ * event 取 notification_setting 事件键（approval_pending / risk_alert / task_failed）。
+ */
+export const notification = pgTable(
+  'notification',
+  {
+    id: text('id').primaryKey(),
+    orgId: text('org_id')
+      .notNull()
+      .references(() => org.id),
+    /** notification_setting 事件键（NOTIFY_EVENT_KEY） */
+    event: text('event').notNull(),
+    title: text('title').notNull(),
+    content: text('content'),
+    /** 原始 q:notify 载荷留痕（排障/回放） */
+    payload: jsonb('payload').$type<Record<string, unknown>>(),
+    refType: text('ref_type'),
+    refId: text('ref_id'),
+    /** email 渠道分发成功时点（未启用/无邮箱/失败 → null，失败仅日志留痕） */
+    emailSentAt: timestamp('email_sent_at', { withTimezone: true }),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('idx_notification_org_recent').on(t.orgId, t.createdAt.desc())],
 );
 
 export const aiModelSetting = pgTable(

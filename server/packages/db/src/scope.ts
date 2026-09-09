@@ -28,6 +28,11 @@ export interface ScopeContext {
   scope: Scope;
 }
 
+/** scope 上下文 + orgId（API 层服务常用形态：withOrg(this.db, ctx.orgId, ...)） */
+export interface OrgScopeContext extends ScopeContext {
+  orgId: string;
+}
+
 /**
  * 查询注入：
  * - self → owner_id = userId
@@ -52,17 +57,18 @@ export function applyOwnerScope(
   return undefined;
 }
 
-/** 与列表同口径的单资源校验（03 §4.2）：越权 40301，防旁路 */
-export function assertResourceAccess(
-  row: { ownerId?: string | null } | null | undefined,
+/** 与列表同口径的单资源校验（03 §4.2）：越权 40301，防旁路；返回收窄后的非空行 */
+export function assertResourceAccess<T extends { ownerId?: string | null }>(
+  row: T | null | undefined,
   ctx: ScopeContext,
-): void {
+): T {
   if (!row) {
     throw new BizException(ErrorCode.NOT_FOUND, '资源不存在');
   }
   if (ctx.scope === 'self' && row.ownerId !== ctx.userId) {
     throw new BizException(ErrorCode.FORBIDDEN, '无权限访问该资源');
   }
+  return row;
 }
 
 /** 组合软删 + scope 等条件（可链式 and） */

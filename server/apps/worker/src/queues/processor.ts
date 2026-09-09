@@ -1,12 +1,21 @@
 import type { Job, Processor } from 'bullmq';
 import type { ResumeHint, TaskRunner } from '@tradepilot/runtime';
-import { QUEUE_NAME, TASK_TYPE_QUEUE } from '@tradepilot/shared';
+import { notifyJobSchema, QUEUE_NAME, TASK_TYPE_QUEUE } from '@tradepilot/shared';
 import type { Logger } from 'pino';
+import type { EmailSyncProcessor } from './email-sync.js';
+import type { KnowledgeIndexProcessor } from './knowledge-index.js';
+import type { NotifyProcessor } from './notify.js';
 
 /** worker 内部装配依赖（index.ts 构建，避免循环 import queues/registry） */
 export interface WorkerRuntime {
   runner: TaskRunner;
   logger: Logger;
+  /** q:email_sync 消费者（M4 #4 收信链路；缺省 = 邮箱同步未装配，留痕降级） */
+  emailSync?: EmailSyncProcessor;
+  /** q:knowledge_index 知识索引流水线消费者（M4 #7 RAG 入库；缺省 = 降级留痕） */
+  knowledgeIndex?: KnowledgeIndexProcessor;
+  /** q:notify 通知分发消费者（M5-A2 通知服务；缺省 = 降级留痕） */
+  notify?: NotifyProcessor;
 }
 
 /**
@@ -22,8 +31,25 @@ export interface WorkerRuntime {
  */
 export function createProcessor(rt: WorkerRuntime): Processor {
   return async (job: Job) => {
+    // q:knowledge_index 双语义分流（M4 #7）：job.data.docId → 知识索引流水线（jobId=`kidx.{docId}`）；
+    // 其余（job.id=ai_task.id，14 接口创建的 knowledge_index/product_analysis 任务）→ TaskRunner。
+    if (
+      job.queueName === QUEUE_NAME.KNOWLEDGE_INDEX &&
+      typeof job.data?.['docId'] === 'string'
+    ) {
+      if (!rt.knowledgeIndex) {
+        rt.logger.warn(
+          { queue: job.queueName, jobId: job.id, docId: job.data?.['docId'] },
+          'q:knowledge_index job 被消费但索引流水线未装配（降级留痕）',
+        );
+        return undefined;
+      }
+      const outcome = await rt.knowledgeIndex.process(String(job.data['docId']));
+      rt.logger.info({ queue: job.queueName, ...outcome }, '知识索引 job 处理结束');
+      return outcome;
+    }
     if (!TASK_QUEUES.has(job.queueName)) {
-      return handleSystemJob(job, rt.logger);
+      return handleSystemJob(job, rt);
     }
     const taskId = String(job.id);
     const resumeRaw: unknown = job.data?.['resume'];
@@ -41,24 +67,57 @@ export function createProcessor(rt: WorkerRuntime): Processor {
 const TASK_QUEUES = new Set<string>(Object.values(TASK_TYPE_QUEUE));
 
 /**
- * 系统队列处理器（M3-12）：
- * - q:notify：通知分发随 M5 通知服务实装（后端开发计划表 M5 #11）；M3 仅 approval-expiry 等
- *   投递留痕（q:notify = 削峰占位，见 04 §1）。消费即 ack + info 留痕，防无主 job 堆积——
- *   代价：M3/M4 期间通知不送达（审批 expired 已有 approval_log 留痕，M5 实装发送端时另行收口）。
- * - q:email_sync：收信链路随 M4 邮箱驱动实装（MailboxSyncScheduler 届时投递，04 §3.1）；M3 无
- *   生产者，收到即说明链路提前接线 → warn 显式留痕。
- * 两者接入真实消费时替换本分支（04 §6.3 / M3-12 收口说明）。
+ * 系统队列处理器（M3-12 分流）：
+ * - q:email_sync（M4 #4 实装）：job.data = { mailboxId }（enqueueEmailSync 投递契约）→
+ *   EmailSyncProcessor 收信入库（conversation/message、跟进 pause、email_reply 任务派发）。
+ * - q:notify（M5-A2 实装）：NotifyJob 载荷 → NotifyProcessor 按 notification_setting 分发
+ *   （site 站内落库 / email 接邮箱驱动）；畸形载荷留痕跳过，不抛错重投。
  */
-async function handleSystemJob(job: Job, logger: Logger): Promise<void> {
-  const detail = { queue: job.queueName, jobId: job.id, data: job.data };
+async function handleSystemJob(job: Job, rt: WorkerRuntime): Promise<void> {
   if (job.queueName === QUEUE_NAME.EMAIL_SYNC) {
-    logger.warn(detail, 'q:email_sync job 被消费（M3 无收信链路，随 M4 邮箱驱动实装）');
-  } else {
-    logger.info(
-      detail,
-      'q:notify job 被消费（M3 通知服务未实装，仅留痕；随 M5 通知服务实装发送端）',
-    );
+    if (!rt.emailSync) {
+      rt.logger.warn(
+        { queue: job.queueName, jobId: job.id, data: job.data },
+        'q:email_sync job 被消费但邮箱同步处理器未装配（降级留痕）',
+      );
+      return undefined;
+    }
+    const mailboxId = String(job.data?.['mailboxId'] ?? '');
+    if (!mailboxId) {
+      rt.logger.warn(
+        { queue: job.queueName, jobId: job.id },
+        'q:email_sync job 缺少 mailboxId，跳过',
+      );
+      return undefined;
+    }
+    const outcome = await rt.emailSync.process(mailboxId);
+    rt.logger.info({ queue: job.queueName, ...outcome }, '邮箱同步 job 处理结束');
+    return undefined;
   }
+  if (job.queueName === QUEUE_NAME.NOTIFY) {
+    if (!rt.notify) {
+      rt.logger.warn(
+        { queue: job.queueName, jobId: job.id, data: job.data },
+        'q:notify job 被消费但通知处理器未装配（降级留痕）',
+      );
+      return undefined;
+    }
+    const parsed = notifyJobSchema.safeParse(job.data);
+    if (!parsed.success) {
+      rt.logger.warn(
+        { queue: job.queueName, jobId: job.id, data: job.data, issues: parsed.error.issues },
+        'q:notify 载荷畸形，留痕跳过',
+      );
+      return undefined;
+    }
+    const outcome = await rt.notify.process(parsed.data);
+    rt.logger.info({ queue: job.queueName, ...outcome }, '通知 job 处理结束');
+    return undefined;
+  }
+  rt.logger.warn(
+    { queue: job.queueName, jobId: job.id, data: job.data },
+    '未知系统队列 job，留痕跳过',
+  );
   return undefined;
 }
 

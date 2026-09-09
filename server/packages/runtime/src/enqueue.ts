@@ -5,7 +5,14 @@
  */
 import { Queue } from 'bullmq';
 import { Redis as IORedis } from 'ioredis';
-import { ALL_QUEUES, QUEUE_NAME, TASK_TYPE_QUEUE, type QueueName, type TaskType } from '@tradepilot/shared';
+import {
+  ALL_QUEUES,
+  QUEUE_NAME,
+  TASK_TYPE_QUEUE,
+  type QueueName,
+  type TaskType,
+} from '@tradepilot/shared';
+import type { ResumeHint } from './runner.js';
 
 export interface EnqueueOptions {
   /** ai_task.scheduled_at 非空 → BullMQ delayed（04 §3.4） */
@@ -87,6 +94,50 @@ export class TaskEnqueuer {
       return;
     }
     await queue.add('notify', payload);
+  }
+
+  /**
+   * email_sync 队列（M4 #4 收信链路）：jobId=`mbxsync.{mailboxId}` 防重复入队
+   * （同 mailbox 活跃 job 唯一——调度器 5min 周期与长同步天然互斥，不堆积）。
+   */
+  async enqueueEmailSync(mailboxId: string): Promise<void> {
+    const queue = this.queues.get(QUEUE_NAME.EMAIL_SYNC);
+    if (!queue) {
+      return;
+    }
+    await queue.add(
+      'email_sync',
+      { mailboxId },
+      // jobId 禁含 ':'（BullMQ 5 校验），用 '.' 分隔
+      { jobId: `mbxsync.${mailboxId}` },
+    );
+  }
+
+  /**
+   * 知识索引投递（M4 #7 入库流水线，07 §2）：q:knowledge_index，jobId=`kidx.{docId}`
+   * 防重复入队（同文档重试/并发上传互斥）。job.data={ docId }，processor 按 docId 分流到
+   * KnowledgeIndexProcessor（区别于走 TaskRunner 的 ai_task job——后者 job.data 带 taskType）。
+   * jobId 禁含 ':'（BullMQ 5 校验，与队列名 q.xxx 同规则），用 '.' 分隔。
+   */
+  async enqueueKnowledgeIndex(docId: string): Promise<void> {
+    const queue = this.queues.get(QUEUE_NAME.KNOWLEDGE_INDEX);
+    if (!queue) {
+      return;
+    }
+    await queue.add('knowledge_index', { docId }, { jobId: `kidx.${docId}` });
+  }
+
+  /**
+   * 审批 resume 投递（M4 12 接口回调）：approve/reject（编辑留痕已在 approval_request 落库）后
+   * 按原 jobId=taskId 重投 task 队列，job.data.resume={ nodeId, approvalId } 供 Runner 恢复图执行。
+   */
+  async enqueueResume(taskId: string, taskType: TaskType, resume: ResumeHint): Promise<void> {
+    const queueName = TASK_TYPE_QUEUE[taskType];
+    const queue = this.queues.get(queueName);
+    if (!queue) {
+      return;
+    }
+    await queue.add(taskType, { taskId, taskType, resume }, { jobId: taskId });
   }
 
   async close(): Promise<void> {

@@ -65,10 +65,24 @@ describe('queue processor 分流（M3-12）', () => {
     const logger = pino({ level: 'silent' });
     const infoSpy = vi.spyOn(logger, 'info');
     const warnSpy = vi.spyOn(logger, 'warn');
-    const proc = createProcessor({ runner: { run } as unknown as TaskRunner, logger });
+    // M5-A2 后 q:notify 由 NotifyProcessor 实装消费（mock 分发结果 → info 留痕）；
+    // q:email_sync 未装配（emailSync 缺省）→ warn 降级留痕
+    const notify = {
+      process: vi.fn(async () => ({ orgId: 'org_1', event: 'approval_pending', site: true, email: 'skipped' })),
+    };
+    const proc = createProcessor({
+      runner: { run } as unknown as TaskRunner,
+      logger,
+      notify: notify as never,
+    });
 
     const notifyResult = await proc(
-      fakeJob(QUEUE_NAME.NOTIFY, 'notify-1', { type: 'approval_expired', approvalId: 'appr_1' }),
+      fakeJob(QUEUE_NAME.NOTIFY, 'notify-1', {
+        type: 'approval_expired',
+        orgId: 'org_1',
+        title: '审批超时提醒',
+        approvalId: 'appr_1',
+      }),
     );
     const syncResult = await proc(fakeJob(QUEUE_NAME.EMAIL_SYNC, 'sync-1'));
 
@@ -76,8 +90,36 @@ describe('queue processor 分流（M3-12）', () => {
     expect(syncResult).toBeUndefined();
     // 系统队列 job 绝不触发 TaskRunner（防误跑静默吞载荷）
     expect(run).not.toHaveBeenCalled();
-    // 显式留痕（q:notify = info；q:email_sync = warn），非静默
+    // q:notify：NotifyProcessor 消费（载荷解析透传，非契约字段被 zod 剥离）+ info 留痕
+    expect(notify.process).toHaveBeenCalledTimes(1);
+    expect(notify.process).toHaveBeenCalledWith({
+      type: 'approval_expired',
+      orgId: 'org_1',
+      title: '审批超时提醒',
+    });
     expect(infoSpy).toHaveBeenCalledTimes(1);
+    // q:email_sync：未装配 → warn 降级留痕
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('q:notify 载荷畸形（缺 orgId/title）→ warn 留痕跳过，不抛错重投', async () => {
+    const run = vi.fn();
+    const logger = pino({ level: 'silent' });
+    const warnSpy = vi.spyOn(logger, 'warn');
+    const notify = { process: vi.fn() };
+    const proc = createProcessor({
+      runner: { run } as unknown as TaskRunner,
+      logger,
+      notify: notify as never,
+    });
+
+    const result = await proc(
+      fakeJob(QUEUE_NAME.NOTIFY, 'notify-2', { type: 'approval_expired', approvalId: 'appr_1' }),
+    );
+
+    expect(result).toBeUndefined();
+    expect(run).not.toHaveBeenCalled();
+    expect(notify.process).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledTimes(1);
   });
 });

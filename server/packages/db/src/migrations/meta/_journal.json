@@ -15,6 +15,20 @@
       "when": 1788702956292,
       "tag": "0001_jittery_vindicator",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788875012515,
+      "tag": "0002_dusty_hammerhead",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788926882308,
+      "tag": "0003_colossal_maximus",
+      "breakpoints": true
     }
   ]
 }

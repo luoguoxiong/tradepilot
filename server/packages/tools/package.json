@@ -18,6 +18,7 @@
   "dependencies": {
     "@tradepilot/core": "workspace:*",
     "@tradepilot/db": "workspace:*",
+    "@tradepilot/integrations": "workspace:*",
     "@tradepilot/shared": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "ioredis": "^5.4.2",

@@ -53,6 +53,13 @@ export interface TaskRunnerDeps {
   publisher: TaskEventPublisher;
   compiler: GraphCompiler;
   sops: TaskSopProvider;
+  /** 任务失败通知钩子（M5-A2：终态落库后投递 q:notify；缺省不通知） */
+  onTaskFailed?: (info: {
+    taskId: string;
+    orgId: string;
+    title: string;
+    error: string;
+  }) => void | Promise<void>;
 }
 
 export interface RunTaskResult {
@@ -151,7 +158,11 @@ export class TaskRunner {
         return { status: TASK_STATUS.PAUSED, error: err.message };
       }
       const error = err instanceof Error ? err.message : String(err);
-      await this.fail(taskId, probe.orgId, snapshot.employee.id, error);
+      this.deps.logger.warn(
+        { taskId, error, err: err instanceof Error ? err : undefined },
+        '任务失败（堆栈见 err 字段）',
+      );
+      await this.fail(taskId, probe.orgId, snapshot.employee.id, error, probe.title);
       return { status: TASK_STATUS.FAILED, error };
     } finally {
       stopHeartbeat();
@@ -420,6 +431,7 @@ export class TaskRunner {
     orgId: string,
     employeeId: string,
     error: string,
+    title = '',
   ): Promise<void> {
     const now = new Date();
     await withOrg(this.deps.db, orgId, async (tx) => {
@@ -446,6 +458,17 @@ export class TaskRunner {
       buildDoneEvent({ status: TASK_STATUS.FAILED, outputs: [], error }),
     );
     this.deps.logger.warn({ taskId, error }, '任务失败');
+    // 事务提交后投递失败通知（M5-A2；失败不阻断终态语义，分发由 q:notify 消费端执行）
+    if (this.deps.onTaskFailed) {
+      try {
+        await this.deps.onTaskFailed({ taskId, orgId, title, error });
+      } catch (notifyErr: unknown) {
+        this.deps.logger.warn(
+          { taskId, err: notifyErr instanceof Error ? notifyErr.message : String(notifyErr) },
+          '任务失败通知投递失败（不阻断）',
+        );
+      }
+    }
   }
 
   // ===== 心跳 =====

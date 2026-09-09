@@ -1,8 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and as and_, eq, sql } from 'drizzle-orm';
-import * as net from 'node:net';
 import { BizException, createId, encryptSecret, ErrorCode } from '@tradepilot/core';
-import { schema, withOrg, type Db, type MailboxChannelConfig } from '@tradepilot/db';
+import {
+  createMailboxDriver,
+  isMailboxAuthError,
+  type MailboxDriverOptions,
+} from '@tradepilot/integrations';
+import { schema, withOrg, type Db, type MailboxChannelConfig, type MailboxOAuthConfig } from '@tradepilot/db';
 import { DB } from '../db/db.module.js';
 import { EnvService } from '../config/env.service.js';
 import { OrgService } from '../org/org.service.js';
@@ -10,12 +14,12 @@ import type { CreateMailboxDto, UpdateMailboxDto } from './settings.dto.js';
 
 /**
  * 邮箱连接服务（接口 16 §1.5/§3.3/§3.4 / ER 01 §2.4）：
- * - 凭据 AES-256-GCM 加密落库（imap/smtp.credential_enc，08 §2），任何响应剥除凭据字段；
- * - 连接测试：M2 阶段做 TCP 可达性探测；协议级验证（IMAP/SMTP 登录、OAuth）随 M4 邮箱驱动落地；
+ * - 凭据 AES-256-GCM 信封加密落库（imap/smtp.credential_enc + oauth.refresh_token_enc，08 §2），
+ *   任何响应剥除凭据字段（16 §3.3 永不回显明文）；
+ * - 连接测试（M4 #4）：协议级校验——SMTP-IMAP 真实登录、Gmail/Outlook OAuth API 探测（06 §2.1）；
+ *   保存前必须通过；凭据失效 → status='disconnected' + 重连入口提示（06 §2.4）；
  * - 创建成功 → onboarding「mailbox」步骤置 done（16 §1.2 联动）。
  */
-
-const TCP_TIMEOUT_MS = 3_000;
 
 export interface MailboxView {
   mailboxId: string;
@@ -73,6 +77,7 @@ export class MailboxService {
           account,
           imap: dto.imap ? toChannelConfig(dto.imap, this.encryptionKey) : undefined,
           smtp: dto.smtp ? toChannelConfig(dto.smtp, this.encryptionKey) : undefined,
+          oauth: toOAuthConfig(dto.oauth?.refreshToken, this.encryptionKey),
           syncScope: dto.syncScope,
           status: 'disconnected',
         })
@@ -105,12 +110,16 @@ export class MailboxService {
       const smtp = dto.smtp
         ? toChannelConfig(dto.smtp, this.encryptionKey, current.smtp)
         : current.smtp;
+      const oauth = dto.oauth?.refreshToken
+        ? toOAuthConfig(dto.oauth.refreshToken, this.encryptionKey)
+        : current.oauth;
 
       const [row] = await tx
         .update(schema.mailbox)
         .set({
           imap,
           smtp,
+          oauth,
           ...(dto.syncScope !== undefined && { syncScope: dto.syncScope }),
           status: 'disconnected',
           lastError: null,
@@ -139,8 +148,9 @@ export class MailboxService {
   }
 
   /**
-   * 连接测试（16 §3.4）：对配置了 host 的通道做 TCP 可达性探测；
-   * gmail/outlook OAuth 通道（无 imap/smtp host 配置）M2 记 ok，协议级校验随 M4 驱动。
+   * 连接测试（16 §3.4，M4 #4 协议级）：经 MailboxDriver 真实校验——
+   * smtp_imap = IMAP/SMTP 分别登录；gmail/outlook = OAuth API 探测（06 §2.1）。
+   * 凭据失效 → status='disconnected'（重连入口）；其余失败 → 'error'。
    */
   async test(orgId: string, mailboxId: string): Promise<MailboxTestResult> {
     const row = await withOrg(this.db, orgId, async (tx) => {
@@ -155,25 +165,35 @@ export class MailboxService {
       throw new BizException(ErrorCode.NOT_FOUND, '邮箱连接不存在');
     }
 
-    const [imapResult, smtpResult] = await Promise.all([
-      probeChannel(row.imap),
-      probeChannel(row.smtp),
-    ]);
-
-    const failures = [imapResult, smtpResult].filter((r) => r === 'fail');
-    const result: MailboxTestResult = {
-      ok: failures.length === 0,
-      imap: imapResult,
-      smtp: smtpResult,
-      ...(failures.length > 0 && { error: 'IMAP/SMTP 连接失败，请检查主机端口与网络可达性' }),
-    };
+    let result: MailboxTestResult;
+    let authFailed = false;
+    try {
+      const driverResult = await createMailboxDriver(
+        toDriverRow(row),
+        this.driverOptions,
+      ).testConnection();
+      const failed = [driverResult.imap, driverResult.smtp].some((r) => r === 'fail');
+      result = {
+        ok: !failed && !driverResult.error,
+        imap: driverResult.imap,
+        smtp: driverResult.smtp,
+        error: driverResult.error,
+      };
+    } catch (err) {
+      authFailed = isMailboxAuthError(err);
+      const detail = err instanceof Error ? err.message : String(err);
+      result = {
+        ok: false,
+        error: `${authFailed ? '凭据失效或授权过期' : '连接失败'}: ${detail}`.slice(0, 300),
+      };
+    }
 
     await withOrg(this.db, orgId, (tx) =>
       tx
         .update(schema.mailbox)
         .set({
-          status: result.ok ? 'connected' : 'error',
-          lastError: result.ok ? null : result.error,
+          status: result.ok ? 'connected' : authFailed ? 'disconnected' : 'error',
+          lastError: result.ok ? null : (result.error ?? '连接失败'),
           updatedAt: new Date(),
         })
         .where(eq(schema.mailbox.id, mailboxId)),
@@ -184,11 +204,33 @@ export class MailboxService {
   private get encryptionKey(): string {
     return this.env.env.ENCRYPTION_KEY;
   }
+
+  /** 驱动选项（凭据解密 + OAuth 客户端凭据，06 §2.4） */
+  private get driverOptions(): MailboxDriverOptions {
+    const env = this.env.env;
+    return {
+      encryptionKey: env.ENCRYPTION_KEY,
+      oauth: {
+        googleClientId: env.GOOGLE_CLIENT_ID || undefined,
+        googleClientSecret: env.GOOGLE_CLIENT_SECRET || undefined,
+        microsoftClientId: env.MICROSOFT_CLIENT_ID || undefined,
+        microsoftClientSecret: env.MICROSOFT_CLIENT_SECRET || undefined,
+      },
+    };
+  }
 }
 
 // ===== helpers =====
 
 type MailboxRow = typeof schema.mailbox.$inferSelect;
+
+/** OAuth 凭据（06 §2.4）：refresh token 信封加密；未传返回 undefined（更新沿用原密文） */
+function toOAuthConfig(refreshToken: string | undefined, key: string): MailboxOAuthConfig | undefined {
+  if (refreshToken === undefined) {
+    return undefined;
+  }
+  return { refresh_token_enc: encryptSecret(refreshToken, key) };
+}
 
 function toChannelConfig(
   input: { host: string; port: number; ssl: boolean; credential?: string },
@@ -220,25 +262,16 @@ function toMailboxView(m: MailboxRow): MailboxView {
   };
 }
 
-/** 单通道探测：无 host（OAuth）→ 'ok'（M4 协议级校验兜底）；有 host → TCP 连接探测 */
-async function probeChannel(
-  channel: MailboxChannelConfig | null | undefined,
-): Promise<'ok' | 'fail'> {
-  if (!channel || !channel.host) {
-    return 'ok';
-  }
-  return tcpProbe(channel.host, channel.port);
-}
-
-function tcpProbe(host: string, port: number): Promise<'ok' | 'fail'> {
-  return new Promise((resolve) => {
-    const socket = net.connect({ host, port });
-    const finish = (r: 'ok' | 'fail'): void => {
-      socket.destroy();
-      resolve(r);
-    };
-    socket.setTimeout(TCP_TIMEOUT_MS, () => finish('fail'));
-    socket.once('connect', () => finish('ok'));
-    socket.once('error', () => finish('fail'));
-  });
+/** db mailbox 行 → 驱动行投影（@tradepilot/integrations 与 db 解耦） */
+function toDriverRow(m: MailboxRow): Parameters<typeof createMailboxDriver>[0] {
+  return {
+    mailboxId: m.id,
+    orgId: m.orgId,
+    provider: m.provider,
+    account: m.account,
+    imap: m.imap,
+    smtp: m.smtp,
+    oauth: m.oauth,
+    syncScope: m.syncScope,
+  };
 }

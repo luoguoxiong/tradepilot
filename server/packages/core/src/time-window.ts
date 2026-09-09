@@ -77,6 +77,17 @@ export function getZonedWallTime(date: Date, timeZone: string): ZonedWallTime {
   };
 }
 
+/**
+ * org 时区墙钟日 key（M4 #6：外部配额按 org 时区日界精确轮换，06 §3）。
+ * 输出 'yyyyMMdd'（如 20260908）——配额 Redis key 按此分片，org 当地零点自动进入新 key。
+ */
+export function zonedDayKey(date: Date, timeZone: string): string {
+  const wall = getZonedWallTime(date, timeZone);
+  const mm = String(wall.month).padStart(2, '0');
+  const dd = String(wall.day).padStart(2, '0');
+  return `${wall.year}${mm}${dd}`;
+}
+
 function getTimeZoneOffsetMs(utcMs: number, timeZone: string): number {
   const wall = getZonedWallTime(new Date(utcMs), timeZone);
   const asUtc = Date.UTC(wall.year, wall.month - 1, wall.day, wall.hour, wall.minute, wall.second);

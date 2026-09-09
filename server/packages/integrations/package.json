@@ -13,6 +13,19 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint src"
+    "lint": "eslint src",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@tradepilot/core": "workspace:*",
+    "googleapis": "^144.0.0",
+    "imapflow": "^1.0.191",
+    "mailparser": "^3.7.2",
+    "nodemailer": "^6.9.16"
+  },
+  "devDependencies": {
+    "@types/mailparser": "^3.4.5",
+    "@types/nodemailer": "^6.4.17",
+    "vitest": "^2.1.8"
   }
 }

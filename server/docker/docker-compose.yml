@@ -55,20 +55,17 @@ services:
       retries: 10
 
   mailpit:
-    # SMTP 测试服务：SMTP 1025 / Web UI 8025（开发信与通知联调用）
-    image: axllent/mailpit:latest
+    # SMTP/IMAP 测试邮件服务（M4 三图 dry-run 收发闭环联调用）：SMTP 1025 / IMAP 1114 / Web UI 8025
+    # GreenMail（原 mailpit 无 IMAP 服务，收信链路 EmailSyncProcessor 需真实 IMAP）：
+    # 任意收件人自动建箱、任意凭据登录；收件地址即邮箱用户名（如 sales@tradepilot.local）
+    image: greenmail/standalone:2.1.3
     container_name: tradepilot-mailpit
     ports:
-      - '${MAILPIT_SMTP_PORT:-1025}:1025'
-      - '${MAILPIT_UI_PORT:-8025}:8025'
-    volumes:
-      - mailpit_data:/data
-    environment:
-      MP_MAX_MESSAGES: 5000
-      MP_DATA_FILE: /data/mailpit.db
+      - '${MAILPIT_SMTP_PORT:-1025}:3025'
+      - '${MAILPIT_IMAP_PORT:-1114}:3143'
+      - '${MAILPIT_UI_PORT:-8025}:8080'
 
 volumes:
   pg_data:
   redis_data:
   minio_data:
-  mailpit_data:

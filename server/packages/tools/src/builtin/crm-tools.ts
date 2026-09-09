@@ -1,25 +1,31 @@
 /**
  * CRM 与邮件读写工具（05 §3）：crm_read / crm_write / email_read / email_send / knowledge_search。
- * M3：email_send 走 mock 外发（写 message 行，externalMessageId=mock-*）；真实 SMTP/API 外发随 M4 邮箱驱动。
+ * M4 #4/#5：email_send 为真实外发唯一出口（06 §2.3）——凭据解密→驱动发送（SMTP/API）→message 行；
+ * 窗口+频控校验、失败重试 2 次（指数退避）、最终失败 message.status='failed' + error 日志。
  * AI 权限边界：crm_write 仅写 ai_lead 池与活动记录，不暴露阶段推进/身份/owner 变更（03 §5）。
  */
 import { createHash } from 'node:crypto';
 import { and, desc, eq, gt, ilike, isNull } from 'drizzle-orm';
 import { z } from 'zod';
-import { schema } from '@tradepilot/db';
-import { createId } from '@tradepilot/core';
+import { schema, withOrg, type Tx } from '@tradepilot/db';
+import { BizException, ErrorCode, createId, getZonedWallTime, type SearchScene } from '@tradepilot/core';
+import { createMailboxDriver, isMailboxAuthError } from '@tradepilot/integrations';
 import { TASK_LOG_TYPE } from '@tradepilot/shared';
 import type { ToolContext, ToolDefinition } from '../registry.js';
 import { toolIdempotencyKey, withIdempotency, writeToolLog } from '../registry.js';
+import { getEmailSendConfig, isEmailSendConfigured } from './email-send-config.js';
+import { searchKnowledgeChunks } from './knowledge-search.js';
+import { assertEmailContentCompliance } from './content-compliance.js';
 
 const {
   conversation,
   customer,
+  contact,
+  org,
+  mailbox,
   aiLead,
   aiLeadContact,
   customerActivity,
-  knowledgeChunk,
-  knowledgeDocument,
   message,
 } = schema;
 
@@ -298,7 +304,7 @@ export const emailReadTool: ToolDefinition<
   },
 };
 
-// ===== email_send（真实外发唯一出口；M3 mock 外发 + message 行落库）=====
+// ===== email_send（真实外发唯一出口，06 §2.3）=====
 
 export interface EmailSendInput {
   conversationId: string;
@@ -320,7 +326,7 @@ export const emailSendTool: ToolDefinition<
 > = {
   name: 'email_send',
   description:
-    '发送邮件（真实外发唯一出口：凭据解密→SMTP/API 发送→message 行；幂等键 taskId+nodeId+messageHash）',
+    '发送邮件（真实外发唯一出口：窗口+频控校验→凭据解密→驱动发送→message 行；幂等键 taskId+nodeId+messageHash）',
   inputSchema: z.object({
     conversationId: z.string().min(1),
     subject: z.string().min(1).max(200),
@@ -413,11 +419,115 @@ export const emailSendTool: ToolDefinition<
     const key = toolIdempotencyKey(ctx, messageHash);
     const { first, result } = await withIdempotency(ctx, key, 24 * 3600, async () => {
       const [conv] = await ctx.tx
-        .select({ mailboxId: conversation.mailboxId })
+        .select({ mailboxId: conversation.mailboxId, customerId: conversation.customerId })
         .from(conversation)
         .where(eq(conversation.id, input.conversationId))
         .limit(1);
-      const externalMessageId = `mock-${ctx.taskId}-${ctx.nodeId}-${messageHash}`;
+      if (!conv) {
+        throw new BizException(ErrorCode.NOT_FOUND, `会话不存在: ${input.conversationId}`);
+      }
+
+      // mock 兜底（M3 语义）：配置未注入（测试/演练）→ 跳过窗口频控与驱动，直接 mock 外发
+      if (!isEmailSendConfigured()) {
+        const mockExternalId = `mock-${ctx.taskId}-${ctx.nodeId}-${messageHash}`;
+        const inserted = await ctx.tx
+          .insert(message)
+          .values({
+            id: createId('msg'),
+            orgId: ctx.orgId,
+            conversationId: input.conversationId,
+            direction: 'out',
+            senderType: 'ai',
+            senderName: 'AI 销售员工',
+            mailboxId: input.mailboxId ?? conv.mailboxId ?? null,
+            content: input.body,
+            language: input.language ?? null,
+            status: 'sent',
+            externalMessageId: mockExternalId,
+            sentAt: ctx.now,
+            updatedAt: ctx.now,
+          })
+          .returning({ id: message.id });
+        await ctx.tx
+          .update(conversation)
+          .set({
+            lastMessageAt: ctx.now,
+            lastMessagePreview: input.body.slice(0, 120),
+            updatedAt: ctx.now,
+          })
+          .where(eq(conversation.id, input.conversationId));
+        return {
+          messageId: inserted[0]?.id ?? '',
+          externalMessageId: mockExternalId,
+          status: 'sent' as const,
+          deduped: false,
+        };
+      }
+
+      // 发信唯一出口统一校验：窗口 + 频控（06 §2.3，org.send_rules，04 §3.2）
+      await assertSendWindowAndPacing(ctx, conv.customerId);
+      // 外发内容合规钩子（08 §6 外发滥用防护：内置基线 + 注入扩展，违规 42201）
+      await assertEmailContentCompliance({ subject: input.subject, body: input.body });
+
+      // 邮箱解析：入参显式 > 会话关联（会话未关联 → org 任一 connected 兜底，06 §2.3 通知语义同源）
+      const mailboxId = input.mailboxId ?? conv.mailboxId;
+      const mailboxRow = mailboxId
+        ? (
+            await ctx.tx
+              .select()
+              .from(mailbox)
+              .where(and(eq(mailbox.id, mailboxId), eq(mailbox.orgId, ctx.orgId)))
+              .limit(1)
+          )[0]
+        : (
+            await ctx.tx
+              .select()
+              .from(mailbox)
+              .where(and(eq(mailbox.orgId, ctx.orgId), eq(mailbox.status, 'connected')))
+              .limit(1)
+          )[0];
+      if (!mailboxRow) {
+        throw new BizException(ErrorCode.BIZ_VALIDATION, '无可用邮箱连接，无法外发');
+      }
+      if (mailboxRow.status === 'disconnected') {
+        throw new BizException(ErrorCode.BIZ_VALIDATION, '邮箱已断连，请先重连（06 §2.4）');
+      }
+
+      const to = await resolveRecipients(ctx, input.conversationId);
+
+      // 真实外发（重试 2 次指数退避；凭据失效不重试，06 §2.3 / §2.4）
+      const driver = createMailboxDriver(toDriverRow(mailboxRow), getEmailSendConfig());
+      let externalMessageId: string | null = null;
+      let lastError: unknown = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const sent = await driver.sendMessage({
+            from: mailboxRow.account,
+            to,
+            subject: input.subject,
+            text: input.body,
+          });
+          externalMessageId = sent.externalId;
+          break;
+        } catch (err) {
+          lastError = err;
+          if (isMailboxAuthError(err)) {
+            break;
+          }
+          if (attempt < 2) {
+            await sleep(attempt === 0 ? 500 : 2_000);
+          }
+        }
+      }
+      if (!externalMessageId) {
+        const detail = lastError instanceof Error ? lastError.message : String(lastError);
+        // 最终失败（06 §2.3）：message.status='failed' + 任务失败语义。
+        // failed 行走独立事务落库——本工具节点被 execTool 的 withOrg 单事务包裹，
+        // 抛错会连带回滚 ctx.tx 写入；ai_task.error 由 Runner 记录（error 日志同源）。
+        await recordFailedMessage(ctx, input, mailboxRow.id);
+        throw new BizException(ErrorCode.DEPENDENCY_UNAVAILABLE, `邮件发送失败: ${detail}`);
+      }
+
       const inserted = await ctx.tx
         .insert(message)
         .values({
@@ -427,13 +537,14 @@ export const emailSendTool: ToolDefinition<
           direction: 'out',
           senderType: 'ai',
           senderName: 'AI 销售员工',
-          mailboxId: input.mailboxId ?? conv?.mailboxId ?? null,
+          mailboxId: mailboxRow.id,
           content: input.body,
           // 语言跟随（06 §7）：图经 inputMap 透传 detectedLanguage；未传（如 follow_up 无语言信号）落 null
           language: input.language ?? null,
           status: 'sent',
           externalMessageId,
           sentAt: ctx.now,
+          updatedAt: ctx.now,
         })
         .returning({ id: message.id });
       const messageId = inserted[0]?.id ?? '';
@@ -457,12 +568,12 @@ export const emailSendTool: ToolDefinition<
         externalMessageId: result.externalMessageId || '',
       };
     }
-    await writeToolLog(ctx, TASK_LOG_TYPE.FOUND, `邮件已发送（mock）：${input.subject}`);
+    await writeToolLog(ctx, TASK_LOG_TYPE.FOUND, `邮件已发送：${input.subject}`);
     return result;
   },
 };
 
-// ===== knowledge_search（M3 ILIKE 骨架；pgvector+pg_trgm+RRF 混合检索随 M4）=====
+// ===== knowledge_search（M4 #8 实装：pgvector+tsquery+trgm 三路召回 + RRF 融合 + citations）=====
 
 export const knowledgeSearchTool: ToolDefinition<
   { query: string; scene?: string; topK?: number },
@@ -473,11 +584,12 @@ export const knowledgeSearchTool: ToolDefinition<
       title: string;
       category: string;
       excerpt: string;
+      score: number;
     }[];
   }
 > = {
   name: 'knowledge_search',
-  description: '知识库检索（按 knowledge_scope 过滤；业务参数唯一结构化来源，06 §4）',
+  description: '知识库混合检索（向量+全文+相似 RRF 融合，引用可溯源 docId/chunkId；业务参数唯一结构化来源，06 §4）',
   inputSchema: z.object({
     query: z.string().min(1),
     scene: z.string().optional(),
@@ -485,31 +597,168 @@ export const knowledgeSearchTool: ToolDefinition<
   }),
   riskLevel: 'low',
   async execute(ctx, input) {
-    const rows = await ctx.tx
-      .select({
-        chunkId: knowledgeChunk.id,
-        documentId: knowledgeDocument.id,
-        title: knowledgeDocument.fileName,
-        category: knowledgeDocument.category,
-        content: knowledgeChunk.content,
-      })
-      .from(knowledgeChunk)
-      .innerJoin(knowledgeDocument, eq(knowledgeDocument.id, knowledgeChunk.documentId))
-      .where(
-        and(ilike(knowledgeChunk.content, `%${input.query}%`), isNull(knowledgeDocument.deletedAt)),
-      )
-      .limit(input.topK ?? 5);
+    const { results, noResult } = await searchKnowledgeChunks(ctx.tx, ctx.orgId, {
+      query: input.query,
+      scene: (input.scene ?? null) as SearchScene | null,
+      topK: input.topK,
+    });
+    if (noResult) {
+      // 11 §3.3：无命中必须显式提示，禁止编造
+      await writeToolLog(
+        ctx,
+        TASK_LOG_TYPE.LOOKUP,
+        `知识库检索无结果：「${input.query.slice(0, 60)}」（需向用户提示，不得编造）`,
+      );
+      return { chunks: [] };
+    }
+    await writeToolLog(
+      ctx,
+      TASK_LOG_TYPE.LOOKUP,
+      `知识库检索命中 ${results.length} 块：「${input.query.slice(0, 60)}」`,
+    );
     return {
-      chunks: rows.map((r) => ({
+      chunks: results.map((r) => ({
         chunkId: r.chunkId,
-        documentId: r.documentId,
-        title: r.title,
+        documentId: r.docId,
+        title: r.docName,
         category: r.category,
         excerpt: r.content.slice(0, 200),
+        score: Number(r.score.toFixed(4)),
       })),
     };
   },
 };
+
+// ===== email_send 辅助 =====
+
+/** 失败留痕（独立事务，随抛错存活；06 §2.3）：无独立连接时降级为仅任务错误可见 */
+async function recordFailedMessage(
+  ctx: ToolContext,
+  input: EmailSendInput,
+  mailboxId: string,
+): Promise<void> {
+  const { db } = getEmailSendConfig();
+  const write = (tx: Tx) =>
+    tx.insert(message).values({
+      id: createId('msg'),
+      orgId: ctx.orgId,
+      conversationId: input.conversationId,
+      direction: 'out',
+      senderType: 'ai',
+      senderName: 'AI 销售员工',
+      mailboxId,
+      content: input.body,
+      language: input.language ?? null,
+      status: 'failed',
+      sentAt: ctx.now,
+      createdAt: ctx.now,
+      updatedAt: ctx.now,
+    });
+  if (db) {
+    await withOrg(db, ctx.orgId, write);
+  }
+}
+
+/**
+ * 发信唯一出口校验（06 §2.3）：org.send_rules 窗口（org.timezone 墙钟）+ 客户维度最小触达间隔。
+ * 违反 → RATE_LIMITED（42901，任务失败可重试；follow_up 主链路由 Scheduler 预检顺延，此处为兜底）。
+ */
+async function assertSendWindowAndPacing(ctx: ToolContext, customerId: string | null): Promise<void> {
+  const [orgRow] = await ctx.tx.select().from(org).where(eq(org.id, ctx.orgId)).limit(1);
+  if (!orgRow) {
+    return; // org 行缺失极端场景：交由外层业务约束兜底
+  }
+  // ① 发送窗口（FR-12：sendWindow { start, end } 'HH:MM'；timezone 缺省回落 UTC）
+  const sendWindow = orgRow.sendRules?.sendWindow;
+  if (sendWindow && orgRow.timezone) {
+    const startHour = Number.parseInt(sendWindow.start.slice(0, 2), 10);
+    const endHour = Number.parseInt(sendWindow.end.slice(0, 2), 10);
+    if (!Number.isNaN(startHour) && !Number.isNaN(endHour)) {
+      const wall = getZonedWallTime(ctx.now, orgRow.timezone);
+      if (wall.hour < startHour || wall.hour >= endHour) {
+        throw new BizException(
+          ErrorCode.RATE_LIMITED,
+          `当前不在发送窗口（${sendWindow.start}~${sendWindow.end} ${orgRow.timezone}）内`,
+        );
+      }
+    }
+  }
+  // ② 最小触达间隔：客户维度最近一次已发送 outbound + minTouchIntervalDays（07 §7）
+  const intervalDays = orgRow.sendRules?.minTouchIntervalDays ?? 0;
+  if (intervalDays <= 0 || !customerId) {
+    return;
+  }
+  const [lastOut] = await ctx.tx
+    .select({ sentAt: message.sentAt, createdAt: message.createdAt })
+    .from(message)
+    .innerJoin(conversation, eq(conversation.id, message.conversationId))
+    .where(
+      and(
+        eq(conversation.customerId, customerId),
+        eq(message.direction, 'out'),
+        eq(message.status, 'sent'),
+      ),
+    )
+    .orderBy(desc(message.sentAt), desc(message.createdAt))
+    .limit(1);
+  const lastAt = lastOut?.sentAt ?? lastOut?.createdAt ?? null;
+  if (lastAt) {
+    const earliest = lastAt.getTime() + intervalDays * 24 * 3600_000;
+    if (ctx.now.getTime() < earliest) {
+      throw new BizException(
+        ErrorCode.RATE_LIMITED,
+        `客户最小触达间隔 ${intervalDays} 天内，禁止再次外发（07 §7 频控）`,
+      );
+    }
+  }
+}
+
+/** 收件人解析：会话关联联系人邮箱 → 兜底最近一封 in 信的发件邮箱 */
+async function resolveRecipients(ctx: ToolContext, conversationId: string): Promise<string[]> {
+  const [conv] = await ctx.tx
+    .select({ contactId: conversation.contactId })
+    .from(conversation)
+    .where(eq(conversation.id, conversationId))
+    .limit(1);
+  if (conv?.contactId) {
+    const [c] = await ctx.tx
+      .select({ email: contact.email })
+      .from(contact)
+      .where(eq(contact.id, conv.contactId))
+      .limit(1);
+    if (c?.email) {
+      return [c.email.toLowerCase()];
+    }
+  }
+  const [lastIn] = await ctx.tx
+    .select({ senderName: message.senderName })
+    .from(message)
+    .where(and(eq(message.conversationId, conversationId), eq(message.direction, 'in')))
+    .orderBy(desc(message.createdAt))
+    .limit(1);
+  const fallback = lastIn?.senderName;
+  if (fallback && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fallback)) {
+    return [fallback.toLowerCase()];
+  }
+  throw new BizException(ErrorCode.BIZ_VALIDATION, '会话缺少联系人邮箱，无法外发');
+}
+
+function toDriverRow(m: typeof mailbox.$inferSelect): Parameters<typeof createMailboxDriver>[0] {
+  return {
+    mailboxId: m.id,
+    orgId: m.orgId,
+    provider: m.provider,
+    account: m.account,
+    imap: m.imap,
+    smtp: m.smtp,
+    oauth: m.oauth,
+    syncScope: m.syncScope,
+  };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 // ===== 客户活动记录（writeback 类工具共用）=====
 

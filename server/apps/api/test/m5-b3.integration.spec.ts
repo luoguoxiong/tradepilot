@@ -41,12 +41,15 @@ let taskEnqueuer: TaskEnqueuer;
 let orgId = '';
 let adminId = '';
 let adminCtx: OrgScopeContext;
+let salesId = '';
+let salesCtx: OrgScopeContext;
 let customerId = '';
 let contactId = '';
 let leadId = '';
 let leadHunterEmpId = '';
 
 const adminEmail = `it-m5b3-${createId('org')}@test.com`;
+const salesEmail = `it-m5b3-sales-${createId('org')}@test.com`;
 
 async function expectBiz(promise: Promise<unknown>, code: number): Promise<void> {
   try {
@@ -77,6 +80,19 @@ beforeAll(async () => {
   adminId = session.user.userId;
 
   adminCtx = { orgId, userId: adminId, role: 'admin', scope: 'all' };
+
+  // sales 成员 fixture（数据范围 40301 断言，ownerId=adminId 的 customer 对其不可见/不可写）
+  salesId = createId('usr');
+  await superDb.insert(schema.userAccount).values({
+    id: salesId,
+    orgId,
+    email: salesEmail,
+    passwordHash: 'fixture_no_login',
+    name: '销售乙',
+    role: 'sales',
+    status: 'active',
+  });
+  salesCtx = { orgId, userId: salesId, role: 'sales', scope: 'self' };
 
   taskEnqueuer = new TaskEnqueuer(env.env.REDIS_URL);
   const tasks = new TasksService(appDb, redis, env);
@@ -394,5 +410,23 @@ describe('M5-B3-10 · POST /leads/{id}/convert 单条 lead 转 CRM', () => {
     const leads = (globalThis as Record<string, unknown>).__leads as LeadsService;
     const result = await leads.convert(adminCtx, leadId, {});
     expect(result.duplicated).toBe(1);
+  });
+});
+
+// ============================== B3-11 越权（E1 补齐） ==============================
+
+describe('M5-B3-11 · 数据范围越权：sales(self) 访问他人客户 360° → 40301', () => {
+  it('detail / analyze / insights 对他人客户 → 40301', async () => {
+    const customers = (globalThis as Record<string, unknown>).__customers as CustomersService;
+    await expectBiz(customers.detail(salesCtx, customerId), ErrorCode.FORBIDDEN);
+    await expectBiz(customers.analyze(salesCtx, customerId, { scope: 'overview' }), ErrorCode.FORBIDDEN);
+    await expectBiz(customers.insights(salesCtx, customerId), ErrorCode.FORBIDDEN);
+  });
+
+  it('contacts / conversations / activities 子资源对他人客户 → 40301', async () => {
+    const customers = (globalThis as Record<string, unknown>).__customers as CustomersService;
+    await expectBiz(customers.listCustomerContacts(salesCtx, customerId, 1, 10), ErrorCode.FORBIDDEN);
+    await expectBiz(customers.listCustomerConversations(salesCtx, customerId, 1, 10), ErrorCode.FORBIDDEN);
+    await expectBiz(customers.listCustomerActivities(salesCtx, customerId, 1, 10), ErrorCode.FORBIDDEN);
   });
 });

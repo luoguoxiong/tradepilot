@@ -104,6 +104,25 @@ const FOLLOW_UP_SOP: SopGraphDefinition = {
   ],
 };
 
+/**
+ * product_analysis（M5-C4）：客户购买意向分析（客户 360 /customers/{id}/analyze 与
+ * 03 /leads/batch-analyze 共用 task_type）。分析产出（copilot 契约）→ customer_insight 写回
+ * （write_customer_insight flow 仅 customerId 场景落表，leadIds 场景随 outputs 留存）。
+ */
+const PRODUCT_ANALYSIS_SOP: SopGraphDefinition = {
+  version: 1,
+  entry: 'load_analysis_context',
+  nodes: [
+    { id: 'load_analysis_context', kind: 'flow', route: 'load_analysis_context', title: '加载分析对象', progress: 20 },
+    { id: 'analyze_customer', kind: 'llm', promptRef: 'sales.productAnalysis', outputSchema: 'copilot', outputKey: 'copilot', logType: 'match', title: '客户购买意向分析', progress: 50 },
+    { id: 'write_customer_insight', kind: 'flow', route: 'write_customer_insight', title: '洞察写回', progress: 30 },
+  ],
+  edges: [
+    { from: 'load_analysis_context', to: 'analyze_customer' },
+    { from: 'analyze_customer', to: 'write_customer_insight' },
+  ],
+};
+
 /** taskType → SOP + State 通道键（文档字段 + 编排辅助键） */
 const TASK_SOPS: Record<string, { sop: SopGraphDefinition; stateKeys: string[] }> = {
   lead_hunting: {
@@ -137,6 +156,16 @@ const TASK_SOPS: Record<string, { sop: SopGraphDefinition; stateKeys: string[] }
       'conversationId', 'customerId', 'knowledgeChunks', 'messageId',
     ],
   },
+  product_analysis: {
+    sop: PRODUCT_ANALYSIS_SOP,
+    stateKeys: [
+      ...BASE_KEYS,
+      // input 播种（customers.analyze: customerId；leads.batchAnalyze: leadIds）
+      'customerId', 'leadIds',
+      // 编排辅助
+      'analysisTargets', 'copilot',
+    ],
+  },
 };
 
 export const workflowSopProvider: TaskSopProvider = {
@@ -161,4 +190,5 @@ export const WORKFLOW_SOP_DEFINITIONS: Readonly<Record<string, SopGraphDefinitio
   lead_hunting: LEAD_HUNTING_SOP,
   email_reply: EMAIL_REPLY_SOP,
   follow_up: FOLLOW_UP_SOP,
+  product_analysis: PRODUCT_ANALYSIS_SOP,
 };

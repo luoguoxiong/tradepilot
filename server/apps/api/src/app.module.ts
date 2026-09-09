@@ -18,6 +18,9 @@ import { ApprovalsModule } from './approvals/approvals.module.js';
 import { ConversationsModule } from './conversations/conversations.module.js';
 import { CustomersModule } from './customers/customers.module.js';
 import { LeadsModule } from './leads/leads.module.js';
+import { DashboardModule } from './dashboard/dashboard.module.js';
+import { EmployeesModule } from './employees/employees.module.js';
+import { FollowUpsModule } from './follow-ups/follow-ups.module.js';
 
 /**
  * API 根模块（后端技术方案 01 §4）。
@@ -42,6 +45,9 @@ import { LeadsModule } from './leads/leads.module.js';
     ConversationsModule,
     CustomersModule,
     LeadsModule,
+    DashboardModule,
+    EmployeesModule,
+    FollowUpsModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: HttpExceptionFilter },

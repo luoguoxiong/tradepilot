@@ -88,10 +88,31 @@ function followUpOutputs(state: State): Record<string, unknown>[] {
   return outputs;
 }
 
+/** product_analysis（M5-C4）：insight（copilot 分析 + 分析对象；customerId 场景已写 customer_insight 表） */
+function productAnalysisOutputs(state: State): Record<string, unknown>[] {
+  const copilot = obj(state, 'copilot');
+  if (!copilot) {
+    return [];
+  }
+  const customerId = state['customerId'];
+  const targets = arr(state, 'analysisTargets');
+  return [
+    {
+      type: 'insight',
+      payload: {
+        copilot,
+        ...(typeof customerId === 'string' && customerId ? { customerId } : {}),
+        ...(targets.length > 0 ? { targets } : {}),
+      },
+    },
+  ];
+}
+
 const BUILDERS: Record<string, (state: State) => Record<string, unknown>[]> = {
   lead_hunting: leadHuntingOutputs,
   email_reply: emailReplyOutputs,
   follow_up: followUpOutputs,
+  product_analysis: productAnalysisOutputs,
 };
 
 /** 按 taskType 组装类型化 outputs；未注册类型返回 null（runner 回落通用 result 包裹） */

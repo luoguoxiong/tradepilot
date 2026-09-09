@@ -87,7 +87,7 @@ export const aiIntent = pgEnum('ai_intent', [
   'other',
 ]);
 export const msgDirection = pgEnum('msg_direction', ['in', 'out']);
-export const msgStatus = pgEnum('msg_status', ['draft', 'sent', 'failed']);
+export const msgStatus = pgEnum('msg_status', ['draft', 'sent', 'failed', 'waiting_approval']);
 export const senderType = pgEnum('sender_type', ['ai', 'user', 'contact']);
 export const followUpStage = pgEnum('follow_up_stage', [
   'follow_up_1',

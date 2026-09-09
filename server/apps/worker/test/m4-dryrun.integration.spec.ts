@@ -340,6 +340,9 @@ afterAll(async () => {
       await tx.delete(schema.followUpTask).where(eq(schema.followUpTask.orgId, orgId));
       await tx.delete(schema.followUpStrategyStep).where(eq(schema.followUpStrategyStep.orgId, orgId));
       await tx.delete(schema.followUpStrategy).where(eq(schema.followUpStrategy.orgId, orgId));
+      // M5-C4 洞察写回：conversation_insight/customer_insight 先于 conversation/customer 删除
+      await tx.delete(schema.conversationInsight).where(eq(schema.conversationInsight.orgId, orgId));
+      await tx.delete(schema.customerInsight).where(eq(schema.customerInsight.orgId, orgId));
       await tx.delete(schema.message).where(eq(schema.message.orgId, orgId));
       await tx.delete(schema.conversation).where(eq(schema.conversation.orgId, orgId));
       await tx.delete(schema.contact).where(eq(schema.contact.orgId, orgId));

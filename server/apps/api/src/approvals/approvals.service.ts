@@ -4,6 +4,7 @@ import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { BizException, createId } from '@tradepilot/core';
 import { schema, withOrg, type Db } from '@tradepilot/db';
+import type { MailboxDriverOptions } from '@tradepilot/integrations';
 import {
   ApprovalGate,
   TaskEnqueuer,
@@ -26,6 +27,8 @@ import type { ApproveApprovalDto, RejectApprovalDto } from './approvals.dto.js';
  *   approve（含编辑）→ markResumed + q:重投（job.data.resume={nodeId,approvalId}）恢复图执行，
  *   发送前新鲜度校验由工具钩子执行（Runtime §4.7）；reject → 级联 ai_task.failed(approval_rejected)
  *   + follow_up_task.paused 转人工（与超时扫描同口径）。
+ * - 直接消息审批（M5-C1 send 分支 B）：bizType='message' 且无 linkedTaskId —— approve → mailbox 驱动
+ *   真实外发该消息 + message.status='sent'（resultRef={messageId}）；reject → message.status 回退 draft。
  * - auto_approve 留痕已由 worker 侧 ApprovalGate.recordAutoApprove 承载（12 §4 风险分级口径）。
  */
 @Injectable()
@@ -38,11 +41,25 @@ export class ApprovalsService {
     @Inject(DB) private readonly db: Db,
     @Inject(REDIS) private readonly redis: Redis,
     @Inject(PINO_ROOT) private readonly logger: Logger,
-    env: EnvService,
+    private readonly env: EnvService,
   ) {
     this.enqueuer = new TaskEnqueuer(env.env.REDIS_URL);
     this.publisher = new TaskEventPublisher(redis);
     this.gate = new ApprovalGate(db, redis, this.publisher, logger);
+  }
+
+  /** 邮箱驱动选项（凭据解密 + OAuth 客户端凭据，06 §2.4） */
+  private get driverOptions(): MailboxDriverOptions {
+    const env = this.env.env;
+    return {
+      encryptionKey: env.ENCRYPTION_KEY,
+      oauth: {
+        googleClientId: env.GOOGLE_CLIENT_ID || undefined,
+        googleClientSecret: env.GOOGLE_CLIENT_SECRET || undefined,
+        microsoftClientId: env.MICROSOFT_CLIENT_ID || undefined,
+        microsoftClientSecret: env.MICROSOFT_CLIENT_SECRET || undefined,
+      },
+    };
   }
 
   /** 12 §3.1 各类型待审数量（Tab） */

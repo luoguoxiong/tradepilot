@@ -303,6 +303,16 @@ const loadThread: FlowNodeFn = async (state, ctx) => {
   const detectedLanguage = lastIn
     ? (lastIn.language?.trim() || detectEmailLanguage(lastIn.body))
     : 'en';
+  // M5-C4 洞察写回：来信无语言标记时将检测结果写回 message.language（「语言跟随」持久化，
+  // 06 详情/草稿语言口径与状态 detectedLanguage 同源）
+  if (lastIn && !lastIn.language?.trim()) {
+    await withOrg(ctx.db, ctx.orgId, async (tx) => {
+      await tx
+        .update(schema.message)
+        .set({ language: detectedLanguage, updatedAt: ctx.now })
+        .where(eq(schema.message.id, lastIn.messageId));
+    });
+  }
   const customerSnapshot = customerId
     ? await loadCustomerInsights(ctx.db, ctx.orgId, customerId)
     : null;
@@ -323,13 +333,99 @@ const draftBranch: FlowNodeFn = (state) => {
   return { branch: draft?.grounded === true ? 'grounded' : 'need_info' };
 };
 
-/** need_info 收尾：不发送，draft.missingInfo 随 outputs 留存（completed · 需补充资料） */
-const needInfo: FlowNodeFn = () => ({ patch: {} });
+/** need_info 收尾：不发送，draft.missingInfo 随 outputs 留存（completed · 需补充资料）；
+ * copilot/intent 产出不依赖发送分支，洞察照常写回（06 §3.3 供右栏展示） */
+const needInfo: FlowNodeFn = async (state, ctx) => {
+  await persistConversationInsight(state, ctx);
+  return { patch: {} };
+};
 
-/** writeback（M3 flow 承载）：发送结果写 CRM 活动记录；首响时长指标随数据中心（P1） */
+/** intent.label（LLM 自由文本标签）→ ai_intent 枚举（确定性关键词映射，兜底 other） */
+function mapAiIntent(label: unknown): 'rfq' | 'price_compare' | 'logistics' | 'sample' | 'other' {
+  const s = typeof label === 'string' ? label.toLowerCase() : '';
+  if (/rfq|询价|request/.test(s)) {
+    return 'rfq';
+  }
+  if (/price|quote|比价|报价/.test(s)) {
+    return 'price_compare';
+  }
+  if (/logistic|shipping|物流|运费/.test(s)) {
+    return 'logistics';
+  }
+  if (/sample|样品|打样/.test(s)) {
+    return 'sample';
+  }
+  return 'other';
+}
+
+/**
+ * M5-C4 洞察写回：email_reply 图 copilot_analyze 产出 → conversation_insight
+ * （uq_conversation_insight 按会话 upsert，intent/purchaseProbability/suggestions/citations）。
+ * knowledgeChunks 形状 = knowledge_search 工具出参 { chunks: [{ chunkId, documentId, title, ... }] }。
+ */
+async function persistConversationInsight(state: State, ctx: TaskRunContext): Promise<void> {
+  const conversationId = str(state['conversationId']);
+  const intent = state['intent'] as { label?: string } | undefined;
+  const copilot = state['copilot'] as
+    | { purchaseProbability?: number; recommendedActions?: string[] }
+    | undefined;
+  if (!conversationId || (!intent && !copilot)) {
+    return;
+  }
+  const kb = state['knowledgeChunks'] as
+    | { chunks?: { chunkId?: string; documentId?: string; title?: string }[] }
+    | undefined;
+  const citations = (kb?.chunks ?? [])
+    .filter((c) => typeof c.documentId === 'string' && c.documentId)
+    .map((c) => ({
+      docId: c.documentId!,
+      ...(typeof c.title === 'string' && c.title ? { docName: c.title } : {}),
+      ...(typeof c.chunkId === 'string' && c.chunkId ? { chunkId: c.chunkId } : {}),
+    }));
+  const suggestions = (copilot?.recommendedActions ?? [])
+    .filter((a) => typeof a === 'string' && a.trim().length > 0)
+    .slice(0, 5)
+    .map((label) => ({ suggestionId: createId('sug'), label }));
+  const probability = copilot?.purchaseProbability;
+  const values = {
+    id: createId('cins'),
+    orgId: ctx.orgId,
+    conversationId,
+    intent: mapAiIntent(intent?.label),
+    ...(typeof probability === 'number' && Number.isFinite(probability)
+      ? { purchaseProbability: Math.max(0, Math.min(100, Math.round(probability))) }
+      : {}),
+    suggestions,
+    ...(citations.length > 0 ? { citations } : {}),
+    generatedAt: ctx.now,
+    updatedAt: ctx.now,
+  };
+  await withOrg(ctx.db, ctx.orgId, async (tx) => {
+    await tx
+      .insert(schema.conversationInsight)
+      .values(values)
+      .onConflictDoUpdate({
+        target: schema.conversationInsight.conversationId,
+        set: {
+          intent: values.intent,
+          ...(values.purchaseProbability !== undefined
+            ? { purchaseProbability: values.purchaseProbability }
+            : {}),
+          suggestions: values.suggestions,
+          ...(citations.length > 0 ? { citations } : {}),
+          generatedAt: values.generatedAt,
+          updatedAt: values.updatedAt,
+        },
+      });
+  });
+}
+
+/** writeback（M3 flow 承载）：发送结果写 CRM 活动记录 + conversation_insight 洞察写回（M5-C4）；
+ * 首响时长指标随数据中心（P1） */
 const writeback: FlowNodeFn = async (state, ctx) => {
   const messageId = str(state['messageId']);
   const customerId = str(state['customerId']);
+  await persistConversationInsight(state, ctx);
   if (!customerId) {
     return { patch: {} };
   }
@@ -649,6 +745,114 @@ const scheduleNext: FlowNodeFn = async (state, ctx) => {
   return { patch: { nextStep: { seq: next.seq, runAt: nextRunAt.toISOString() } } };
 };
 
+/** ===== product_analysis（M5-C4：customer_insight 写回） ===== */
+
+/**
+ * load_analysis_context：分析对象加载。
+ * - customerId（客户 360 /customers/{id}/analyze）：加载客户画像快照 → analysisTargets 单元素；
+ * - leadIds（03 /leads/batch-analyze）：发现池 lead 快照（ai_lead 非 customer，洞察仅落 outputs，
+ *   不写 customer_insight——FK 约束 customer_id → customer.id）。
+ */
+const loadAnalysisContext: FlowNodeFn = async (state, ctx) => {
+  const customerId = str(state['customerId']);
+  const leadIds = Array.isArray(state['leadIds'])
+    ? state['leadIds'].map((v) => String(v)).filter((v) => v.length > 0)
+    : [];
+
+  const targets: { id: string; name: string; country: string; industry: string | null }[] = [];
+  await withOrg(ctx.db, ctx.orgId, async (tx) => {
+    if (customerId) {
+      const [c] = await tx
+        .select({
+          id: schema.customer.id,
+          companyName: schema.customer.companyName,
+          country: schema.customer.country,
+          industry: schema.customer.industry,
+        })
+        .from(schema.customer)
+        .where(and(eq(schema.customer.id, customerId), isNull(schema.customer.deletedAt)))
+        .limit(1);
+      if (c) {
+        targets.push({
+          id: c.id,
+          name: c.companyName,
+          country: c.country,
+          industry: c.industry,
+        });
+      }
+      return;
+    }
+    if (leadIds.length > 0) {
+      const rows = await tx
+        .select({
+          id: schema.aiLead.id,
+          companyName: schema.aiLead.companyName,
+          country: schema.aiLead.country,
+          industry: schema.aiLead.industry,
+        })
+        .from(schema.aiLead)
+        .where(and(eq(schema.aiLead.orgId, ctx.orgId), inArray(schema.aiLead.id, leadIds)));
+      for (const r of rows) {
+        targets.push({ id: r.id, name: r.companyName, country: r.country, industry: r.industry });
+      }
+    }
+  });
+  return { patch: { analysisTargets: targets } };
+};
+
+/**
+ * write_customer_insight：copilot 分析产出 → customer_insight
+ * （uq_customer_insight_type 按 (customer_id, insight_type) upsert；taskId 溯源 ai_task）。
+ * 仅 customerId 场景写表；value = purchaseProbability（numeric 文本），reasons = 推荐动作映射。
+ */
+const writeCustomerInsight: FlowNodeFn = async (state, ctx) => {
+  const customerId = str(state['customerId']);
+  const copilot = state['copilot'] as
+    | { purchaseProbability?: number; stage?: string; recommendedActions?: string[] }
+    | undefined;
+  if (!customerId || !copilot) {
+    return { patch: {} };
+  }
+  const actions = (copilot.recommendedActions ?? [])
+    .filter((a) => typeof a === 'string' && a.trim().length > 0)
+    .slice(0, 5);
+  const probability =
+    typeof copilot.purchaseProbability === 'number' && Number.isFinite(copilot.purchaseProbability)
+      ? Math.max(0, Math.min(100, Math.round(copilot.purchaseProbability)))
+      : null;
+  const reasons = actions.map((label) => ({ text: label }));
+  const nextAction =
+    actions.length > 0 ? { type: 'follow_up', label: actions[0]! } : null;
+  await withOrg(ctx.db, ctx.orgId, async (tx) => {
+    await tx
+      .insert(schema.customerInsight)
+      .values({
+        id: createId('cins'),
+        orgId: ctx.orgId,
+        customerId,
+        insightType: 'purchase_probability',
+        ...(probability !== null ? { value: String(probability) } : {}),
+        reasons,
+        ...(nextAction ? { nextAction } : {}),
+        taskId: ctx.taskId,
+        generatedAt: ctx.now,
+        updatedAt: ctx.now,
+      })
+      .onConflictDoUpdate({
+        target: [schema.customerInsight.customerId, schema.customerInsight.insightType],
+        set: {
+          ...(probability !== null ? { value: String(probability) } : {}),
+          reasons,
+          ...(nextAction ? { nextAction } : {}),
+          taskId: ctx.taskId,
+          generatedAt: ctx.now,
+          updatedAt: ctx.now,
+        },
+      });
+  });
+  return { patch: {} };
+};
+
 /** ===== 注册表装配 ===== */
 
 /** 注册到具体实现类（register 方法在 Simple 实现上，接口仅暴露 get/has） */
@@ -668,6 +872,8 @@ export function registerFlows(registry: SimpleFlowRegistry): void {
   registry.register('select_step', selectStep);
   registry.register('writeback_execution', writebackExecution);
   registry.register('schedule_next', scheduleNext);
+  registry.register('load_analysis_context', loadAnalysisContext);
+  registry.register('write_customer_insight', writeCustomerInsight);
 }
 
 /** 便捷装配：新建 SimpleFlowRegistry 并注入全部 flow */

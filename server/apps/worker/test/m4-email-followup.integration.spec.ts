@@ -361,6 +361,9 @@ afterAll(async () => {
       await tx.delete(schema.followUpTask).where(eq(schema.followUpTask.orgId, orgId));
       await tx.delete(schema.followUpStrategyStep).where(eq(schema.followUpStrategyStep.orgId, orgId));
       await tx.delete(schema.followUpStrategy).where(eq(schema.followUpStrategy.orgId, orgId));
+      // M5-C4 洞察写回：conversation_insight/customer_insight 先于 conversation/customer 删除
+      await tx.delete(schema.conversationInsight).where(eq(schema.conversationInsight.orgId, orgId));
+      await tx.delete(schema.customerInsight).where(eq(schema.customerInsight.orgId, orgId));
       await tx.delete(schema.message).where(eq(schema.message.orgId, orgId));
       await tx.delete(schema.conversation).where(eq(schema.conversation.orgId, orgId));
       await tx.delete(schema.customerActivity).where(eq(schema.customerActivity.orgId, orgId));
@@ -453,6 +456,23 @@ describe('M4-2 email_reply：语言跟随 + 审批闭环 + 类型化 outputs', (
       ).map((c) => c.node),
     );
     expect(nodes).toEqual(new Set(['analyze_intent', 'copilot_analyze', 'draft_reply']));
+
+    // ⑦ M5-C4 洞察写回：writeback 节点落 conversation_insight（intent/概率/建议/citations）
+    // + 来信 language 写回（检测值持久化）
+    const [ci] = await db
+      .select()
+      .from(schema.conversationInsight)
+      .where(eq(schema.conversationInsight.conversationId, CONV1));
+    expect(ci).toBeTruthy();
+    expect(ci.intent).toBe('other'); // mock-label 无关键词命中 → 兜底 other
+    expect(ci.purchaseProbability).toBeGreaterThanOrEqual(0);
+    expect(ci.purchaseProbability).toBeLessThanOrEqual(100);
+    expect(ci.suggestions.length).toBeGreaterThan(0);
+    const [inZh] = await db
+      .select({ language: schema.message.language })
+      .from(schema.message)
+      .where(eq(schema.message.id, MSG_ZH));
+    expect(inZh.language).toBe('zh');
   });
 
   it('need_info：grounded=false 不发送，missingInfo 随 outputs 留存（completed · 需补充资料）', async () => {
@@ -488,6 +508,14 @@ describe('M4-2 email_reply：语言跟随 + 审批闭环 + 类型化 outputs', (
         .where(eq(schema.aiTaskStep.taskId, taskId))
     ).map((s) => s.name);
     expect(stepNames).not.toContain('发送回复邮件');
+
+    // M5-C4 洞察写回：need_info 分支 copilot/intent 照常落 conversation_insight（06 §3.3 供右栏展示）
+    const [ciNi] = await db
+      .select()
+      .from(schema.conversationInsight)
+      .where(eq(schema.conversationInsight.conversationId, CONV2));
+    expect(ciNi).toBeTruthy();
+    expect(ciNi.suggestions.length).toBeGreaterThan(0);
   });
 });
 

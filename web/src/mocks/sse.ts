@@ -15,7 +15,12 @@ export function sseResponse(events: SseEvent[], intervalMs = 200) {
     async start(controller) {
       for (const { event, data } of events) {
         await new Promise((resolve) => setTimeout(resolve, intervalMs))
-        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
+        // 与后端 SSE 契约对齐（04 §6.1）：data 恒为 { type, payload } 包裹
+        controller.enqueue(
+          encoder.encode(
+            `event: ${event}\ndata: ${JSON.stringify({ type: event, payload: data })}\n\n`,
+          ),
+        )
       }
       controller.close()
     },

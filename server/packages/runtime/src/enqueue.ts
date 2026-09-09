@@ -51,10 +51,14 @@ export class TaskEnqueuer {
     if (!queue) {
       throw new Error(`队列未初始化: ${queueName}`);
     }
-    await queue.add(taskType, { taskId, taskType }, {
-      jobId: taskId,
-      ...(opts?.delayMs !== undefined && opts.delayMs > 0 ? { delay: opts.delayMs } : {}),
-    });
+    await queue.add(
+      taskType,
+      { taskId, taskType },
+      {
+        jobId: taskId,
+        ...(opts?.delayMs !== undefined && opts.delayMs > 0 ? { delay: opts.delayMs } : {}),
+      },
+    );
   }
 
   /** 任务取消/暂停 → 移除 delayed job（04 §3.4） */
@@ -99,17 +103,23 @@ export class TaskEnqueuer {
   /**
    * email_sync 队列（M4 #4 收信链路）：jobId=`mbxsync.{mailboxId}` 防重复入队
    * （同 mailbox 活跃 job 唯一——调度器 5min 周期与长同步天然互斥，不堆积）。
+   *
+   * 注意：BullMQ Queue.add 对同 jobId 若 job 仍存在则幂等 no-op（不更新、不重投）。
+   * removeOnComplete/fail 留存期内调度器每轮同 id add 全被吞 → 同步停摆（#5/#6 联调实证）。
+   * 因此入队前先移除「终态历史 job」，仅保留 waiting/active/delayed 以维持互斥节流。
    */
   async enqueueEmailSync(mailboxId: string): Promise<void> {
     const queue = this.queues.get(QUEUE_NAME.EMAIL_SYNC);
     if (!queue) {
       return;
     }
+    const jobId = `mbxsync.${mailboxId}`;
+    await this.removeTerminalJob(queue, jobId, '邮箱同步');
     await queue.add(
       'email_sync',
       { mailboxId },
       // jobId 禁含 ':'（BullMQ 5 校验），用 '.' 分隔
-      { jobId: `mbxsync.${mailboxId}` },
+      { jobId },
     );
   }
 
@@ -124,7 +134,39 @@ export class TaskEnqueuer {
     if (!queue) {
       return;
     }
-    await queue.add('knowledge_index', { docId }, { jobId: `kidx.${docId}` });
+    const jobId = `kidx.${docId}`;
+    await this.removeTerminalJob(queue, jobId, '知识索引');
+    await queue.add('knowledge_index', { docId }, { jobId });
+  }
+
+  /**
+   * 移除同 id 的终态（completed/failed）历史 job。
+   *
+   * BullMQ 5 Queue.add 对仍存在的同 jobId 幂等 no-op：新数据不生效、不重新入队，
+   * 而 removeOnComplete/fail 会留存终态 job（age1h/count1000 / 24h），导致手动重试
+   * （04 §5.3）与周期性调度（5min 邮箱同步）被静默吞掉。此处在入队前清掉终态 job，
+   * 保证重投必达；waiting/active/delayed 保留 → add no-op，维持「同 id 活跃 job 唯一」互斥。
+   */
+  private async removeTerminalJob(queue: Queue, jobId: string, label: string): Promise<void> {
+    const existing = await queue.getJob(jobId);
+    if (!existing) {
+      return;
+    }
+    let state: string;
+    try {
+      state = await existing.getState();
+    } catch (err) {
+      this.logger?.warn(`读取 job 状态失败: ${jobId}`, err);
+      return;
+    }
+    if (state !== 'completed' && state !== 'failed') {
+      return;
+    }
+    try {
+      await existing.remove();
+    } catch (err) {
+      this.logger?.warn(`移除${label}历史 job 失败: ${jobId}`, err);
+    }
   }
 
   /**

@@ -195,7 +195,11 @@ export function useTaskStream(taskId: MaybeRef<string>, options: TaskStreamOptio
           state.reconnecting = false
         },
         onmessage(msg) {
-          const data = msg.data ? JSON.parse(msg.data) : {}
+          const raw = msg.data ? JSON.parse(msg.data) : {}
+          // SSE 事件体统一为 { type, seq, payload }（后端 04 §6.1：data 恒为
+          // { type:'log'|'progress'|'status'|'done', payload } 包裹，payload 与
+          // REST /logs 单条、进度/终态字段同构）；缺失 payload 时按平铺兼容兜底。
+          const data = raw && typeof raw === 'object' && 'payload' in raw ? raw.payload : raw
           switch (msg.event) {
             case 'log': {
               appendLogs([data as TaskLog])

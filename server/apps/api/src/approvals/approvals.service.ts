@@ -17,7 +17,7 @@ import type { TaskType } from '@tradepilot/shared';
 import { DB } from '../db/db.module.js';
 import { REDIS } from '../redis/redis.module.js';
 import { PINO_ROOT } from '../common/logger/logger.factory.js';
-import type { EnvService } from '../config/env.service.js';
+import { EnvService } from '../config/env.service.js';
 import type { ApproveApprovalDto, RejectApprovalDto } from './approvals.dto.js';
 
 /**
@@ -41,7 +41,7 @@ export class ApprovalsService {
     @Inject(DB) private readonly db: Db,
     @Inject(REDIS) private readonly redis: Redis,
     @Inject(PINO_ROOT) private readonly logger: Logger,
-    private readonly env: EnvService,
+    @Inject(EnvService) private readonly env: EnvService,
   ) {
     this.enqueuer = new TaskEnqueuer(env.env.REDIS_URL);
     this.publisher = new TaskEventPublisher(redis);

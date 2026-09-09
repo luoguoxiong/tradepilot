@@ -6,7 +6,7 @@ import { TaskEnqueuer } from '@tradepilot/runtime';
 import { getObjectStorage, knowledgeDocKey } from '@tradepilot/integrations';
 import { searchKnowledgeChunks } from '@tradepilot/tools';
 import { DB } from '../db/db.module.js';
-import type { EnvService } from '../config/env.service.js';
+import { EnvService } from '../config/env.service.js';
 import type {
   KnowledgeSearchDto,
   ListKnowledgeQuery,
@@ -29,7 +29,8 @@ export class KnowledgeService {
 
   constructor(
     @Inject(DB) private readonly db: Db,
-    env: EnvService,
+    // 同 tasks：无装饰参数需 @Inject(EnvService) 显式 token，否则 type import 擦除后无法解析
+    @Inject(EnvService) env: EnvService,
   ) {
     this.enqueuer = new TaskEnqueuer(env.env.REDIS_URL);
   }
@@ -294,6 +295,8 @@ export class KnowledgeService {
           and(
             eq(schema.knowledgeDocument.orgId, orgId),
             isNull(schema.knowledgeDocument.deletedAt),
+            // PG DESC 默认 NULLS FIRST：过滤未索引行，避免取到 failed/indexing 的空 indexedAt
+            eq(schema.knowledgeDocument.status, 'indexed'),
           ),
         )
         .orderBy(desc(schema.knowledgeDocument.indexedAt))

@@ -62,7 +62,8 @@ export const taskHandlers = [
           }
           const data =
             item.event === 'log' ? { ...item.data, time: new Date().toISOString() } : item.data
-          controller.enqueue(sseChunk(item.event, data))
+          // 与后端 SSE 契约对齐（04 §6.1）：data 恒为 { type, payload } 包裹
+          controller.enqueue(sseChunk(item.event, { type: item.event, payload: data }))
           if (item.event === 'done') syncTasks() // 到达 done：落终态 + 注入线索
         }
         controller.close()

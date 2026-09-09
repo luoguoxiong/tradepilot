@@ -427,7 +427,8 @@ export default {
     applySelectRequired: '请选择客户',
     applyNoCustomers: '暂无潜在客户',
     applyDone: '已应用：新建 {created}，跳过 {skipped}',
-    applyResult: '新建 {created} 个跟进任务；{skipped} 个客户已有进行中任务被跳过（每客户仅 1 个进行中任务）',
+    applyResult:
+      '新建 {created} 个跟进任务；{skipped} 个客户已有进行中任务被跳过（每客户仅 1 个进行中任务）',
   },
   dashboard: {
     // 顶部问候区（01 §1.1 FR-01；dailyReport P0 D3 不渲染）
@@ -488,7 +489,8 @@ export default {
     uploading: '上传中…',
     // 软删确认（11 §3.4：留痕文案）
     deleteTitle: '删除知识文档',
-    deleteConfirm: '文档与检索内容将删除（不可恢复）；历史引用保留回溯信息并标记「已删除」。确定删除「{name}」吗？',
+    deleteConfirm:
+      '文档与检索内容将删除（不可恢复）；历史引用保留回溯信息并标记「已删除」。确定删除「{name}」吗？',
     deleted: '文档已删除（引用回溯保留）',
     // 检索预览（11 §1.3 FR-06 AI 引用测试）
     searchTitle: '检索预览（AI 引用测试）',
@@ -789,7 +791,8 @@ export default {
     savedNow: '已保存，即时生效',
     mailboxProvider: '提供商',
     mailboxAccount: '邮箱账号',
-    mailboxAccountPlaceholder: '如 sales@company.com',
+    // vue-i18n 将裸 @ 解析为 linked 语法（编译报错），email 中的 @ 需字面量插值转义
+    mailboxAccountPlaceholder: "如 sales{'@'}company.com",
     mailboxAccountRequired: '请输入正确的邮箱地址',
     imap: 'IMAP',
     smtp: 'SMTP',

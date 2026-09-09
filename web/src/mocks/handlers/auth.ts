@@ -1,29 +1,17 @@
-import { http, delay } from 'msw'
+import { delay, http } from 'msw'
 
 import { ErrorCode } from '@/api/error-codes'
-import type { AuthSession, LoginReq, RegisterReq } from '@/api/types/auth'
+import type { LoginReq, RegisterReq } from '@/api/types/auth'
 
-import { mockOnboarding } from '../data/db'
+import { mockOnboarding, mockRolePermissions } from '../data/db'
 import { LATENCY, fail, ok, readJson } from '../utils'
 
-/** 演示会话：任意合法邮箱 + 8 位以上密码可登录，角色 admin 覆盖 P0 全部入口 */
-function sessionFor(currentStep = mockOnboarding.currentStep): AuthSession {
-  return {
-    token: `mock-${crypto.randomUUID()}`,
-    user: { userId: 'u-demo', orgId: 'org-demo', role: 'admin', name: '演示管理员' },
-    org: {
-      id: 'org-demo',
-      name: '演示外贸公司',
-      timezone: 'Asia/Shanghai',
-      defaultCurrency: 'USD',
-      defaultLanguage: 'zh-CN',
-      sendRules: { timeWindowStart: '09:00', timeWindowEnd: '18:00', minTouchIntervalDays: 3 },
-    },
-    onboarding: { currentStep },
-  }
-}
-
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/** mock token：与真实 JWT 仅形状相似（payload 非对称），仅供会话模拟 */
+function mockToken() {
+  return `mock-${crypto.randomUUID()}`
+}
 
 export const authHandlers = [
   http.post('/api/v1/auth/login', async ({ request }) => {
@@ -33,7 +21,12 @@ export const authHandlers = [
     if (!EMAIL_RE.test(body.email ?? '') || (body.password?.length ?? 0) < 8) {
       return fail(ErrorCode.BAD_REQUEST, '邮箱或密码错误')
     }
-    return ok(sessionFor())
+    // 16 接口文档 §3.2：{ token, expiresIn, onboarding: { currentStep } }（未完成初始化时前端进向导）
+    return ok({
+      token: mockToken(),
+      expiresIn: 7200,
+      onboarding: { currentStep: mockOnboarding.currentStep },
+    })
   }),
 
   http.post('/api/v1/auth/register', async ({ request }) => {
@@ -50,7 +43,25 @@ export const authHandlers = [
     }
     // 注册后进入初始化向导（currentStep = 1，守卫强制跳 /onboarding）
     mockOnboarding.currentStep = 1
-    return ok(sessionFor(1))
+    // 16 接口文档 §3.1：{ token, user: { userId, orgId, role: "admin" } }
+    return ok({
+      token: mockToken(),
+      expiresIn: 7200,
+      user: { userId: 'u-demo', orgId: 'org-demo', role: 'admin' },
+    })
+  }),
+
+  // GET /auth/me —— 当前用户与权限（16 接口文档 §2）；登录/注册后由 auth store 补拉组装完整会话
+  http.get('/api/v1/auth/me', async () => {
+    await delay(LATENCY)
+    return ok({
+      userId: 'u-demo',
+      orgId: 'org-demo',
+      role: 'admin',
+      name: '演示管理员',
+      email: 'admin@company.com',
+      permissions: mockRolePermissions.admin.permissions,
+    })
   }),
 
   http.post('/api/v1/auth/logout', async () => {

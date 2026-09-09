@@ -69,7 +69,10 @@ export class ApprovalsService {
         .select({ type: schema.approvalRequest.approvalType, n: count() })
         .from(schema.approvalRequest)
         .where(
-          and(eq(schema.approvalRequest.orgId, orgId), eq(schema.approvalRequest.status, 'pending')),
+          and(
+            eq(schema.approvalRequest.orgId, orgId),
+            eq(schema.approvalRequest.status, 'pending'),
+          ),
         )
         .groupBy(schema.approvalRequest.approvalType);
       const byType = new Map(rows.map((r) => [r.type as string, Number(r.n)]));
@@ -106,10 +109,7 @@ export class ApprovalsService {
         .orderBy(desc(schema.approvalRequest.createdAt))
         .limit(query.pageSize)
         .offset((query.page - 1) * query.pageSize);
-      const [total] = await tx
-        .select({ n: count() })
-        .from(schema.approvalRequest)
-        .where(where);
+      const [total] = await tx.select({ n: count() }).from(schema.approvalRequest).where(where);
       return {
         items: rows.map((r) => this.toCard(r)),
         total: Number(total?.n ?? 0),
@@ -126,10 +126,7 @@ export class ApprovalsService {
         .select()
         .from(schema.approvalRequest)
         .where(
-          and(
-            eq(schema.approvalRequest.id, approvalId),
-            eq(schema.approvalRequest.orgId, orgId),
-          ),
+          and(eq(schema.approvalRequest.id, approvalId), eq(schema.approvalRequest.orgId, orgId)),
         )
         .limit(1);
       if (!row) {
@@ -146,17 +143,16 @@ export class ApprovalsService {
         .select()
         .from(schema.approvalRequest)
         .where(
-          and(
-            eq(schema.approvalRequest.id, approvalId),
-            eq(schema.approvalRequest.orgId, orgId),
-          ),
+          and(eq(schema.approvalRequest.id, approvalId), eq(schema.approvalRequest.orgId, orgId)),
         )
         .limit(1);
       if (!row) {
         throw BizException.notFound(`审批单不存在: ${approvalId}`);
       }
       if (row.status === 'expired') {
-        throw BizException.bizValidation('审批已超时关闭（expired 终态），请重新生成任务（12 §3.3）');
+        throw BizException.bizValidation(
+          '审批已超时关闭（expired 终态），请重新生成任务（12 §3.3）',
+        );
       }
       if (row.status !== 'pending') {
         throw BizException.conflict(`审批已处置（当前状态: ${row.status}），不可重复处置`);
@@ -229,11 +225,10 @@ export class ApprovalsService {
       decided.nodeId
     ) {
       await this.gate.markResumed(orgId, decided.linkedTaskId, decided.employeeId ?? '');
-      await this.enqueuer.enqueueResume(
-        decided.linkedTaskId,
-        decided.taskType as TaskType,
-        { nodeId: decided.nodeId, approvalId },
-      );
+      await this.enqueuer.enqueueResume(decided.linkedTaskId, decided.taskType as TaskType, {
+        nodeId: decided.nodeId,
+        approvalId,
+      });
     }
 
     return {
@@ -250,10 +245,7 @@ export class ApprovalsService {
         .select()
         .from(schema.approvalRequest)
         .where(
-          and(
-            eq(schema.approvalRequest.id, approvalId),
-            eq(schema.approvalRequest.orgId, orgId),
-          ),
+          and(eq(schema.approvalRequest.id, approvalId), eq(schema.approvalRequest.orgId, orgId)),
         )
         .limit(1);
       if (!row) {
@@ -312,7 +304,10 @@ export class ApprovalsService {
             updatedAt: now,
           })
           .where(
-            and(eq(schema.aiTask.id, row.linkedTaskId), eq(schema.aiTask.status, 'waiting_approval')),
+            and(
+              eq(schema.aiTask.id, row.linkedTaskId),
+              eq(schema.aiTask.status, 'waiting_approval'),
+            ),
           )
           .returning({ id: schema.aiTask.id, employeeId: schema.aiTask.employeeId });
         if (taskRow) {
@@ -370,10 +365,7 @@ export class ApprovalsService {
         .select({ id: schema.approvalRequest.id })
         .from(schema.approvalRequest)
         .where(
-          and(
-            eq(schema.approvalRequest.id, approvalId),
-            eq(schema.approvalRequest.orgId, orgId),
-          ),
+          and(eq(schema.approvalRequest.id, approvalId), eq(schema.approvalRequest.orgId, orgId)),
         )
         .limit(1);
       if (!req) {

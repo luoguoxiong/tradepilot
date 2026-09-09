@@ -642,7 +642,8 @@ export default {
       replyLanguage: 'Reply language',
       replyLanguageTip: 'Follows the language of the latest inbound email; defaults to English',
       noDraftHint: 'Click "AI draft" to generate a reply based on the latest inbound email',
-      missingKnowledge: 'No supporting knowledge found. Upload product/pricing documents and retry (AI will not invent parameters)',
+      missingKnowledge:
+        'No supporting knowledge found. Upload product/pricing documents and retry (AI will not invent parameters)',
       basedOn: 'Based on:',
       waitingExisting: 'An email is awaiting review; you can continue sending after approval',
     },
@@ -812,7 +813,7 @@ export default {
     savedNow: 'Saved and effective immediately',
     mailboxProvider: 'Provider',
     mailboxAccount: 'Email account',
-    mailboxAccountPlaceholder: 'e.g. sales@company.com',
+    mailboxAccountPlaceholder: "e.g. sales{'@'}company.com",
     mailboxAccountRequired: 'Enter a valid email address',
     imap: 'IMAP',
     smtp: 'SMTP',
@@ -886,7 +887,8 @@ export default {
   notify: {
     pendingApprovals: 'Pending approvals',
     waitingApprovalTitle: 'Task awaiting approval',
-    waitingApprovalMessage: 'The AI employee submitted an approval request. Click to open the approval center.',
+    waitingApprovalMessage:
+      'The AI employee submitted an approval request. Click to open the approval center.',
   },
   uploader: {
     dropHint: 'Drag files here, or click to select',

@@ -1,9 +1,11 @@
 import { defineStore } from 'pinia'
 
 import * as authApi from '@/api/resources/auth'
+import { fetchOnboarding, fetchOrg } from '@/api/resources/org'
 import type {
   AuthSession,
   LoginReq,
+  LoginResp,
   OrgInfo,
   OnboardingInfo,
   RegisterReq,
@@ -43,14 +45,46 @@ export const useAuthStore = defineStore('auth', {
   },
 
   actions: {
+    /**
+     * 登录（16 接口文档 §3.2）。后端仅返回 token + 向导进度，
+     * user/org 在此补拉后组装完整 AuthSession（02 §3 守卫链依赖）。
+     */
     async login(req: LoginReq) {
-      const session = await authApi.login(req)
-      this.applySession(session)
+      const resp = await authApi.login(req)
+      await this.assembleSession(resp)
     },
 
+    /** 注册（16 接口文档 §3.1）：后端仅返回 token + 基础 user，name/org/onboarding 补拉组装 */
     async register(req: RegisterReq) {
-      const session = await authApi.register(req)
-      this.applySession(session)
+      const resp = await authApi.register(req)
+      await this.assembleSession({ token: resp.token })
+    },
+
+    /**
+     * 组装完整会话：以 token 为基座，并行补拉 /auth/me、/org、/org/onboarding
+     * 得到 { user, org, onboarding } 后 applySession。token 先落盘保证补拉请求带 Bearer。
+     */
+    async assembleSession(resp: Pick<LoginResp, 'token'>) {
+      localStorage.setItem(TOKEN_KEY, resp.token)
+      try {
+        const [me, org, onb] = await Promise.all([authApi.me(), fetchOrg(), fetchOnboarding()])
+        const user: SessionUser = {
+          userId: me.userId,
+          orgId: me.orgId,
+          role: me.role,
+          name: me.name,
+        }
+        this.applySession({
+          token: resp.token,
+          user,
+          org,
+          onboarding: { currentStep: onb.currentStep },
+        })
+      } catch (error) {
+        // 补拉失败：清理 token，避免半登录态残留
+        localStorage.removeItem(TOKEN_KEY)
+        throw error
+      }
     },
 
     /** 登出 / 40101 全量清理：token、会话、vue-query 缓存（05 §4.2） */

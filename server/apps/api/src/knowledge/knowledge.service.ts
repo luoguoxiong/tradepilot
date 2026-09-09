@@ -7,7 +7,11 @@ import { getObjectStorage, knowledgeDocKey } from '@tradepilot/integrations';
 import { searchKnowledgeChunks } from '@tradepilot/tools';
 import { DB } from '../db/db.module.js';
 import type { EnvService } from '../config/env.service.js';
-import type { KnowledgeSearchDto, ListKnowledgeQuery, UploadKnowledgeDto } from './knowledge.dto.js';
+import type {
+  KnowledgeSearchDto,
+  ListKnowledgeQuery,
+  UploadKnowledgeDto,
+} from './knowledge.dto.js';
 import { KNOWLEDGE_FILE_TYPES, KNOWLEDGE_MAX_SIZE } from './knowledge.dto.js';
 
 /**
@@ -100,7 +104,10 @@ export class KnowledgeService {
     pageSize: number;
   }> {
     return withOrg(this.db, orgId, async (tx) => {
-      const conds = [eq(schema.knowledgeDocument.orgId, orgId), isNull(schema.knowledgeDocument.deletedAt)];
+      const conds = [
+        eq(schema.knowledgeDocument.orgId, orgId),
+        isNull(schema.knowledgeDocument.deletedAt),
+      ];
       if (query.category) {
         conds.push(eq(schema.knowledgeDocument.category, query.category));
       }
@@ -125,10 +132,7 @@ export class KnowledgeService {
         .orderBy(desc(schema.knowledgeDocument.createdAt))
         .limit(query.pageSize)
         .offset((query.page - 1) * query.pageSize);
-      const [total] = await tx
-        .select({ n: count() })
-        .from(schema.knowledgeDocument)
-        .where(where);
+      const [total] = await tx.select({ n: count() }).from(schema.knowledgeDocument).where(where);
       return {
         items: rows.map((r) => ({
           docId: r.id,
@@ -274,7 +278,10 @@ export class KnowledgeService {
         .select({ n: count() })
         .from(schema.knowledgeDocument)
         .where(
-          and(eq(schema.knowledgeDocument.orgId, orgId), isNull(schema.knowledgeDocument.deletedAt)),
+          and(
+            eq(schema.knowledgeDocument.orgId, orgId),
+            isNull(schema.knowledgeDocument.deletedAt),
+          ),
         );
       const [chunks] = await tx
         .select({ n: count() })
@@ -284,7 +291,10 @@ export class KnowledgeService {
         .select({ indexedAt: schema.knowledgeDocument.indexedAt })
         .from(schema.knowledgeDocument)
         .where(
-          and(eq(schema.knowledgeDocument.orgId, orgId), isNull(schema.knowledgeDocument.deletedAt)),
+          and(
+            eq(schema.knowledgeDocument.orgId, orgId),
+            isNull(schema.knowledgeDocument.deletedAt),
+          ),
         )
         .orderBy(desc(schema.knowledgeDocument.indexedAt))
         .limit(1);

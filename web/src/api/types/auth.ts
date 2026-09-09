@@ -47,7 +47,42 @@ export interface RegisterReq {
   password: string
 }
 
-/** 登录/注册成功返回：token + 会话 + 企业 + 初始化进度（02 §3 守卫链依赖） */
+/** POST /auth/login 响应（16 接口文档 §3.2）：token + 向导进度；user/org 由 auth store 补拉组装 */
+export interface LoginResp {
+  token: string
+  refreshToken?: string
+  expiresIn?: number
+  /** 仅未完成初始化时返回向导进度（完成态为 undefined） */
+  onboarding?: OnboardingInfo
+}
+
+/** POST /auth/register 响应（16 接口文档 §3.1）：token + 基础 user；name/org/onboarding 由 auth store 补拉 */
+export interface RegisterResp {
+  token: string
+  refreshToken?: string
+  expiresIn?: number
+  user?: {
+    userId: string
+    orgId: string
+    role: Role
+  }
+}
+
+/** GET /auth/me 当前用户与权限（16 接口文档 §2）——登录/注册后补拉完整 user.name */
+export interface CurrentUser {
+  userId: string
+  orgId: string
+  role: Role
+  name: string
+  email: string
+  permissions: Record<string, unknown>
+}
+
+/**
+ * 前端完整会话快照（02 §3 守卫链依赖）：由
+ * login/register 的 token + GET /auth/me + GET /org (+ GET /org/onboarding) 组装，
+ * 登录/注册接口本身不直接返回全量。
+ */
 export interface AuthSession {
   token: string
   user: SessionUser

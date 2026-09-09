@@ -17,6 +17,7 @@ import { CustomersService } from '../customers/customers.service.js';
 import type {
   AddToCrmDto,
   BatchAnalyzeDto,
+  ConvertLeadDto,
   CreateLeadTaskDto,
   ListLeadsQuery,
   ParseLeadTaskDto,
@@ -509,6 +510,11 @@ export class LeadsService {
       title: `批量分析 ${dto.leadIds.length} 个客户`,
       input: { leadIds: dto.leadIds, action: 'batch_analyze' },
     });
+  }
+
+  /** B3 POST /leads/{id}/convert 单条 lead 转 CRM */
+  async convert(ctx: OrgScopeContext, leadId: string, dto: ConvertLeadDto): Promise<AddToCrmResult> {
+    return this.addToCrm(ctx, { leadIds: [leadId], ownerId: dto.ownerId });
   }
 
   /** 简单规则解析（MVP 暂替 LLM） */

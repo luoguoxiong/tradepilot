@@ -64,3 +64,9 @@ export const batchAnalyzeSchema = z.object({
   leadIds: z.array(z.string().trim().min(1)).min(1).max(50),
 });
 export type BatchAnalyzeDto = z.infer<typeof batchAnalyzeSchema>;
+
+/** B3 POST /leads/{id}/convert */
+export const convertLeadSchema = z.object({
+  ownerId: z.string().trim().min(1).optional(),
+});
+export type ConvertLeadDto = z.infer<typeof convertLeadSchema>;

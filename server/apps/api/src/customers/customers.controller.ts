@@ -4,19 +4,23 @@ import { paginationQuerySchema } from '@tradepilot/shared';
 import { resolveScope, type OrgScopeContext } from '@tradepilot/db';
 import { CustomersService } from './customers.service.js';
 import {
+  analyzeSchema,
   batchDeleteSchema,
   batchOwnerSchema,
   createContactSchema,
   createCustomerSchema,
+  generateOutreachSchema,
   listActivitiesQuerySchema,
   listCustomersQuerySchema,
   stageTransitionSchema,
   updateContactSchema,
   updateCustomerSchema,
+  type AnalyzeDto,
   type BatchDeleteDto,
   type BatchOwnerDto,
   type CreateContactDto,
   type CreateCustomerDto,
+  type GenerateOutreachDto,
   type ListActivitiesQuery,
   type ListCustomersQuery,
   type StageTransitionDto,
@@ -150,6 +154,86 @@ export class CustomersController {
     @Req() req: Request & { authUser?: AccessTokenPayload },
   ) {
     return this.customers.listActivities(this.ctx(req), query);
+  }
+
+  // ===== B3 04 客户360° =====
+
+  /** B3 §3.1 GET /customers/{id} 客户详情 + Overview */
+  @Get(':id')
+  async detail(
+    @Param('id') customerId: string,
+    @Req() req: Request & { authUser?: AccessTokenPayload },
+  ) {
+    return this.customers.detail(this.ctx(req), customerId);
+  }
+
+  /** B3 §3.3 POST /customers/{id}/analyze 触发 AI 分析（异步 → product_analysis 任务） */
+  @Post(':id/analyze')
+  async analyze(
+    @Param('id') customerId: string,
+    @Body(new ZodValidationPipe(analyzeSchema)) dto: AnalyzeDto,
+    @Req() req: Request & { authUser?: AccessTokenPayload },
+  ) {
+    return this.customers.analyze(this.ctx(req), customerId, dto);
+  }
+
+  /** B3 §3.2 GET /customers/{id}/insights AI 客户洞察 */
+  @Get(':id/insights')
+  async insights(
+    @Param('id') customerId: string,
+    @Req() req: Request & { authUser?: AccessTokenPayload },
+  ): Promise<unknown> {
+    return this.customers.insights(this.ctx(req), customerId);
+  }
+
+  /** B3 GET /customers/{id}/contacts 联系人列表 */
+  @Get(':id/contacts')
+  async listCustomerContacts(
+    @Param('id') customerId: string,
+    @Query(new ZodValidationPipe(paginationQuerySchema)) query: { page: number; pageSize: number },
+    @Req() req: Request & { authUser?: AccessTokenPayload },
+  ): Promise<unknown> {
+    return this.customers.listCustomerContacts(this.ctx(req), customerId, query.page, query.pageSize);
+  }
+
+  /** B3 GET /customers/{id}/conversations 会话列表 */
+  @Get(':id/conversations')
+  async listCustomerConversations(
+    @Param('id') customerId: string,
+    @Query(new ZodValidationPipe(paginationQuerySchema)) query: { page: number; pageSize: number },
+    @Req() req: Request & { authUser?: AccessTokenPayload },
+  ) {
+    return this.customers.listCustomerConversations(this.ctx(req), customerId, query.page, query.pageSize);
+  }
+
+  /** B3 GET /customers/{id}/quotes 历史报价（D6 降级） */
+  @Get(':id/quotes')
+  async listCustomerQuotes(
+    @Param('id') customerId: string,
+    @Query(new ZodValidationPipe(paginationQuerySchema)) query: { page: number; pageSize: number },
+    @Req() req: Request & { authUser?: AccessTokenPayload },
+  ) {
+    return this.customers.listCustomerQuotes(this.ctx(req), customerId, query.page, query.pageSize);
+  }
+
+  /** B3 GET /customers/{id}/orders 历史订单（D6 降级） */
+  @Get(':id/orders')
+  async listCustomerOrders(
+    @Param('id') customerId: string,
+    @Query(new ZodValidationPipe(paginationQuerySchema)) query: { page: number; pageSize: number },
+    @Req() req: Request & { authUser?: AccessTokenPayload },
+  ) {
+    return this.customers.listCustomerOrders(this.ctx(req), customerId, query.page, query.pageSize);
+  }
+
+  /** B3 GET /customers/{id}/activities 活动时间线 */
+  @Get(':id/activities')
+  async listCustomerActivities(
+    @Param('id') customerId: string,
+    @Query(new ZodValidationPipe(paginationQuerySchema)) query: { page: number; pageSize: number },
+    @Req() req: Request & { authUser?: AccessTokenPayload },
+  ) {
+    return this.customers.listCustomerActivities(this.ctx(req), customerId, query.page, query.pageSize);
   }
 
   /** 资源级访问取角色上限（sales=self / manager=team / admin=all；query scope 显式传入时校验并收窄） */

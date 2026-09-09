@@ -14,12 +14,15 @@ import {
   type Tx,
 } from '@tradepilot/db';
 import { DB } from '../db/db.module.js';
+import { TasksService } from '../tasks/tasks.service.js';
 import type {
+  AnalyzeDto,
   BatchDeleteDto,
   BatchOwnerDto,
   CreateContactDto,
   CreateCustomerDto,
   CustomerStage,
+  GenerateOutreachDto,
   ListActivitiesQuery,
   ListCustomersQuery,
   StageTransitionDto,
@@ -68,7 +71,10 @@ export interface ActivityItem {
 
 @Injectable()
 export class CustomersService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    @Inject(TasksService) private readonly tasks: TasksService,
+  ) {}
 
   /** 05 §3.1 客户列表（tab 区分潜在/正式 + 筛选 + scope 裁剪 + 分页） */
   async list(
@@ -674,6 +680,358 @@ export class CustomersService {
         page: query.page,
         pageSize: query.pageSize,
       };
+    });
+  }
+
+  // ===== B3 04 客户360° =====
+
+  /** B3 §3.1 GET /customers/{id} 头部 + Overview（含 productMatches） */
+  async detail(ctx: OrgScopeContext, customerId: string) {
+    return withOrg(this.db, ctx.orgId, async (tx) => {
+      const [raw] = await tx
+        .select()
+        .from(schema.customer)
+        .where(and(eq(schema.customer.id, customerId), notDeleted(schema.customer.deletedAt)))
+        .limit(1);
+      const row = assertResourceAccess(raw, ctx);
+
+      return {
+        customerId: row.id,
+        companyName: row.companyName,
+        score: row.score,
+        country: row.country,
+        website: row.website,
+        industryTags: row.industryTags ?? [],
+        stage: row.stage,
+        inCrm: true,
+        overview: {
+          companySize: undefined,
+          foundedYear: undefined,
+          customerType: row.customerType ?? undefined,
+          mainProducts: undefined,
+          productMatches: [],
+        },
+      };
+    });
+  }
+
+  /** B3 §3.3 POST /customers/{id}/analyze 触发 AI 分析（异步 → product_analysis 任务） */
+  async analyze(ctx: OrgScopeContext, customerId: string, dto: AnalyzeDto): Promise<{ taskId: string }> {
+    // 确认客户存在
+    await withOrg(this.db, ctx.orgId, async (tx) => {
+      const [raw] = await tx
+        .select({ id: schema.customer.id, ownerId: schema.customer.ownerId })
+        .from(schema.customer)
+        .where(and(eq(schema.customer.id, customerId), notDeleted(schema.customer.deletedAt)))
+        .limit(1);
+      assertResourceAccess(raw, ctx);
+    });
+
+    // 查找可用 AI 员工
+    let employeeId = '';
+    await withOrg(this.db, ctx.orgId, async (tx) => {
+      const [employee] = await tx
+        .select({ id: schema.aiEmployee.id })
+        .from(schema.aiEmployee)
+        .where(
+          and(eq(schema.aiEmployee.orgId, ctx.orgId), eq(schema.aiEmployee.role, 'customer_researcher')),
+        )
+        .limit(1);
+      if (!employee) {
+        throw new BizException(ErrorCode.NOT_FOUND, '未找到可用 AI 员工（customer_researcher）');
+      }
+      employeeId = employee.id;
+    });
+
+    return this.tasks.create(ctx.orgId, ctx.userId, {
+      employeeId,
+      type: 'product_analysis',
+      title: `分析客户：${customerId}`,
+      input: { customerId, scope: dto.scope, action: 'analyze' },
+    });
+  }
+
+  /** B3 §3.2 GET /customers/{id}/insights AI 客户洞察 */
+  async insights(ctx: OrgScopeContext, customerId: string) {
+    return withOrg(this.db, ctx.orgId, async (tx) => {
+      const [raw] = await tx
+        .select({ id: schema.customer.id, ownerId: schema.customer.ownerId })
+        .from(schema.customer)
+        .where(and(eq(schema.customer.id, customerId), notDeleted(schema.customer.deletedAt)))
+        .limit(1);
+      assertResourceAccess(raw, ctx);
+
+      const rows = await tx
+        .select()
+        .from(schema.customerInsight)
+        .where(
+          and(
+            eq(schema.customerInsight.customerId, customerId),
+            eq(schema.customerInsight.orgId, ctx.orgId),
+          ),
+        )
+        .orderBy(desc(schema.customerInsight.generatedAt));
+
+      return rows.map((r) => ({
+        insightType: r.insightType,
+        value: r.value ? Number(r.value) : null,
+        confidence: r.confidence ? Number(r.confidence) : null,
+        reasons: r.reasons,
+        citations: r.citations ?? [],
+        nextAction: r.nextAction ?? null,
+        taskId: r.taskId,
+        generatedAt: r.generatedAt.toISOString(),
+      }));
+    });
+  }
+
+  /** B3 GET /customers/{id}/contacts 联系人列表 */
+  async listCustomerContacts(
+    ctx: OrgScopeContext,
+    customerId: string,
+    page: number,
+    pageSize: number,
+  ) {
+    return withOrg(this.db, ctx.orgId, async (tx) => {
+      const [raw] = await tx
+        .select({ id: schema.customer.id, ownerId: schema.customer.ownerId, deletedAt: schema.customer.deletedAt })
+        .from(schema.customer)
+        .where(and(eq(schema.customer.id, customerId), notDeleted(schema.customer.deletedAt)))
+        .limit(1);
+      assertResourceAccess(raw, ctx);
+
+      const rows = await tx
+        .select()
+        .from(schema.contact)
+        .where(and(eq(schema.contact.customerId, customerId), eq(schema.contact.orgId, ctx.orgId)))
+        .orderBy(desc(schema.contact.createdAt))
+        .limit(pageSize)
+        .offset((page - 1) * pageSize);
+
+      const [countRow] = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.contact)
+        .where(and(eq(schema.contact.customerId, customerId), eq(schema.contact.orgId, ctx.orgId)));
+
+      return {
+        items: rows.map((r) => ({
+          contactId: r.id,
+          name: r.name,
+          title: r.title,
+          email: r.email,
+          phone: r.phone,
+          decisionInfluencePct: r.decisionInfluencePct,
+          decisionInfluenceReasons: r.decisionInfluenceReasons,
+          isPrimary: r.isPrimary,
+        })),
+        total: countRow?.n ?? 0,
+        page,
+        pageSize,
+      };
+    });
+  }
+
+  /** B3 GET /customers/{id}/conversations 会话列表 */
+  async listCustomerConversations(
+    ctx: OrgScopeContext,
+    customerId: string,
+    page: number,
+    pageSize: number,
+  ) {
+    return withOrg(this.db, ctx.orgId, async (tx) => {
+      const [raw] = await tx
+        .select({ id: schema.customer.id, ownerId: schema.customer.ownerId, deletedAt: schema.customer.deletedAt })
+        .from(schema.customer)
+        .where(and(eq(schema.customer.id, customerId), notDeleted(schema.customer.deletedAt)))
+        .limit(1);
+      assertResourceAccess(raw, ctx);
+
+      const rows = await tx
+        .select({
+          conversationId: schema.conversation.id,
+          channel: schema.conversation.channel,
+          subject: schema.conversation.subject,
+          lastMessageAt: schema.conversation.lastMessageAt,
+          unreadCount: schema.conversation.unreadCount,
+        })
+        .from(schema.conversation)
+        .where(and(eq(schema.conversation.customerId, customerId), eq(schema.conversation.orgId, ctx.orgId)))
+        .orderBy(desc(schema.conversation.lastMessageAt))
+        .limit(pageSize)
+        .offset((page - 1) * pageSize);
+
+      const [countRow] = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.conversation)
+        .where(and(eq(schema.conversation.customerId, customerId), eq(schema.conversation.orgId, ctx.orgId)));
+
+      return {
+        items: rows.map((r) => ({
+          conversationId: r.conversationId,
+          channel: r.channel,
+          subject: r.subject,
+          lastMessageAt: r.lastMessageAt?.toISOString() ?? null,
+          unreadCount: r.unreadCount,
+        })),
+        total: countRow?.n ?? 0,
+        page,
+        pageSize,
+      };
+    });
+  }
+
+  /** B3 GET /customers/{id}/quotes 历史报价（D6 降级 → 未启用） */
+  async listCustomerQuotes(
+    _ctx: OrgScopeContext,
+    _customerId: string,
+    page: number,
+    pageSize: number,
+  ) {
+    return { items: [], total: 0, page, pageSize, disabled: true, message: '报价中心模块未启用（D6 降级）' };
+  }
+
+  /** B3 GET /customers/{id}/orders 历史订单（D6 降级 → 未启用） */
+  async listCustomerOrders(
+    _ctx: OrgScopeContext,
+    _customerId: string,
+    page: number,
+    pageSize: number,
+  ) {
+    return { items: [], total: 0, page, pageSize, disabled: true, message: '订单中心模块未启用（D6 降级）' };
+  }
+
+  /** B3 GET /customers/{id}/activities 活动时间线 */
+  async listCustomerActivities(
+    ctx: OrgScopeContext,
+    customerId: string,
+    page: number,
+    pageSize: number,
+  ) {
+    return withOrg(this.db, ctx.orgId, async (tx) => {
+      const [raw] = await tx
+        .select({ id: schema.customer.id, ownerId: schema.customer.ownerId, deletedAt: schema.customer.deletedAt })
+        .from(schema.customer)
+        .where(and(eq(schema.customer.id, customerId), notDeleted(schema.customer.deletedAt)))
+        .limit(1);
+      assertResourceAccess(raw, ctx);
+
+      const rows = await tx
+        .select()
+        .from(schema.customerActivity)
+        .where(
+          and(
+            eq(schema.customerActivity.customerId, customerId),
+            eq(schema.customerActivity.orgId, ctx.orgId),
+          ),
+        )
+        .orderBy(desc(schema.customerActivity.createdAt))
+        .limit(pageSize)
+        .offset((page - 1) * pageSize);
+
+      const [countRow] = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.customerActivity)
+        .where(
+          and(
+            eq(schema.customerActivity.customerId, customerId),
+            eq(schema.customerActivity.orgId, ctx.orgId),
+          ),
+        );
+
+      return {
+        items: rows.map((r) => ({
+          activityId: r.id,
+          type: r.type,
+          summary: r.summary,
+          operatorType: r.operatorType,
+          operatorName: r.operatorName,
+          refType: r.refType,
+          refId: r.refId,
+          createdAt: r.createdAt.toISOString(),
+        })),
+        total: countRow?.n ?? 0,
+        page,
+        pageSize,
+      };
+    });
+  }
+
+  /** B3 §3.4 POST /contacts/{id}/generate-outreach AI 生成开发信（产出草稿） */
+  async generateOutreach(
+    ctx: OrgScopeContext,
+    contactId: string,
+    dto: GenerateOutreachDto,
+  ): Promise<{ draftId: string; conversationId: string; content: string }> {
+    return withOrg(this.db, ctx.orgId, async (tx) => {
+      // 查找联系人
+      const [contact] = await tx
+        .select()
+        .from(schema.contact)
+        .where(and(eq(schema.contact.id, contactId), eq(schema.contact.orgId, ctx.orgId)))
+        .limit(1);
+      if (!contact) {
+        throw new BizException(ErrorCode.NOT_FOUND, '联系人不存在');
+      }
+
+      const [raw] = await tx
+        .select({ id: schema.customer.id, ownerId: schema.customer.ownerId, deletedAt: schema.customer.deletedAt })
+        .from(schema.customer)
+        .where(and(eq(schema.customer.id, contact.customerId), notDeleted(schema.customer.deletedAt)))
+        .limit(1);
+      assertResourceAccess(raw, ctx);
+
+      // 查找已有会话或创建新 outbound 会话
+      const [existingConv] = await tx
+        .select({ id: schema.conversation.id })
+        .from(schema.conversation)
+        .where(
+          and(
+            eq(schema.conversation.customerId, contact.customerId),
+            eq(schema.conversation.contactId, contactId),
+            eq(schema.conversation.orgId, ctx.orgId),
+          ),
+        )
+        .limit(1);
+
+      let conversationId = existingConv?.id ?? '';
+      if (!conversationId) {
+        conversationId = createId('conv');
+        const now = new Date();
+        await tx.insert(schema.conversation).values({
+          id: conversationId,
+          orgId: ctx.orgId,
+          customerId: contact.customerId,
+          contactId,
+          channel: 'email',
+          subject: dto.scenario === 'cold_outreach' ? '业务合作探讨' : '关于报价的跟进',
+          priority: 'high',
+          unreadCount: 0,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+
+      // 创建草稿消息
+      const draftId = createId('msg');
+      const content = dto.language === 'en'
+        ? `Dear ${contact.name},\n\nWe are pleased to reach out to you regarding potential business cooperation.\n\nBest regards,\n${ctx.userId}`
+        : `尊敬的 ${contact.name}，\n\n很高兴与您联系，期待探讨业务合作机会。\n\n此致\n敬礼`;
+
+      await tx.insert(schema.message).values({
+        id: draftId,
+        orgId: ctx.orgId,
+        conversationId,
+        direction: 'out',
+        senderType: 'user',
+        senderName: ctx.userId,
+        content,
+        language: dto.language,
+        status: 'draft',
+        sentAt: new Date(),
+        createdAt: new Date(),
+      });
+
+      return { draftId, conversationId, content };
     });
   }
 

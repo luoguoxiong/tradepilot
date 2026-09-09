@@ -121,3 +121,18 @@ export const listActivitiesQuerySchema = z.object({
 });
 
 export type ListActivitiesQuery = z.infer<typeof listActivitiesQuerySchema>;
+
+// ===== B3 04 客户360° DTO =====
+
+/** B3 §3.3 POST /customers/{id}/analyze */
+export const analyzeSchema = z.object({
+  scope: z.enum(['overview', 'full']).optional().default('overview'),
+});
+export type AnalyzeDto = z.infer<typeof analyzeSchema>;
+
+/** B3 §3.4 POST /contacts/{id}/generate-outreach */
+export const generateOutreachSchema = z.object({
+  scenario: z.enum(['cold_outreach', 'quote_followup']),
+  language: z.enum(['en', 'zh']).optional().default('en'),
+});
+export type GenerateOutreachDto = z.infer<typeof generateOutreachSchema>;

@@ -11,24 +11,34 @@ import type { Request } from 'express';
 import { paginationQuerySchema } from '@tradepilot/shared';
 import { resolveScope, type OrgScopeContext } from '@tradepilot/db';
 import { LeadsService } from './leads.service.js';
+import { CustomersService } from '../customers/customers.service.js';
 import {
   addToCrmSchema,
   batchAnalyzeSchema,
+  convertLeadSchema,
   createLeadTaskSchema,
   listLeadsQuerySchema,
   parseLeadTaskSchema,
   type AddToCrmDto,
   type BatchAnalyzeDto,
+  type ConvertLeadDto,
   type CreateLeadTaskDto,
   type ListLeadsQuery,
   type ParseLeadTaskDto,
 } from './leads.dto.js';
+import {
+  generateOutreachSchema,
+  type GenerateOutreachDto,
+} from '../customers/customers.dto.js';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import type { AccessTokenPayload } from '../auth/token.service.js';
 
 @Controller()
 export class LeadsController {
-  constructor(@Inject(LeadsService) private readonly leads: LeadsService) {}
+  constructor(
+    @Inject(LeadsService) private readonly leads: LeadsService,
+    @Inject(CustomersService) private readonly customers: CustomersService,
+  ) {}
 
   /** B2 §1 工作台头部：员工状态 + 今日产出 + 当前任务 */
   @Get('lead-hunter/summary')
@@ -95,6 +105,28 @@ export class LeadsController {
     @Req() req: Request & { authUser?: AccessTokenPayload },
   ) {
     return this.leads.batchAnalyze(this.ctx(req), dto);
+  }
+
+  // ===== B3 04 客户360° =====
+
+  /** B3 POST /leads/{id}/convert 单条 lead 转 CRM */
+  @Post('leads/:id/convert')
+  async convert(
+    @Param('id') leadId: string,
+    @Body(new ZodValidationPipe(convertLeadSchema)) dto: ConvertLeadDto,
+    @Req() req: Request & { authUser?: AccessTokenPayload },
+  ) {
+    return this.leads.convert(this.ctx(req), leadId, dto);
+  }
+
+  /** B3 §3.4 POST /contacts/{id}/generate-outreach AI 生成开发信 */
+  @Post('contacts/:id/generate-outreach')
+  async generateOutreach(
+    @Param('id') contactId: string,
+    @Body(new ZodValidationPipe(generateOutreachSchema)) dto: GenerateOutreachDto,
+    @Req() req: Request & { authUser?: AccessTokenPayload },
+  ) {
+    return this.customers.generateOutreach(this.ctx(req), contactId, dto);
   }
 
   private ctx(req: Request & { authUser?: AccessTokenPayload }): OrgScopeContext {

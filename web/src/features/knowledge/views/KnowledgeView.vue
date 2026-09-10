@@ -40,7 +40,8 @@ const category = ref<KnowledgeCategory | 'all'>('all')
 const keyword = ref<string | undefined>(undefined)
 
 const listFilters = computed(() => ({
-  category: category.value,
+  // 「全部」Tab 不传 category：后端枚举校验会拒绝 'all'（40001，11 §2）
+  category: category.value === 'all' ? undefined : category.value,
   keyword: keyword.value,
   page: 1,
   pageSize: 20,

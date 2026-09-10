@@ -596,7 +596,10 @@ export class GraphCompiler {
           content: log.content,
           leadId: null,
         });
-        ctx.events.push({ type: 'log', payload: { logId, type: log.type, content: log.content } });
+        ctx.events.push({
+          type: 'log',
+          payload: { logId, time: now.toISOString(), type: log.type, content: log.content },
+        });
       }
       const progress = node.progress ?? 0;
       const [row] = await tx

@@ -14,9 +14,11 @@ export const SSE_EVENT_TYPE = {
 } as const;
 export type SseEventType = (typeof SSE_EVENT_TYPE)[keyof typeof SSE_EVENT_TYPE];
 
-/** event: log —— { "logId": "...", "type": "match", "content": "产品匹配度：92%" } */
+/** event: log —— { "logId": "...", "time": "ISO", "type": "match", "content": "产品匹配度：92%" } */
 export const sseLogPayloadSchema = z.object({
   logId: z.string().min(1),
+  /** 事件时间（ISO8601 UTC）：与 /logs 单条 time 同源同构，实时与回放一致 */
+  time: z.string().min(1),
   type: z.string().min(1),
   content: z.string(),
   leadId: z.string().min(1).optional(),

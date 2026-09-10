@@ -3,11 +3,7 @@ import { http, delay } from 'msw'
 import { ErrorCode } from '@/api/error-codes'
 import type { KnowledgeCategory } from '@/api/types/knowledge'
 
-import {
-  mockKnowledgeChunks,
-  mockKnowledgeDocuments,
-  nextDocId,
-} from '../data/knowledge'
+import { mockKnowledgeChunks, mockKnowledgeDocuments, nextDocId } from '../data/knowledge'
 import { LATENCY, fail, ok, page } from '../utils'
 
 /** 上传白名单与大小上限（11 §3.1：pdf/docx/md/txt，50MB，超限 42201） */
@@ -114,7 +110,12 @@ export const knowledgeHandlers = [
   http.get('/api/v1/knowledge/documents', async ({ request }) => {
     await delay(LATENCY)
     const url = new URL(request.url)
-    const category = url.searchParams.get('category') ?? 'all'
+    // 与后端 listKnowledgeQuerySchema 对齐：category 为枚举，'all' 非法（「全部」Tab 应不传参）
+    const rawCategory = url.searchParams.get('category')
+    if (rawCategory !== null && !CATEGORIES.includes(rawCategory as KnowledgeCategory)) {
+      return fail(ErrorCode.BAD_REQUEST, 'category 非法')
+    }
+    const category = rawCategory ?? 'all'
     const keyword = (url.searchParams.get('keyword') ?? '').toLowerCase()
     const pageNum = Number(url.searchParams.get('page') ?? 1)
     const pageSize = Number(url.searchParams.get('pageSize') ?? 20)
@@ -195,7 +196,9 @@ export const knowledgeHandlers = [
     const topK = body.topK ?? 5
 
     const liveDocIds = new Set(
-      mockKnowledgeDocuments.filter((d) => !d.deleted && d.status === 'indexed').map((d) => d.docId),
+      mockKnowledgeDocuments
+        .filter((d) => !d.deleted && d.status === 'indexed')
+        .map((d) => d.docId),
     )
     const hits = mockKnowledgeChunks
       .filter((c) => liveDocIds.has(c.docId))

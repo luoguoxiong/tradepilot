@@ -15,6 +15,7 @@ import { schema, withOrg } from '@tradepilot/db';
 import {
   boundExternal,
   detectEmailLanguage,
+  TASK_LOG_TYPE,
   type CompanyLead,
   type LeadContact,
   type LeadScore,
@@ -83,7 +84,10 @@ function readAdvanced(ctx: TaskRunContext): AdvancedSettings {
  * scoreLevel 确定性映射（03 §3.5：单一评分源 matchPct，scoreLevel 不做二次 AI 判断，
  * 与 LLM 输出不一致时以本映射为准）：High ≥ high（默认 85）、Medium ≥ medium（默认 60）。
  */
-export function mapScoreLevel(matchPct: number, thresholds?: MatchThresholds): 'high' | 'medium' | 'low' {
+export function mapScoreLevel(
+  matchPct: number,
+  thresholds?: MatchThresholds,
+): 'high' | 'medium' | 'low' {
   const high = typeof thresholds?.high === 'number' ? thresholds.high : 85;
   const medium = typeof thresholds?.medium === 'number' ? thresholds.medium : 60;
   return matchPct >= high ? 'high' : matchPct >= medium ? 'medium' : 'low';
@@ -246,17 +250,31 @@ const assembleLeads: FlowNodeFn = (state, ctx) => {
   return { patch: { crmLeads: leads } };
 };
 
-/** finalize（L）：产出统计写日志事件（outputs 由 runner 从 State 摘取） */
-const finalize: FlowNodeFn = (state, ctx) => {
+/**
+ * finalize（L）：产出统计落 ai_task_log 并推日志事件（outputs 由 runner 从 State 摘取）。
+ * 必须先落库再推事件：否则该日志仅存在于实时流，断线后 /logs?after= 补拉将永久丢失
+ * （03 §6.2 幂等续传：实时与回放同构）。
+ */
+const finalize: FlowNodeFn = async (state, ctx) => {
   const scoredAll = bagArray<LeadScore>(ctx, 'scoredAll');
   const highValue = scoredAll.filter((s) => s.scoreLevel === 'high').length;
+  const content = `获客完成：分析 ${scoredAll.length} 家，高价值 ${highValue} 家`;
+  const logId = createId('tlog');
+  const occurredAt = ctx.now;
+  await withOrg(ctx.db, ctx.orgId, async (tx) => {
+    await tx.insert(schema.aiTaskLog).values({
+      id: logId,
+      orgId: ctx.orgId,
+      taskId: ctx.taskId,
+      occurredAt,
+      type: TASK_LOG_TYPE.FOUND,
+      content,
+      leadId: null,
+    });
+  });
   ctx.events.push({
     type: 'log',
-    payload: {
-      logId: createId('tlog'),
-      type: 'found',
-      content: `获客完成：分析 ${scoredAll.length} 家，高价值 ${highValue} 家`,
-    },
+    payload: { logId, time: occurredAt.toISOString(), type: TASK_LOG_TYPE.FOUND, content },
   });
   return { patch: {} };
 };
@@ -301,7 +319,7 @@ const loadThread: FlowNodeFn = async (state, ctx) => {
   const lastIn = [...thread].reverse().find((m) => m.direction === 'in');
   // 语言跟随（06 §7）：落库 language 优先，缺失按正文确定性检测 zh/en，无 in 信号默认英文
   const detectedLanguage = lastIn
-    ? (lastIn.language?.trim() || detectEmailLanguage(lastIn.body))
+    ? lastIn.language?.trim() || detectEmailLanguage(lastIn.body)
     : 'en';
   // M5-C4 洞察写回：来信无语言标记时将检测结果写回 message.language（「语言跟随」持久化，
   // 06 详情/草稿语言口径与状态 detectedLanguage 同源）
@@ -367,14 +385,12 @@ async function persistConversationInsight(state: State, ctx: TaskRunContext): Pr
   const conversationId = str(state['conversationId']);
   const intent = state['intent'] as { label?: string } | undefined;
   const copilot = state['copilot'] as
-    | { purchaseProbability?: number; recommendedActions?: string[] }
-    | undefined;
+    { purchaseProbability?: number; recommendedActions?: string[] } | undefined;
   if (!conversationId || (!intent && !copilot)) {
     return;
   }
   const kb = state['knowledgeChunks'] as
-    | { chunks?: { chunkId?: string; documentId?: string; title?: string }[] }
-    | undefined;
+    { chunks?: { chunkId?: string; documentId?: string; title?: string }[] } | undefined;
   const citations = (kb?.chunks ?? [])
     .filter((c) => typeof c.documentId === 'string' && c.documentId)
     .map((c) => ({
@@ -808,8 +824,7 @@ const loadAnalysisContext: FlowNodeFn = async (state, ctx) => {
 const writeCustomerInsight: FlowNodeFn = async (state, ctx) => {
   const customerId = str(state['customerId']);
   const copilot = state['copilot'] as
-    | { purchaseProbability?: number; stage?: string; recommendedActions?: string[] }
-    | undefined;
+    { purchaseProbability?: number; stage?: string; recommendedActions?: string[] } | undefined;
   if (!customerId || !copilot) {
     return { patch: {} };
   }
@@ -821,8 +836,7 @@ const writeCustomerInsight: FlowNodeFn = async (state, ctx) => {
       ? Math.max(0, Math.min(100, Math.round(copilot.purchaseProbability)))
       : null;
   const reasons = actions.map((label) => ({ text: label }));
-  const nextAction =
-    actions.length > 0 ? { type: 'follow_up', label: actions[0]! } : null;
+  const nextAction = actions.length > 0 ? { type: 'follow_up', label: actions[0]! } : null;
   await withOrg(ctx.db, ctx.orgId, async (tx) => {
     await tx
       .insert(schema.customerInsight)

@@ -61,6 +61,14 @@ describe('GET /knowledge/documents 列表契约（11 §1.1/§2）', () => {
     // doc_3 为软删种子（deleted=true），列表强制过滤（11 §3.4）
     expect(p.items.some((d) => d.docId === 'doc_3')).toBe(false)
     expect(p.items.every((d) => !d.deleted)).toBe(true)
+    // 11 §1.1：size 为可读字符串、updatedBy 为上传人姓名（后端列表响应与 detail/前端列一致）
+    expect(typeof p.items[0]?.size).toBe('string')
+    expect('updatedBy' in p.items[0]).toBe(true)
+  })
+
+  it('category=all 非法 → 40001（「全部」Tab 应不传 category）', async () => {
+    const { json } = await api('/knowledge/documents?category=all')
+    expectFail(json, ErrorCode.BAD_REQUEST)
   })
 
   it('category 过滤生效；keyword 按文件名过滤（大小写不敏感）', async () => {

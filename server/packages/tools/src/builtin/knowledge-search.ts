@@ -1,7 +1,7 @@
 /**
  * knowledge_search 混合检索实装（M4 #8，后端技术方案 07 §4）：
  * 三路召回 + RRF 融合（k=60）——
- *   ① 向量：query 嵌入 → HNSW（vector_cosine_ops）Top-20（idx_kchunk_embedding）；
+ *   ① 向量：query 嵌入 → HNSW（vector_cosine_ops）Top-20（idx_kchunk_embedding；含距离阈值）；
  *   ② 全文：to_tsvector('simple') @@ websearch_to_tsquery Top-20；
  *   ③ 相似：pg_trgm similarity Top-20（trgm gin 索引，manual 迁移交付）；
  * 融合排序取 Top-K，score 归一 0~1（相对三路满分 3/(k+1)）。
@@ -40,6 +40,14 @@ export interface KnowledgeSearchResult {
 /** 每路召回候选数（07 §4.1：Top-20 融合） */
 const CANDIDATE_K = 20;
 
+/**
+ * 向量路召回下限（余弦距离，`<=>` 越小越相近；距 0.75 ≈ 相似度 0.25）。
+ * 向量路缺失阈值时会对「库内任意 chunk」返回 Top-20，使无关 query 也命中、
+ * `noResult` 永不成立（违反 11 §1.3 FR-06「无相关信息须明示且禁止编造」）。
+ * mock 嵌入近正交（距离≈1.0）被自然滤除；真实嵌入相关文本通常 <0.5 仍保留召回。
+ */
+const VECTOR_MAX_COSINE_DISTANCE = 0.75;
+
 /** 三路满分（score 归一基准） */
 const MAX_RRF = 3 / (RRF_K + 1);
 
@@ -75,7 +83,8 @@ export async function searchKnowledgeChunks(
     ? sql`
     vec AS (
       SELECT id, ROW_NUMBER() OVER (ORDER BY embedding <=> ${vecLiteral}::vector) AS rn
-      FROM scope WHERE embedding IS NOT NULL
+      FROM scope
+      WHERE embedding IS NOT NULL AND embedding <=> ${vecLiteral}::vector < ${VECTOR_MAX_COSINE_DISTANCE}
       ORDER BY embedding <=> ${vecLiteral}::vector
       LIMIT ${CANDIDATE_K}
     ),`

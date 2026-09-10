@@ -302,6 +302,7 @@ export class ApprovalGate {
         type: 'log',
         payload: {
           logId,
+          time: ctx.now.toISOString(),
           type: TASK_LOG_TYPE.FOUND,
           content: `命中 autoApprove，自动放行（${tool.name}）`,
         },

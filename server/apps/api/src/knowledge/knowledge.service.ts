@@ -84,7 +84,11 @@ export class KnowledgeService {
     return { docId, status: 'indexing' };
   }
 
-  /** 11 §2 文档列表（category/keyword；过滤已删） */
+  /**
+   * 11 §2 文档列表（category/keyword；过滤已删）。
+   * 响应字段对齐接口 11 §1.1 与 MSW 契约：`size` 为可读字符串、`updatedBy` 为上传人姓名
+   * （与 detail §3.5 一致，前端列 colUpdatedBy 直接渲染）。
+   */
   async list(
     orgId: string,
     query: ListKnowledgeQuery & { page: number; pageSize: number },
@@ -95,10 +99,10 @@ export class KnowledgeService {
       category: string;
       status: string;
       error: string | null;
-      size: number | null;
+      size: string | null;
       fileType: string | null;
       uploadedAt: string;
-      uploadedBy: string | null;
+      updatedBy: string | null;
     }[];
     total: number;
     page: number;
@@ -126,9 +130,13 @@ export class KnowledgeService {
           size: schema.knowledgeDocument.size,
           fileType: schema.knowledgeDocument.fileType,
           createdAt: schema.knowledgeDocument.createdAt,
-          uploadedBy: schema.knowledgeDocument.uploadedBy,
+          updatedBy: schema.userAccount.name,
         })
         .from(schema.knowledgeDocument)
+        .leftJoin(
+          schema.userAccount,
+          eq(schema.userAccount.id, schema.knowledgeDocument.uploadedBy),
+        )
         .where(where)
         .orderBy(desc(schema.knowledgeDocument.createdAt))
         .limit(query.pageSize)
@@ -141,10 +149,10 @@ export class KnowledgeService {
           category: r.category,
           status: r.status,
           error: r.error,
-          size: r.size,
+          size: formatFileSize(r.size),
           fileType: r.fileType,
           uploadedAt: r.createdAt.toISOString(),
-          uploadedBy: r.uploadedBy,
+          updatedBy: r.updatedBy ?? null,
         })),
         total: Number(total?.n ?? 0),
         page: query.page,
@@ -334,6 +342,23 @@ export class KnowledgeService {
 }
 
 // ===== 模块级辅助 =====
+
+/**
+ * 字节数 → 可读大小（11 §1.1：`size` 为字符串展示字段，与前端 mock/colSize 一致）。
+ * 无大小（历史/异常行）返回 null。
+ */
+function formatFileSize(bytes: number | null): string | null {
+  if (bytes === null || bytes === undefined) {
+    return null;
+  }
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  if (bytes >= 1024) {
+    return `${Math.round(bytes / 1024)} KB`;
+  }
+  return `${bytes} B`;
+}
 
 /** magic number 复核（07 §2 / 08 §7：防伪装扩展名） */
 function assertMagicNumber(ext: string, buffer: Buffer): void {

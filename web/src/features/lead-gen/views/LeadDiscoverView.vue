@@ -10,6 +10,7 @@ import InsightCard from '@/components/business/InsightCard.vue'
 import type { ProColumn } from '@/components/business/pro-table'
 import { addLeadsToCrm, getLeads, getLeadsSummary } from '@/api/resources/leads'
 import type { ApiError } from '@/api/http'
+import { handleApiError } from '@/api/error-handler'
 import type { LeadItem, LeadListReq } from '@/api/types/leads'
 import { staleTime } from '@/query/options'
 import { qk } from '@/query/keys'
@@ -82,8 +83,7 @@ const addMutation = useMutation({
     for (const [key, data] of ctx?.snapshots ?? []) {
       queryClient.setQueryData(key, data)
     }
-    if (error.code === 40301) ElMessage.error(t('leadGen.addCrmForbidden'))
-    else ElMessage.error(error.message || t('common.operationFailed'))
+    handleApiError(error, { forbiddenMessage: t('leadGen.addCrmForbidden') })
   },
   onSuccess: (resp) => {
     ElMessage.success(

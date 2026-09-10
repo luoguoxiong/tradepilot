@@ -11,6 +11,7 @@ import ApplyStrategyDialog from '../components/ApplyStrategyDialog.vue'
 import ExecutionsDrawer from '../components/ExecutionsDrawer.vue'
 import { deleteFollowUpStrategy, getFollowUpStrategies } from '@/api/resources/follow-ups'
 import type { FollowUpStrategy } from '@/api/types/follow-up'
+import { handleApiError } from '@/api/error-handler'
 import { qk } from '@/query/keys'
 import { staleTime } from '@/query/options'
 import { useDictStore } from '@/stores/dict'
@@ -83,7 +84,8 @@ async function onDelete(strategy: FollowUpStrategy) {
     ElMessage.success(t('followUp.deleted'))
     void queryClient.invalidateQueries({ queryKey: qk.followUps.all })
   } catch (error) {
-    ElMessage.error((error as Error).message || t('common.operationFailed'))
+    // 被进行中任务引用 → 40901，由统一管道提示（04 §3.5）
+    handleApiError(error)
   }
 }
 

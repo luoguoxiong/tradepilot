@@ -7,6 +7,7 @@ import type { FormInstance, FormRules } from 'element-plus'
 
 import { createCustomer, updateCustomer } from '@/api/resources/customers'
 import type { ApiError } from '@/api/http'
+import { handleApiError } from '@/api/error-handler'
 import type { CustomerItem, CustomerType } from '@/api/types/customers'
 import type { CustomerStage } from '@/utils/enum-map'
 import { useAuthStore } from '@/stores/auth'
@@ -172,11 +173,7 @@ const saveMutation = useMutation({
     dialogVisible.value = false
   },
   onError: (error: ApiError) => {
-    if (error.code === 40301) {
-      ElMessage.error(t('crm.reassignForbidden'))
-      return
-    }
-    ElMessage.error(error.message || t('common.operationFailed'))
+    handleApiError(error, { forbiddenMessage: t('crm.reassignForbidden') })
   },
 })
 

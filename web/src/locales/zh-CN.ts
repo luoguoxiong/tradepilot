@@ -881,5 +881,17 @@ export default {
     forbiddenTitle: '无权限访问',
     forbiddenDesc: '您没有访问该页面的权限，请联系管理员',
     backHome: '返回工作台',
+    // 统一错误码管道文案（03 §4）
+    badRequest: '请求参数有误，请检查后重试',
+    forbidden: '无权限执行该操作',
+    notFound: '资源不存在或已被移除',
+    conflict: '操作冲突，请刷新后重试',
+    bizValidation: '业务校验未通过，请调整后重试',
+    rateLimited: '操作过于频繁，请 {seconds} 秒后重试',
+    rateLimitedGeneric: '操作过于频繁，请稍后重试',
+    dependencyUnavailable: '依赖服务暂不可用，请稍后重试',
+    internal: '服务异常，请稍后重试',
+    internalTitle: '系统错误',
+    internalWithTrace: '{message}（traceId: {traceId}）',
   },
 }

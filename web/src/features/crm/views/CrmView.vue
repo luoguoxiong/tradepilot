@@ -24,6 +24,7 @@ import type {
   CustomerItem,
 } from '@/api/types/customers'
 import type { ApiError } from '@/api/http'
+import { handleApiError } from '@/api/error-handler'
 import { qk } from '@/query/keys'
 import { staleTime } from '@/query/options'
 import { useAuthStore } from '@/stores/auth'
@@ -143,7 +144,7 @@ function openContactDetail(contact: ContactItem) {
 const deleteContactMutation = useMutation({
   mutationFn: (contact: ContactItem) => deleteContact(contact.contactId),
   onError: (error: ApiError) => {
-    ElMessage.error(error.message || t('common.operationFailed'))
+    handleApiError(error)
   },
   onSuccess: () => {
     ElMessage.success(t('crm.contactDeleted'))

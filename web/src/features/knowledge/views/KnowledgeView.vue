@@ -19,7 +19,7 @@ import { staleTime } from '@/query/options'
 import { usePermission } from '@/composables/usePermission'
 import { useDictStore } from '@/stores/dict'
 import { formatRelative } from '@/utils/date'
-import { ApiError } from '@/api/http'
+import { handleApiError } from '@/api/error-handler'
 import SearchPreviewDialog from '../components/SearchPreviewDialog.vue'
 
 defineOptions({ name: 'KnowledgeView' })
@@ -100,7 +100,7 @@ async function onUploadRequest(options: UploadRequestOptions) {
     ElMessage.success(t('knowledge.uploadSuccess', { count: results.length }))
     invalidateAll()
   } catch (error) {
-    ElMessage.error(error instanceof ApiError ? error.message : t('common.operationFailed'))
+    handleApiError(error)
   } finally {
     uploading.value = false
   }
@@ -113,7 +113,7 @@ async function onRetry(doc: KnowledgeDocument) {
     ElMessage.success(t('enums.knowledgeDocStatus.indexing'))
     invalidateAll()
   } catch (error) {
-    ElMessage.error((error as Error).message || t('common.operationFailed'))
+    handleApiError(error)
   }
 }
 
@@ -137,7 +137,7 @@ async function onDelete(doc: KnowledgeDocument) {
     ElMessage.success(t('knowledge.deleted'))
     invalidateAll()
   } catch (error) {
-    ElMessage.error((error as Error).message || t('common.operationFailed'))
+    handleApiError(error)
   }
 }
 

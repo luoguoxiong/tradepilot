@@ -5,6 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 
 import { fetchMembers, inviteMember, updateMember } from '@/api/resources/org'
+import { handleApiError } from '@/api/error-handler'
 import type { Member } from '@/api/types/org'
 import EmptyState from '@/components/business/EmptyState.vue'
 import { formatInOrgTz } from '@/utils/date'
@@ -41,6 +42,8 @@ async function load() {
   loading.value = true
   try {
     members.value = await fetchMembers()
+  } catch (error) {
+    handleApiError(error)
   } finally {
     loading.value = false
   }
@@ -73,6 +76,8 @@ async function submitInvite() {
     inviteForm.email = ''
     inviteForm.role = 'sales'
     await load()
+  } catch (error) {
+    handleApiError(error)
   } finally {
     inviteSubmitting.value = false
   }
@@ -80,9 +85,13 @@ async function submitInvite() {
 
 // ===== 角色变更 / 停用 / 启用 =====
 async function changeRole(member: Member, role: Member['role']) {
-  await updateMember(member.memberId, { role })
-  member.role = role
-  ElMessage.success(t('settings.saved'))
+  try {
+    await updateMember(member.memberId, { role })
+    member.role = role
+    ElMessage.success(t('settings.saved'))
+  } catch (error) {
+    handleApiError(error)
+  }
 }
 
 /** el-select change 事件值类型较宽，收窄后再提交 */
@@ -94,15 +103,23 @@ function onRoleChange(member: Member, role: unknown) {
 async function toggleStatus(member: Member) {
   const disabling = member.status === 'active'
   if (disabling) {
-    await ElMessageBox.confirm(t('settings.disableConfirm', { name: member.name }), {
-      type: 'warning',
-      confirmButtonText: t('common.confirm'),
-      cancelButtonText: t('common.cancel'),
-    })
+    const confirmed = await ElMessageBox.confirm(
+      t('settings.disableConfirm', { name: member.name }),
+      {
+        type: 'warning',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+      },
+    ).catch(() => false)
+    if (!confirmed) return
   }
-  await updateMember(member.memberId, { status: disabling ? 'disabled' : 'active' })
-  member.status = disabling ? 'disabled' : 'active'
-  ElMessage.success(t('settings.saved'))
+  try {
+    await updateMember(member.memberId, { status: disabling ? 'disabled' : 'active' })
+    member.status = disabling ? 'disabled' : 'active'
+    ElMessage.success(t('settings.saved'))
+  } catch (error) {
+    handleApiError(error)
+  }
 }
 
 function resendInvite(member: Member) {

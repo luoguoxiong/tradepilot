@@ -28,6 +28,7 @@ import type { ContactItem, Customer360Profile } from '@/api/types/customers'
 import type { LeadConvertResp } from '@/api/types/leads'
 import type { PageResp } from '@/api/types/common'
 import type { ApiError } from '@/api/http'
+import { handleApiError } from '@/api/error-handler'
 import { qk } from '@/query/keys'
 import { staleTime } from '@/query/options'
 import { useAuthStore } from '@/stores/auth'
@@ -127,7 +128,7 @@ function goBack() {
 const convertMutation = useMutation({
   mutationFn: () => convertLead(entityId.value),
   onError: (error: ApiError) => {
-    ElMessage.error(error.message || t('common.operationFailed'))
+    handleApiError(error)
   },
   onSuccess: (resp: LeadConvertResp) => {
     ElMessage.success(t(resp.mapped ? 'c360.convertMapped' : 'c360.convertCreated'))
@@ -233,7 +234,7 @@ const stageMutation = useMutation({
       reason: stageReason.value.trim() || undefined,
     }),
   onError: (error: ApiError) => {
-    ElMessage.error(error.message || t('common.operationFailed'))
+    handleApiError(error)
   },
   onSuccess: () => {
     ElMessage.success(t('c360.stageChanged'))

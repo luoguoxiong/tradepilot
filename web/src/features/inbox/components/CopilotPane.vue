@@ -7,7 +7,7 @@ import { Promotion, Document } from '@element-plus/icons-vue'
 
 import type { ConversationListItem, CopilotData } from '@/api/types/conversations'
 import type { Insight } from '@/api/types/insight'
-import type { ApiError } from '@/api/http'
+import { handleApiError } from '@/api/error-handler'
 import { applySuggestions, askAi, fetchCopilot } from '@/api/resources/conversations'
 import CitationPopover from '@/components/business/CitationPopover.vue'
 import InsightCard from '@/components/business/InsightCard.vue'
@@ -79,17 +79,23 @@ async function applyChecked(mode: 'insert_draft' | 'create_tasks'): Promise<void
     }
     checkedIds.value = new Set()
   } catch (error) {
-    ElMessage.error((error as ApiError).message || t('common.operationFailed'))
+    handleApiError(error)
   } finally {
     applying.value = false
   }
 }
 
 const checkedContent = computed(
-  () => copilot.value?.suggestions.filter((s) => s.kind === 'content' && checkedIds.value.has(s.suggestionId)).length ?? 0,
+  () =>
+    copilot.value?.suggestions.filter(
+      (s) => s.kind === 'content' && checkedIds.value.has(s.suggestionId),
+    ).length ?? 0,
 )
 const checkedProcess = computed(
-  () => copilot.value?.suggestions.filter((s) => s.kind === 'process' && checkedIds.value.has(s.suggestionId)).length ?? 0,
+  () =>
+    copilot.value?.suggestions.filter(
+      (s) => s.kind === 'process' && checkedIds.value.has(s.suggestionId),
+    ).length ?? 0,
 )
 
 // ===== Ask AI =====
@@ -104,7 +110,7 @@ async function ask(): Promise<void> {
   try {
     answer.value = await askAi(props.conversationId, { question: question.value.trim() })
   } catch (error) {
-    ElMessage.error((error as ApiError).message || t('common.operationFailed'))
+    handleApiError(error)
   } finally {
     asking.value = false
   }
@@ -130,7 +136,11 @@ async function ask(): Promise<void> {
       </div>
 
       <!-- 勾选式建议（FR-06） -->
-      <section v-if="copilot?.suggestions.length" class="copilot__section" data-testid="copilot-suggestions">
+      <section
+        v-if="copilot?.suggestions.length"
+        class="copilot__section"
+        data-testid="copilot-suggestions"
+      >
         <h4 class="copilot__section-title">{{ t('inbox.copilot.suggestions') }}</h4>
         <el-checkbox-group :model-value="[...checkedIds]" class="copilot__suggestion-group">
           <el-checkbox

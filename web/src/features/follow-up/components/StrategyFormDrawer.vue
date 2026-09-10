@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 
 import RhythmEditor from './RhythmEditor.vue'
+import { handleApiError } from '@/api/error-handler'
 import { createFollowUpStrategy, updateFollowUpStrategy } from '@/api/resources/follow-ups'
 import type { AutoSendPolicy, FollowUpStrategy, StrategyStep } from '@/api/types/follow-up'
 
@@ -112,7 +113,7 @@ async function onSubmit() {
     emit('saved')
     onVisibleChange(false)
   } catch (error) {
-    ElMessage.error((error as Error).message || t('common.operationFailed'))
+    handleApiError(error)
   } finally {
     submitting.value = false
   }

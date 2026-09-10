@@ -904,5 +904,17 @@ export default {
     forbiddenTitle: 'No permission',
     forbiddenDesc: 'You do not have permission to access this page. Contact your admin.',
     backHome: 'Back to Dashboard',
+    // Unified error-code pipeline copy (03 §4)
+    badRequest: 'Invalid request, please check and retry',
+    forbidden: 'You do not have permission for this action',
+    notFound: 'The resource does not exist or has been removed',
+    conflict: 'Operation conflict, please refresh and retry',
+    bizValidation: 'Business validation failed, please adjust and retry',
+    rateLimited: 'Too many requests, please retry in {seconds}s',
+    rateLimitedGeneric: 'Too many requests, please retry later',
+    dependencyUnavailable: 'A dependent service is unavailable, please retry later',
+    internal: 'Something went wrong, please retry later',
+    internalTitle: 'System error',
+    internalWithTrace: '{message} (traceId: {traceId})',
   },
 }

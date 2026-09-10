@@ -1,9 +1,8 @@
 import { ref } from 'vue'
-import { ElMessage } from 'element-plus'
 
 import { generateOutreach } from '@/api/resources/customers'
 import type { GenerateOutreachResp } from '@/api/types/customers'
-import type { ApiError } from '@/api/http'
+import { handleApiError } from '@/api/error-handler'
 
 /**
  * useOutreachDraft —— AI 生成开发信草稿（04 §3.4）：
@@ -30,7 +29,7 @@ export function useOutreachDraft() {
     try {
       draft.value = await generateOutreach(contactId, scenario)
     } catch (error) {
-      ElMessage.error((error as ApiError).message || '生成失败，请稍后重试')
+      handleApiError(error, { fallback: '生成失败，请稍后重试' })
       visible.value = false
     } finally {
       loading.value = false

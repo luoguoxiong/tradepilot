@@ -10,17 +10,42 @@ export function setUnauthorizedHandler(handler: () => void) {
   onUnauthorized = handler
 }
 
-/** 业务错误：携带 code/message/traceId，供调用方按错误码管道处理（03 §4） */
+/** 业务错误：携带 code/message/traceId/retryAfterMs/details，供调用方按错误码管道处理（03 §4） */
 export class ApiError extends Error {
   readonly code: number
   readonly traceId?: string
+  /** 42901 频率限制的冷却毫秒数（源自 Retry-After 响应头） */
+  readonly retryAfterMs?: number
+  /** 错误附加数据：40001 → { issues: [{ path, message, code }] }，供表单字段映射（03 §4） */
+  readonly details?: unknown
 
-  constructor(code: number, message: string, traceId?: string) {
+  constructor(
+    code: number,
+    message: string,
+    traceId?: string,
+    retryAfterMs?: number,
+    details?: unknown,
+  ) {
     super(message)
     this.name = 'ApiError'
     this.code = code
     this.traceId = traceId
+    this.retryAfterMs = retryAfterMs
+    this.details = details
   }
+}
+
+/**
+ * 解析 Retry-After（秒数或 HTTP 日期）→ 毫秒（03 §4：42901 按钮冷却依据）。
+ * 无法解析时返回 undefined，由调用方按无冷却处理。
+ */
+export function parseRetryAfter(header: unknown): number | undefined {
+  if (typeof header !== 'string' || !header.trim()) return undefined
+  const raw = header.trim()
+  if (/^\d+$/.test(raw)) return Number(raw) * 1000
+  const date = Date.parse(raw)
+  if (Number.isNaN(date)) return undefined
+  return Math.max(0, date - Date.now())
 }
 
 function requestId(): string {
@@ -55,12 +80,14 @@ http.interceptors.response.use(
     const code = body?.code ?? ErrorCode.INTERNAL
     const message = body?.message ?? error.message
     const traceId = body?.traceId
+    const retryAfterMs = parseRetryAfter(error.response?.headers?.['retry-after'])
+    const details = body?.data ?? undefined
 
     if (code === ErrorCode.UNAUTHORIZED) {
       // 40101 清会话 → 守卫拦截；只触发一次（03 §4）
       onUnauthorized?.()
     }
-    return Promise.reject(new ApiError(code, message, traceId))
+    return Promise.reject(new ApiError(code, message, traceId, retryAfterMs, details))
   },
 )
 
@@ -69,7 +96,13 @@ export async function request<T>(config: AxiosRequestConfig): Promise<T> {
   const response = await http.request<ApiResponse<T>>(config)
   const body = response.data
   if (body.code !== ErrorCode.OK) {
-    throw new ApiError(body.code, body.message, body.traceId)
+    throw new ApiError(
+      body.code,
+      body.message,
+      body.traceId,
+      parseRetryAfter(response.headers['retry-after']),
+      body.data ?? undefined,
+    )
   }
   return body.data
 }

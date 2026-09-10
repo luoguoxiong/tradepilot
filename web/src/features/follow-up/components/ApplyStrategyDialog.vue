@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/vue-query'
 
 import { applyFollowUpStrategy } from '@/api/resources/follow-ups'
 import { getCustomers } from '@/api/resources/customers'
+import { handleApiError } from '@/api/error-handler'
 import type { ApplyStrategyResp, FollowUpStrategy } from '@/api/types/follow-up'
 import type { CustomerItem } from '@/api/types/customers'
 import { qk } from '@/query/keys'
@@ -67,7 +68,7 @@ async function onSubmit() {
     )
     if (result.value.created.length > 0) emit('applied')
   } catch (error) {
-    ElMessage.error((error as Error).message || t('common.operationFailed'))
+    handleApiError(error)
   } finally {
     submitting.value = false
   }

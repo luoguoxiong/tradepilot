@@ -104,7 +104,9 @@ beforeAll(async () => {
 
   await superDb.transaction(async (tx) => {
     // ===== 知识中心租户 =====
-    await tx.insert(schema.org).values({ id: ORG_K, name: 'M4 知识租户', timezone: 'Asia/Shanghai' });
+    await tx
+      .insert(schema.org)
+      .values({ id: ORG_K, name: 'M4 知识租户', timezone: 'Asia/Shanghai' });
     await tx.insert(schema.userAccount).values({
       id: UPLOADER,
       orgId: ORG_K,
@@ -115,7 +117,9 @@ beforeAll(async () => {
       status: 'active',
     });
     // ===== 审核中心租户 =====
-    await tx.insert(schema.org).values({ id: ORG_A, name: 'M4 审核租户', timezone: 'Asia/Shanghai' });
+    await tx
+      .insert(schema.org)
+      .values({ id: ORG_A, name: 'M4 审核租户', timezone: 'Asia/Shanghai' });
     await tx.insert(schema.userAccount).values([
       {
         id: APPROVER,
@@ -388,7 +392,10 @@ describe('M4 #9 · 11 知识中心', () => {
     expect(chunks).toHaveLength(0);
 
     const [doc] = await superDb
-      .select({ deletedAt: schema.knowledgeDocument.deletedAt, deletedBy: schema.knowledgeDocument.deletedBy })
+      .select({
+        deletedAt: schema.knowledgeDocument.deletedAt,
+        deletedBy: schema.knowledgeDocument.deletedBy,
+      })
       .from(schema.knowledgeDocument)
       .where(eq(schema.knowledgeDocument.id, docId));
     expect(doc?.deletedAt).toBeTruthy();
@@ -424,7 +431,10 @@ describe('M4 #9 · 11 知识中心', () => {
     const retried = await knowledge.retry(ORG_K, upload2.docId);
     expect(retried.status).toBe('indexing');
     const [doc] = await superDb
-      .select({ status: schema.knowledgeDocument.status, retryCount: schema.knowledgeDocument.retryCount })
+      .select({
+        status: schema.knowledgeDocument.status,
+        retryCount: schema.knowledgeDocument.retryCount,
+      })
       .from(schema.knowledgeDocument)
       .where(eq(schema.knowledgeDocument.id, upload2.docId));
     expect(doc?.status).toBe('indexing');
@@ -433,7 +443,7 @@ describe('M4 #9 · 11 知识中心', () => {
 });
 
 describe('M4 #10 · 12 审核中心', () => {
-  it('summary：all + 仅 count>0 的类型 Tab（12 §3.1）', async () => {
+  it('summary：all + P0 常驻类型 + count>0 类型 Tab（12 §3.1）', async () => {
     const result = await approvals.summary(ORG_A);
     const all = result.tabs.find((t) => t.type === 'all');
     expect(all?.count).toBe(4); // APPROVE/EDIT/REJECT pending + CD pending（EXPIRED 不计）
@@ -444,7 +454,10 @@ describe('M4 #10 · 12 审核中心', () => {
   it('list：status 筛选 + 卡片字段；detail 不存在 40401', async () => {
     const pending = await approvals.list(ORG_A, { status: 'pending', page: 1, pageSize: 10 });
     expect(pending.total).toBe(4);
-    const card = pending.items.find((i) => i['approvalId'] === APR_APPROVE) as Record<string, unknown>;
+    const card = pending.items.find((i) => i['approvalId'] === APR_APPROVE) as Record<
+      string,
+      unknown
+    >;
     expect(card['approvalType']).toBe('email_send');
     expect(card['riskLevel']).toBe('medium');
     expect((card['aiProposal'] as Record<string, unknown>)['nodeId']).toBe('email_send');
@@ -464,9 +477,9 @@ describe('M4 #10 · 12 审核中心', () => {
     expect(task?.status).toBe('running');
 
     const logs = await approvals.logs(ORG_A, APR_APPROVE);
-    expect(logs.items).toHaveLength(1);
-    expect(logs.items[0]?.action).toBe('approved');
-    expect(logs.items[0]?.approverName).toBe('审批管理员');
+    expect(logs).toHaveLength(1);
+    expect(logs[0]?.action).toBe('approved');
+    expect(logs[0]?.approverName).toBe('审批管理员');
   });
 
   it('edited_approved：字段级合并 + editedDiff 留痕', async () => {
@@ -483,8 +496,8 @@ describe('M4 #10 · 12 审核中心', () => {
     expect(req?.aiProposal).toMatchObject({ subject: '编辑主题', body: '编辑后正文' });
 
     const logs = await approvals.logs(ORG_A, APR_EDIT);
-    const diff = logs.items[0]?.editedDiff as { field: string; before: string; after: string }[];
-    expect(diff).toEqual([{ field: 'body', before: JSON.stringify('编辑原稿'), after: JSON.stringify('编辑后正文') }]);
+    const diff = logs[0]?.editedDiff as { field: string; before: string; after: string }[];
+    expect(diff).toEqual([{ field: 'aiProposal.body', before: '编辑原稿', after: '编辑后正文' }]);
   });
 
   it('reject：级联 failed(approval_rejected) + 员工回 idle + follow_up paused + rejectReason 留痕', async () => {
@@ -513,8 +526,8 @@ describe('M4 #10 · 12 审核中心', () => {
     expect(ft?.status).toBe('paused');
 
     const logs = await approvals.logs(ORG_A, APR_REJECT);
-    expect(logs.items[0]?.action).toBe('rejected');
-    expect(logs.items[0]?.rejectReason).toBe('客户刚已回复，无需机器跟进');
+    expect(logs[0]?.action).toBe('rejected');
+    expect(logs[0]?.rejectReason).toBe('客户刚已回复，无需机器跟进');
   });
 
   it('expired 处置 42201；已处置重复处置 40901', async () => {

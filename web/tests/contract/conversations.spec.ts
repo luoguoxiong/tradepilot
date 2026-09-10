@@ -339,6 +339,12 @@ describe('Ask AI 与建议执行契约（06 §3.4/§3.5）', () => {
       ).json,
     )
     expect(draftApply.draftContent).toBeTruthy()
+    // 无草稿时服务端新建并返回真实草稿消息 id（前端据此保存/发送，避免占位 id 导致 404）
+    expect(draftApply.draftId).toBeTruthy()
+    const applied = expectOk((await api<ConversationDetail>('/conversations/conv_1')).json)
+    const inserted = applied.messages.find((m) => m.messageId === draftApply.draftId)
+    expect(inserted?.status).toBe('draft')
+    expect(inserted?.content).toBe(draftApply.draftContent)
 
     const taskApply = expectOk(
       (

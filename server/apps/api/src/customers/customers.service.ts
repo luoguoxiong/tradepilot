@@ -562,7 +562,7 @@ export class CustomersService {
         orgId: ctx.orgId,
         approvalType: 'customer_delete',
         riskLevel: 'high',
-        title: `删除客户：${row.companyName}`,
+        title: '客户删除审核',
         bizType: 'customer',
         bizId: customerId,
         context: {
@@ -573,6 +573,15 @@ export class CustomersService {
           requestedAt: now.toISOString(),
         },
         aiProposal: {},
+        // 12 §1.2 卡片字段：置信度 + 原因（人工发起的删除审核，置信度=影响评估确定性）
+        confidence: '0.800',
+        reasons: [
+          {
+            text: '人工发起删除请求，等待管理员确认',
+            evidence: `发起人：${ctx.userId}`,
+            source: 'crm',
+          },
+        ],
         requestedByUserId: ctx.userId,
         expiresAt: new Date(now.getTime() + 48 * 60 * 60 * 1000),
       });

@@ -110,7 +110,8 @@ export const conversationHandlers = [
     // FR-11：多邮箱来信聚合视图，mailboxId 过滤
     if (mailboxId) items = items.filter((c) => c.mailboxId === mailboxId)
     items.sort(
-      (a, b) => new Date(lastMessageOf(b).sentAt).getTime() - new Date(lastMessageOf(a).sentAt).getTime(),
+      (a, b) =>
+        new Date(lastMessageOf(b).sentAt).getTime() - new Date(lastMessageOf(a).sentAt).getTime(),
     )
     return ok(
       page(
@@ -243,7 +244,13 @@ export const conversationHandlers = [
 
     // 内容型 → insert_draft 合并为要点；流程型 → create_tasks（06 §3.4 澄清）
     if (body.mode === 'insert_draft') {
-      return ok({ draftContent: mergeSuggestionsIntoDraft(labels) })
+      // 与真实后端对齐：合并进当前草稿（无草稿则新建），返回合并后全文 + 草稿消息 id
+      const drafts = conv.messages.filter((m) => m.status === 'draft')
+      const existing = drafts[drafts.length - 1]
+      const draftContent = mergeSuggestionsIntoDraft(labels, existing?.content)
+      const draft = existing ?? appendDraftMessage(conv, draftContent, '')
+      draft.content = draftContent
+      return ok({ draftContent, draftId: draft.messageId })
     }
     if (body.mode === 'create_tasks') {
       return ok({ taskIds: labels.map(() => nextId('task')) })

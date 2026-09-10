@@ -172,10 +172,17 @@ function gotoApprovals(): void {
 }
 
 defineExpose({
-  /** Copilot「插入草稿」：合并要点到编辑器尾部 */
-  insertContent(content: string): void {
-    if (!draftId.value) draftId.value = 'inline-draft'
-    draftContent.value = draftContent.value ? `${draftContent.value}\n\n${content}` : content
+  /**
+   * Copilot「插入草稿」：insert_draft 返回「合并后全文」（服务端已把要点合并进草稿并落库），
+   * 因此整体回填而非尾部追加（追加会与已含原草稿的全文重复）；新建草稿时用服务端返回的
+   * 真实 draftId 回填，保证后续保存/发送定位到草稿消息而非占位 id。
+   */
+  insertContent(content: string, serverDraftId?: string): void {
+    if (serverDraftId) {
+      draftId.value = serverDraftId
+    }
+    draftContent.value = content
+    invalidateConversation()
   },
 })
 </script>

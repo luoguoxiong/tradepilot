@@ -88,7 +88,12 @@ export interface CopilotData {
   intent: string;
   purchaseProbability: number;
   stage: string;
-  suggestions: { suggestionId: string; label: string; checked: boolean; kind: 'content' | 'process' }[];
+  suggestions: {
+    suggestionId: string;
+    label: string;
+    checked: boolean;
+    kind: 'content' | 'process';
+  }[];
   citations: { docId: string; docName: string; chunkId: string }[];
   insight: { confidence: number; reasons: { text: string; evidence?: string; source?: string }[] };
 }
@@ -255,10 +260,7 @@ export class ConversationsService {
         .innerJoin(schema.customer, eq(schema.customer.id, schema.conversation.customerId))
         .leftJoin(schema.contact, eq(schema.contact.id, schema.conversation.contactId))
         .where(
-          and(
-            eq(schema.conversation.id, conversationId),
-            notDeleted(schema.customer.deletedAt),
-          ),
+          and(eq(schema.conversation.id, conversationId), notDeleted(schema.customer.deletedAt)),
         )
         .limit(1);
       if (!conv) {
@@ -314,7 +316,10 @@ export class ConversationsService {
         .update(schema.conversation)
         .set({ unreadCount: 0, updatedAt: new Date() })
         .where(
-          and(eq(schema.conversation.id, conversationId), sql`${schema.conversation.unreadCount} > 0`),
+          and(
+            eq(schema.conversation.id, conversationId),
+            sql`${schema.conversation.unreadCount} > 0`,
+          ),
         );
 
       return {
@@ -394,7 +399,11 @@ export class ConversationsService {
   // ============================== M5-C1/C2 写侧 ==============================
 
   /** §3.2 POST /conversations/{id}/ai-draft：知识检索依据 → LLM 生成 → 新草稿消息落库 */
-  async aiDraft(ctx: OrgScopeContext, conversationId: string, dto: AiDraftDto): Promise<AiDraftResult> {
+  async aiDraft(
+    ctx: OrgScopeContext,
+    conversationId: string,
+    dto: AiDraftDto,
+  ): Promise<AiDraftResult> {
     return withOrg(this.db, ctx.orgId, async (tx) => {
       await this.assertConvAccess(tx, ctx, conversationId);
 
@@ -428,7 +437,13 @@ export class ConversationsService {
       }));
 
       // LLM 生成（mock provider 确定性产出；红线：无依据 → grounded=false 不编造）
-      const draft = await this.generateReplyDraft(ctx, thread, language, kb.results, dto.instruction);
+      const draft = await this.generateReplyDraft(
+        ctx,
+        thread,
+        language,
+        kb.results,
+        dto.instruction,
+      );
 
       const draftId = createId('msg');
       const now = new Date();
@@ -460,7 +475,11 @@ export class ConversationsService {
   }
 
   /** §3.2 POST /conversations/{id}/ai-draft/regenerate：新草稿消息（新 message id，不修改旧草稿） */
-  async regenerate(ctx: OrgScopeContext, conversationId: string, dto: AiDraftDto): Promise<AiDraftResult> {
+  async regenerate(
+    ctx: OrgScopeContext,
+    conversationId: string,
+    dto: AiDraftDto,
+  ): Promise<AiDraftResult> {
     return this.aiDraft(ctx, conversationId, dto);
   }
 
@@ -481,7 +500,9 @@ export class ConversationsService {
       }
 
       const editedDiff =
-        msg.content !== content ? [{ field: 'content' as const, before: msg.content, after: content }] : null;
+        msg.content !== content
+          ? [{ field: 'content' as const, before: msg.content, after: content }]
+          : null;
       await tx
         .update(schema.message)
         .set({
@@ -497,14 +518,23 @@ export class ConversationsService {
   }
 
   /** §3.3 POST /conversations/{id}/send：分支 A（autoApprove 直发） / 分支 B（审批挂起） */
-  async send(ctx: OrgScopeContext, conversationId: string, dto: SendMessageDto): Promise<SendResult> {
+  async send(
+    ctx: OrgScopeContext,
+    conversationId: string,
+    dto: SendMessageDto,
+  ): Promise<SendResult> {
     return withOrg(this.db, ctx.orgId, async (tx) => {
       const conv = await this.assertConvAccess(tx, ctx, conversationId);
 
       const [msg] = await tx
         .select()
         .from(schema.message)
-        .where(and(eq(schema.message.id, dto.messageId), eq(schema.message.conversationId, conversationId)))
+        .where(
+          and(
+            eq(schema.message.id, dto.messageId),
+            eq(schema.message.conversationId, conversationId),
+          ),
+        )
         .limit(1);
       if (!msg) {
         throw new BizException(ErrorCode.NOT_FOUND, '消息不存在');
@@ -516,7 +546,12 @@ export class ConversationsService {
       // content 非空则回写最终编辑内容（编辑差异留痕同 PUT）
       let content = msg.content;
       const now = new Date();
-      if (dto.content !== undefined && dto.content !== null && dto.content.trim().length > 0 && dto.content !== msg.content) {
+      if (
+        dto.content !== undefined &&
+        dto.content !== null &&
+        dto.content.trim().length > 0 &&
+        dto.content !== msg.content
+      ) {
         content = dto.content;
         await tx
           .update(schema.message)
@@ -556,6 +591,8 @@ export class ConversationsService {
 
       // 分支 B：waiting_approval + approval_request（bizType=message，直接消息审批）
       const approvalId = createId('appr');
+      const contactName = conv.contactName ?? conv.companyName;
+      const subject = conv.subject ?? '（无主题）';
       await tx
         .update(schema.message)
         .set({ status: 'waiting_approval', updatedAt: now })
@@ -565,11 +602,31 @@ export class ConversationsService {
         orgId: ctx.orgId,
         approvalType: 'email_send',
         riskLevel: 'medium',
-        title: conv.subject ?? '发送回复邮件',
+        title: '邮件发送审核',
         bizType: 'message',
         bizId: msg.id,
-        context: { conversationId, customerId: conv.customerId, messageId: msg.id },
-        aiProposal: { content, subject: conv.subject ?? null, conversationId, messageId: msg.id },
+        // 12 §1.3 email_send 差异化上下文 + §1.2 卡片字段（contactName/subject/contentPreview）
+        context: {
+          conversationId,
+          customerId: conv.customerId,
+          contactName,
+          subject,
+          contentPreview: content.slice(0, 120),
+        },
+        aiProposal: { emailContent: content },
+        confidence: '0.900',
+        reasons: [
+          {
+            text: '命中审批规则：邮件发送需人工确认',
+            evidence: '管理员可在设置中调整自动通过',
+            source: 'approval_rule',
+          },
+          {
+            text: '已关联客户与会话上下文',
+            evidence: `收件人 ${contactName}`,
+            source: 'crm',
+          },
+        ],
         requestedByUserId: ctx.userId,
         expiresAt: new Date(now.getTime() + APPROVAL_TTL_MS),
         status: 'pending',
@@ -601,15 +658,15 @@ export class ConversationsService {
         chunkId: r.chunkId,
       }));
 
-      const recent = thread.slice(-5)
+      const recent = thread
+        .slice(-5)
         .map((m) => `${m.direction === 'in' ? '客户' : '我方'}: ${m.content}`)
         .join('\n');
-      const kbLines = kb.results
-        .map((r, i) => `${i + 1}. [${r.docName}] ${r.content}`)
-        .join('\n');
-      const answer = kb.results.length > 0
-        ? `问：${dto.question}\n\n会话上下文：\n${recent}\n\n知识库依据：\n${kbLines}`
-        : `问：${dto.question}\n\n会话上下文：\n${recent}\n\n知识库暂无相关依据，建议补充资料后重试（D9 兜底，禁止编造）。`;
+      const kbLines = kb.results.map((r, i) => `${i + 1}. [${r.docName}] ${r.content}`).join('\n');
+      const answer =
+        kb.results.length > 0
+          ? `问：${dto.question}\n\n会话上下文：\n${recent}\n\n知识库依据：\n${kbLines}`
+          : `问：${dto.question}\n\n会话上下文：\n${recent}\n\n知识库暂无相关依据，建议补充资料后重试（D9 兜底，禁止编造）。`;
 
       return { answer, citations };
     });
@@ -619,7 +676,7 @@ export class ConversationsService {
   async applySuggestions(
     ctx: OrgScopeContext,
     dto: SuggestionsApplyDto,
-  ): Promise<{ draftContent?: string; taskIds?: string[] }> {
+  ): Promise<{ draftContent?: string; draftId?: string; taskIds?: string[] }> {
     return withOrg(this.db, ctx.orgId, async (tx) => {
       const conv = await this.assertConvAccess(tx, ctx, dto.conversationId);
 
@@ -637,8 +694,8 @@ export class ConversationsService {
       }
 
       if (dto.mode === 'insert_draft') {
-        const draftContent = await this.mergeIntoDraft(tx, ctx.orgId, dto.conversationId, labels);
-        return { draftContent };
+        // 返回合并后全文 + 草稿消息 id（新建草稿时前端需回填真实 draftId 才能保存/发送）
+        return this.mergeIntoDraft(tx, ctx.orgId, dto.conversationId, labels);
       }
 
       // create_tasks：为会话所属客户创建 follow_up_task（每客户仅 1 个进行中任务）
@@ -654,15 +711,24 @@ export class ConversationsService {
     tx: Tx,
     ctx: OrgScopeContext,
     conversationId: string,
-  ): Promise<{ customerId: string; ownerId: string; subject: string | null }> {
+  ): Promise<{
+    customerId: string;
+    ownerId: string;
+    subject: string | null;
+    contactName: string | null;
+    companyName: string;
+  }> {
     const [conv] = await tx
       .select({
         customerId: schema.conversation.customerId,
         subject: schema.conversation.subject,
         ownerId: schema.customer.ownerId,
+        companyName: schema.customer.companyName,
+        contactName: schema.contact.name,
       })
       .from(schema.conversation)
       .innerJoin(schema.customer, eq(schema.customer.id, schema.conversation.customerId))
+      .leftJoin(schema.contact, eq(schema.contact.id, schema.conversation.contactId))
       .where(and(eq(schema.conversation.id, conversationId), notDeleted(schema.customer.deletedAt)))
       .limit(1);
     return assertResourceAccess(conv, ctx);
@@ -700,7 +766,9 @@ export class ConversationsService {
     const [row] = await tx
       .select({ id: schema.message.id })
       .from(schema.message)
-      .where(and(eq(schema.message.id, messageId), eq(schema.message.conversationId, conversationId)))
+      .where(
+        and(eq(schema.message.id, messageId), eq(schema.message.conversationId, conversationId)),
+      )
       .limit(1);
     return row !== undefined;
   }
@@ -746,12 +814,10 @@ export class ConversationsService {
     kb: KnowledgeSearchHit[],
     instruction?: string,
   ): Promise<{ subject: string; body: string; grounded: boolean }> {
-    const threadText = thread
-      .map((m) => `${m.direction === 'in' ? '客户' : '我方'}: ${m.content}`)
-      .join('\n') || '（空会话）';
-    const kbText = kb
-      .map((r, i) => `[${i + 1}] ${r.docName}: ${r.content}`)
-      .join('\n') || '（无）';
+    const threadText =
+      thread.map((m) => `${m.direction === 'in' ? '客户' : '我方'}: ${m.content}`).join('\n') ||
+      '（空会话）';
+    const kbText = kb.map((r, i) => `[${i + 1}] ${r.docName}: ${r.content}`).join('\n') || '（无）';
     const { data } = await this.llm.structured(
       { orgId: ctx.orgId, node: 'ai_draft', scene: 'email_reply' },
       draftReplyOutputSchema,
@@ -772,20 +838,22 @@ export class ConversationsService {
     const [perm] = await tx
       .select({ approvalRules: schema.rolePermission.approvalRules })
       .from(schema.rolePermission)
-      .where(and(eq(schema.rolePermission.orgId, ctx.orgId), eq(schema.rolePermission.role, ctx.role)))
+      .where(
+        and(eq(schema.rolePermission.orgId, ctx.orgId), eq(schema.rolePermission.role, ctx.role)),
+      )
       .limit(1);
     return (perm?.approvalRules ?? []).some(
       (r) => r.approvalType === 'email_send' && r.autoApprove === true,
     );
   }
 
-  /** insert_draft：要点合并进当前草稿（无草稿则新建 draft 消息），返回合并后全文 */
+  /** insert_draft：要点合并进当前草稿（无草稿则新建 draft 消息），返回合并后全文 + 草稿 id */
   private async mergeIntoDraft(
     tx: Tx,
     orgId: string,
     conversationId: string,
     labels: string[],
-  ): Promise<string> {
+  ): Promise<{ draftContent: string; draftId: string }> {
     const [draft] = await tx
       .select()
       .from(schema.message)
@@ -803,7 +871,9 @@ export class ConversationsService {
       ? `${draft.content}\n\n【要点补充】${labels.join('；')}`
       : `【AI 建议要点】\n${labels.join('\n')}`;
 
+    let draftId: string;
     if (draft) {
+      draftId = draft.id;
       await tx
         .update(schema.message)
         .set({
@@ -814,8 +884,9 @@ export class ConversationsService {
         .where(eq(schema.message.id, draft.id));
     } else {
       const now = new Date();
+      draftId = createId('msg');
       await tx.insert(schema.message).values({
-        id: createId('msg'),
+        id: draftId,
         orgId,
         conversationId,
         direction: 'out',
@@ -828,7 +899,7 @@ export class ConversationsService {
         updatedAt: now,
       });
     }
-    return merged;
+    return { draftContent: merged, draftId };
   }
 
   /** create_tasks：每客户仅 1 个进行中任务（存在则返回既有）；默认策略首步 dayOffset 算 nextRunAt */

@@ -26,8 +26,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  /** 内容型建议执行：合并要点全文插入草稿编辑器 */
-  insertDraft: [content: string]
+  /** 内容型建议执行：合并要点全文插入草稿编辑器（draftId 为服务端真实草稿 id） */
+  insertDraft: [content: string, draftId?: string]
 }>()
 
 const { t } = useI18n()
@@ -72,7 +72,7 @@ async function applyChecked(mode: 'insert_draft' | 'create_tasks'): Promise<void
       mode,
     })
     if (mode === 'insert_draft' && result.draftContent) {
-      emit('insertDraft', result.draftContent)
+      emit('insertDraft', result.draftContent, result.draftId)
       ElMessage.success(t('inbox.copilot.inserted'))
     } else if (mode === 'create_tasks') {
       ElMessage.success(t('inbox.copilot.tasksCreated', { count: result.taskIds?.length ?? 0 }))

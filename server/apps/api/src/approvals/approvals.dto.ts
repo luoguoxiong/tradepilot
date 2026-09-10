@@ -25,9 +25,16 @@ export const approvalStatusSchema = z.enum([
   'expired',
 ]);
 
+/**
+ * 12 §3.2 列表状态筛选：`pending`（待审）/ `processed`（已处置历史）。
+ * processed = approved / edited_approved / rejected / auto_approved
+ * （与前端 mock 契约一致；expired 为系统超时终态，不进入「已处置」列表）。
+ */
+export const listApprovalsStatusSchema = z.union([z.literal('pending'), z.literal('processed')]);
+
 export const listApprovalsQuerySchema = z.object({
   type: approvalTypeSchema.optional(),
-  status: approvalStatusSchema.optional(),
+  status: listApprovalsStatusSchema.optional(),
 });
 export type ListApprovalsQuery = z.infer<typeof listApprovalsQuerySchema>;
 

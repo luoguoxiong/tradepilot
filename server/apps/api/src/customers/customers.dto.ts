@@ -105,19 +105,32 @@ export const updateContactSchema = z.object({
 
 export type UpdateContactDto = z.infer<typeof updateContactSchema>;
 
-/** B1 §4 活动列表查询 */
+/** 05 §2 POST /contacts 请求体（根级路由：所属客户随 body 传入，契约见 05 接口文档 §2） */
+export const createContactRootSchema = createContactSchema.extend({
+  customerId: z.string().trim().min(1),
+});
+
+export type CreateContactRootDto = z.infer<typeof createContactRootSchema>;
+
+/** 05 §2 GET /contacts 全局联系人列表查询（keyword 命中姓名/邮箱/公司名，同 mock 口径） */
+export const listContactsQuerySchema = z.object({
+  keyword: z.string().trim().max(200).optional(),
+});
+
+export type ListContactsQuery = z.infer<typeof listContactsQuerySchema>;
+
+/** B1 §4 活动列表查询（05 §3.4：customerId / type / startDate / endDate / operatorType） */
 export const listActivitiesQuerySchema = z.object({
+  customerId: z.string().trim().min(1).optional(),
   refType: z.string().trim().min(1).optional(),
   refId: z.string().trim().min(1).optional(),
-  type: z.enum([
-    'stage_change',
-    'owner_change',
-    'email',
-    'quote',
-    'follow_up',
-    'note',
-    'ai_action',
-  ]).optional(),
+  type: z
+    .enum(['stage_change', 'owner_change', 'email', 'quote', 'follow_up', 'note', 'ai_action'])
+    .optional(),
+  operatorType: z.enum(['ai', 'user']).optional(),
+  /** 时间范围（ISO 日期，闭区间） */
+  startDate: z.string().trim().min(1).optional(),
+  endDate: z.string().trim().min(1).optional(),
 });
 
 export type ListActivitiesQuery = z.infer<typeof listActivitiesQuerySchema>;

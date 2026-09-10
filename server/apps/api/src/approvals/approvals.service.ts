@@ -196,6 +196,17 @@ export class ApprovalsService {
         decidedAt: now,
       });
 
+      // customer_delete 批准 → 执行真删（05 §3.3：删除动作由本审批闭环，批准后才落 deletedAt）
+      if (row.approvalType === 'customer_delete') {
+        const cid = this.customerIdOf(row);
+        if (cid) {
+          await tx
+            .update(schema.customer)
+            .set({ deletedAt: now, updatedAt: now })
+            .where(and(eq(schema.customer.id, cid), eq(schema.customer.orgId, orgId)));
+        }
+      }
+
       // 任务侧信息（resume 恢复用）
       let taskType: string | null = null;
       let employeeId = row.requestedByEmployeeId ?? null;
@@ -286,6 +297,17 @@ export class ApprovalsService {
         rejectReason: dto.reason,
         decidedAt: now,
       });
+
+      // customer_delete 拒绝 → 自动解锁「删除待审」（05 §3.3 / 12 §3.4；客户保留）
+      if (row.approvalType === 'customer_delete') {
+        const cid = this.customerIdOf(row);
+        if (cid) {
+          await tx
+            .update(schema.customer)
+            .set({ deleteLocked: false, updatedAt: now })
+            .where(and(eq(schema.customer.id, cid), eq(schema.customer.orgId, orgId)));
+        }
+      }
 
       // 级联 ai_task.failed(approval_rejected) + follow_up_task.paused 转人工（与超时扫描同口径）
       let failedTaskId: string | null = null;
@@ -395,6 +417,17 @@ export class ApprovalsService {
         })),
       };
     });
+  }
+
+  /** customer_delete 审批指向的客户 id（context.customerId 优先，兼容历史数据回退 bizId） */
+  private customerIdOf(row: typeof schema.approvalRequest.$inferSelect): string | null {
+    const cid = row.context?.['customerId'];
+    if (typeof cid === 'string' && cid.length > 0) {
+      return cid;
+    }
+    return row.approvalType === 'customer_delete' && typeof row.bizId === 'string'
+      ? row.bizId
+      : null;
   }
 
   /** 行 → 审核卡片（12 §1.2 字段口径） */

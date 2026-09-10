@@ -165,7 +165,15 @@ export const webSearchTool: ToolDefinition<
 
 export const siteCrawlTool: ToolDefinition<
   { domain: string; companyName: string },
-  { summary: string; products: string[]; crawledPages: string[] }
+  {
+    summary: string;
+    products: string[];
+    crawledPages: string[];
+    /** 站点是否可达（降级返回时为 false，summary 为空） */
+    reachable?: boolean;
+    /** 降级原因（不可达时写入，进日志与 State） */
+    note?: string;
+  }
 > = {
   name: 'site_crawl',
   description:
@@ -177,13 +185,25 @@ export const siteCrawlTool: ToolDefinition<
     // org 级供应商日额度（crawl ×2）
     await assertOrgSearchQuota(ctx, 2);
     const provider = await getSearchProvider(ctx.orgId);
-    const result = await provider.crawlSite(input.domain);
-    await writeToolLog(
-      ctx,
-      TASK_LOG_TYPE.CRAWL,
-      `抓取 ${input.domain} 完成（${result.crawledPages.length} 页）`,
-    );
-    return result;
+    try {
+      const result = await provider.crawlSite(input.domain);
+      await writeToolLog(
+        ctx,
+        TASK_LOG_TYPE.CRAWL,
+        `抓取 ${input.domain} 完成（${result.crawledPages.length} 页）`,
+      );
+      return { ...result, reachable: true };
+    } catch (err) {
+      // 单站不可达（WAF 403 / 超时 / DNS / robots 全禁）不应中断整条获客任务：
+      // 记录原因后以空摘要降级，后续 match_product / 联系人等节点照常执行。
+      const reason = err instanceof Error ? err.message : String(err);
+      await writeToolLog(
+        ctx,
+        TASK_LOG_TYPE.CRAWL,
+        `抓取 ${input.domain} 失败，跳过该站：${reason}`,
+      );
+      return { summary: '', products: [], crawledPages: [], reachable: false, note: reason };
+    }
   },
 };
 

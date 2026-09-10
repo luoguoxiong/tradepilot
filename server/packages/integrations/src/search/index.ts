@@ -13,6 +13,32 @@
 /** 爬虫 UA 标识（08 §7：`TradePilotBot`） */
 export const CRAWLER_UA = 'TradePilotBot/1.0 (+https://tradepilot.ai/bot)';
 
+/** 官网关键页（产品/关于摘要来源） */
+const CRAWL_PAGES = ['/', '/products', '/about'] as const;
+
+/**
+ * 抓取请求头：保持 UA 自报身份不变（合规要求，不伪装浏览器），
+ * 补 Accept/Accept-Language 以适配「对缺失标准头直接拦截」的边缘 WAF。
+ */
+const CRAWL_HEADERS = {
+  'user-agent': CRAWLER_UA,
+  accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'accept-language': 'en-US,en;q=0.9',
+} as const;
+
+/** 域名归一：去协议/路径/端口，小写（返回空串表示非法） */
+export function normalizeHost(domain: string): string {
+  return (
+    (domain ?? '')
+      .trim()
+      .replace(/^https?:\/\//i, '')
+      .split('/')[0]
+      ?.split('?')[0]
+      ?.replace(/:\d+$/, '')
+      .toLowerCase() ?? ''
+  );
+}
+
 export interface WebSearchHit {
   title: string;
   url: string;
@@ -239,18 +265,54 @@ export class HttpSearchProvider implements SearchProvider {
     return text;
   }
 
+  /**
+   * 抓取官网关键页（/、/products、/about）。
+   * 根域与 www 变体依次尝试（部分站点仅其一可解析/放行，M4 真实站点鲁棒性）；
+   * 两者均无可用页时抛错，错误信息携带每页失败原因（HTTP 状态/超时/robots 禁止）便于定位。
+   */
   async crawlSite(domain: string): Promise<SiteCrawlResult> {
-    const base = `https://${domain.replace(/^https?:\/\//, '').replace(/\/$/, '')}`;
-    const pages = ['/', '/products', '/about'];
+    const host = normalizeHost(domain);
+    if (!host) {
+      throw new Error(`站点抓取失败（域名非法）: ${domain}`);
+    }
+    // 根域 ⇄ www 变体（先试原样主机，失败再试另一变体）
+    const bases = host.startsWith('www.')
+      ? [`https://${host}`, `https://${host.slice(4)}`]
+      : [`https://${host}`, `https://www.${host}`];
+    const failures: string[] = [];
+    for (const base of bases) {
+      const attempt = await this.crawlBase(base);
+      if (attempt.crawled.length > 0) {
+        return {
+          summary: attempt.summaries.join('\n').slice(0, 2000) || `${domain}（无摘要）`,
+          products: attempt.products,
+          crawledPages: attempt.crawled,
+        };
+      }
+      failures.push(...attempt.failures);
+    }
+    const detail = failures.slice(0, 6).join('; ');
+    throw new Error(`站点抓取失败（无可达页面）: ${domain}${detail ? ` — ${detail}` : ''}`);
+  }
+
+  /** 单主机抓取（原 crawlSite 主体，返回失败明细供上层汇总） */
+  private async crawlBase(base: string): Promise<{
+    summaries: string[];
+    products: string[];
+    crawled: string[];
+    failures: string[];
+  }> {
     const timeoutMs = this.options.fetchTimeoutMs ?? 10_000;
     const summaries: string[] = [];
     const products: string[] = [];
     const crawled: string[] = [];
-    for (const p of pages) {
+    const failures: string[] = [];
+    for (const p of CRAWL_PAGES) {
       // ① robots.txt 尊重（08 §7）：disallow 路径直接跳过
       if (this.respectRobots) {
         const robots = await this.getRobots(base);
         if (robots !== null && !robotsAllows(robots, p)) {
+          failures.push(`${p} robots.txt 禁止`);
           continue;
         }
       }
@@ -259,9 +321,10 @@ export class HttpSearchProvider implements SearchProvider {
       try {
         const res = await fetch(`${base}${p}`, {
           signal: AbortSignal.timeout(timeoutMs),
-          headers: { 'user-agent': CRAWLER_UA },
+          headers: CRAWL_HEADERS,
         });
         if (!res.ok) {
+          failures.push(`${p} HTTP ${res.status}`);
           continue;
         }
         const html = await res.text();
@@ -283,18 +346,12 @@ export class HttpSearchProvider implements SearchProvider {
             products.push(text);
           }
         }
-      } catch {
-        // 单页失败跳过（超时/403/网络），其余页继续
+      } catch (err) {
+        // 单页失败跳过（超时/403/网络），其余页继续，原因留存供诊断
+        failures.push(`${p} ${err instanceof Error ? err.message : String(err)}`);
       }
     }
-    if (crawled.length === 0) {
-      throw new Error(`站点抓取失败（无可达页面）: ${domain}`);
-    }
-    return {
-      summary: summaries.join('\n').slice(0, 2000) || `${domain}（无摘要）`,
-      products,
-      crawledPages: crawled,
-    };
+    return { summaries, products, crawled, failures };
   }
 }
 

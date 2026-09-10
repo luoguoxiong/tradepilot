@@ -87,9 +87,9 @@ function patchCustomers(apply: (row: CustomerItem) => void) {
   const snapshots = queryClient.getQueriesData<unknown>({ queryKey: qk.customers.all })
   for (const [key, data] of snapshots) {
     if (!data || typeof data !== 'object') continue
-    const page = data as { list?: CustomerItem[] }
-    if (!Array.isArray(page.list)) continue
-    for (const row of page.list) apply(row)
+    const page = data as { items?: CustomerItem[] }
+    if (!Array.isArray(page.items)) continue
+    for (const row of page.items) apply(row)
     queryClient.setQueryData(key, data)
   }
   return snapshots

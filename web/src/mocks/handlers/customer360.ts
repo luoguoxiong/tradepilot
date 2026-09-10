@@ -52,8 +52,8 @@ export const customer360Handlers = [
     const keyword = url.searchParams.get('keyword') ?? ''
     const pageNum = Number(url.searchParams.get('page') ?? 1)
     const pageSize = Number(url.searchParams.get('pageSize') ?? 20)
-    const { list, total } = customer360ContactsPage(String(params.id), keyword, pageNum, pageSize)
-    return ok(page(list, total, pageNum, pageSize))
+    const { items, total } = customer360ContactsPage(String(params.id), keyword, pageNum, pageSize)
+    return ok(page(items, total, pageNum, pageSize))
   }),
 
   http.get('/api/v1/customers/:id/products', async ({ params }) => {
@@ -66,8 +66,8 @@ export const customer360Handlers = [
     const url = new URL(request.url)
     const pageNum = Number(url.searchParams.get('page') ?? 1)
     const pageSize = Number(url.searchParams.get('pageSize') ?? 20)
-    const { list, total } = customer360Conversations(String(params.id), pageNum, pageSize)
-    return ok(page(list, total, pageNum, pageSize))
+    const { items, total } = customer360Conversations(String(params.id), pageNum, pageSize)
+    return ok(page(items, total, pageNum, pageSize))
   }),
 
   http.get('/api/v1/customers/:id/activities', async ({ request, params }) => {
@@ -76,8 +76,8 @@ export const customer360Handlers = [
     const type = url.searchParams.get('type') ?? undefined
     const pageNum = Number(url.searchParams.get('page') ?? 1)
     const pageSize = Number(url.searchParams.get('pageSize') ?? 20)
-    const { list, total } = customer360Activities(String(params.id), type, pageNum, pageSize)
-    return ok(page(list, total, pageNum, pageSize))
+    const { items, total } = customer360Activities(String(params.id), type, pageNum, pageSize)
+    return ok(page(items, total, pageNum, pageSize))
   }),
 
   http.post('/api/v1/contacts/:id/generate-outreach', async ({ request, params }) => {

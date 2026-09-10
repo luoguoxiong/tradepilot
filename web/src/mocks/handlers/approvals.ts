@@ -36,11 +36,14 @@ export const approvalHandlers = [
     const pageSize = Number(url.searchParams.get('pageSize') ?? 20)
 
     let items = [...mockApprovals]
-    // D10（00 §5.1）：Tab 只渲染服务端返回的类型；type=all/缺省返回全量
-    if (type && type !== 'all') items = items.filter((a) => a.approvalType === type)
+    // D10（00 §5.1）：Tab 只渲染服务端返回的类型；「全部」= 不传 type（12 §3.2，真实后端 type 枚举无 all，传 all → 40001）
+    if (type === 'all') return fail(ErrorCode.BAD_REQUEST, '参数错误')
+    if (type) items = items.filter((a) => a.approvalType === type)
     if (status === 'pending') items = items.filter((a) => a.status === 'pending')
     if (status === 'processed') {
-      items = items.filter((a) => ['approved', 'edited_approved', 'rejected', 'auto_approved'].includes(a.status))
+      items = items.filter((a) =>
+        ['approved', 'edited_approved', 'rejected', 'auto_approved'].includes(a.status),
+      )
     }
     items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     return ok(
@@ -63,7 +66,10 @@ export const approvalHandlers = [
   http.post('/api/v1/approvals/:id/approve', async ({ request, params }) => {
     await delay(LATENCY)
     const approvalId = String(params.id)
-    const body = await readJson<{ action?: 'approve' | 'edited_approved'; editedContent?: { aiProposal: Record<string, unknown> } }>(request)
+    const body = await readJson<{
+      action?: 'approve' | 'edited_approved'
+      editedContent?: { aiProposal: Record<string, unknown> }
+    }>(request)
     if (body.action !== 'approve' && body.action !== 'edited_approved') {
       return fail(ErrorCode.BAD_REQUEST, 'action 仅支持 approve / edited_approved')
     }
@@ -82,7 +88,10 @@ export const approvalHandlers = [
     return ok({
       approvalId: record.approvalId,
       status: record.status,
-      resultRef: record.approvalType === 'email_send' ? { messageId: record.linkedMessageId, status: 'sent' } : undefined,
+      resultRef:
+        record.approvalType === 'email_send'
+          ? { messageId: record.linkedMessageId, status: 'sent' }
+          : undefined,
     })
   }),
 

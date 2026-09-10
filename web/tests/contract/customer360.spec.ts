@@ -125,7 +125,7 @@ describe('页签接口契约（04 §1.4/§1.5）', () => {
     const { json } = await api<PageResp<ContactItem>>('/customers/cus_1/contacts')
     const p = expectPage<ContactItem>(expectOk(json))
     expect(p.total).toBeGreaterThan(0)
-    expect('decisionInfluencePct' in p.list[0]).toBe(true)
+    expect('decisionInfluencePct' in p.items[0]).toBe(true)
   })
 
   it('Products：matchPct + 可选抽屉详情字段（D7 行内抽屉数据源）', async () => {
@@ -143,7 +143,7 @@ describe('页签接口契约（04 §1.4/§1.5）', () => {
     const p = expectPage<ConversationItem>(expectOk(json))
     expect(p.total).toBeGreaterThan(0)
     for (const key of ['conversationId', 'email', 'subject', 'lastMessageAt', 'unreadCount']) {
-      expect(key in p.list[0], `缺少字段 ${key}`).toBe(true)
+      expect(key in p.items[0], `缺少字段 ${key}`).toBe(true)
     }
   })
 
@@ -153,7 +153,7 @@ describe('页签接口契约（04 §1.4/§1.5）', () => {
     )
     const p = expectPage<ActivityItem>(expectOk(json))
     expect(p.total).toBeGreaterThan(0)
-    expect(p.list.every((a) => a.type === 'stage_change')).toBe(true)
+    expect(p.items.every((a) => a.type === 'stage_change')).toBe(true)
   })
 })
 

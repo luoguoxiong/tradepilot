@@ -11,7 +11,7 @@ export const employeeHandlers = [
     await delay(LATENCY)
     const { mockEmployees, refreshEmployeeCards } = await import('../data/business')
     refreshEmployeeCards()
-    return ok({ list: mockEmployees, total: mockEmployees.length, page: 1, pageSize: 20 })
+    return ok({ items: mockEmployees, total: mockEmployees.length, page: 1, pageSize: 20 })
   }),
 
   http.get('/api/v1/ai-employees/roles', async () => {

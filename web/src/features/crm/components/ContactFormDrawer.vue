@@ -154,7 +154,7 @@ async function submit() {
           style="width: 100%"
         >
           <el-option
-            v-for="customer in customersQuery.data.value?.list ?? []"
+            v-for="customer in customersQuery.data.value?.items ?? []"
             :key="customer.customerId"
             :value="customer.customerId"
             :label="customer.companyName"

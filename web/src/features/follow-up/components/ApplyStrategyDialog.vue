@@ -32,13 +32,12 @@ const result = ref<ApplyStrategyResp | null>(null)
 
 const customersQuery = useQuery({
   queryKey: [...qk.customers.list('apply-picker'), 'apply'],
-  queryFn: () =>
-    getCustomers({ tab: 'potential', page: 1, pageSize: 100, scope: 'all' }),
+  queryFn: () => getCustomers({ tab: 'potential', page: 1, pageSize: 100, scope: 'all' }),
   enabled: computed(() => props.visible),
   staleTime: staleTime.LIST,
 })
 
-const customers = computed<CustomerItem[]>(() => customersQuery.data.value?.list ?? [])
+const customers = computed<CustomerItem[]>(() => customersQuery.data.value?.items ?? [])
 
 watch(
   () => props.visible,
@@ -110,7 +109,10 @@ async function onSubmit() {
           </span>
         </el-checkbox>
       </el-checkbox-group>
-      <div v-if="!customersQuery.isLoading.value && customers.length === 0" class="apply-picker__empty">
+      <div
+        v-if="!customersQuery.isLoading.value && customers.length === 0"
+        class="apply-picker__empty"
+      >
         {{ t('followUp.applyNoCustomers') }}
       </div>
     </div>

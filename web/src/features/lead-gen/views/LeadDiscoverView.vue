@@ -68,9 +68,9 @@ const addMutation = useMutation({
     const snapshots = queryClient.getQueriesData<unknown>({ queryKey: qk.leads.all })
     for (const [key, data] of snapshots) {
       if (!data || typeof data !== 'object') continue
-      const page = data as { list?: LeadItem[] }
-      if (!Array.isArray(page.list)) continue
-      for (const row of page.list) {
+      const page = data as { items?: LeadItem[] }
+      if (!Array.isArray(page.items)) continue
+      for (const row of page.items) {
         if (leadIds.includes(row.leadId)) row.inCrm = true
       }
       queryClient.setQueryData(key, data)

@@ -13,12 +13,7 @@ vi.mock('@/mocks/utils', async (importOriginal) => {
 })
 
 import { ErrorCode } from '@/api/error-codes'
-import type {
-  ActivityItem,
-  ContactItem,
-  CustomerDetail,
-  CustomerItem,
-} from '@/api/types/customers'
+import type { ActivityItem, ContactItem, CustomerDetail, CustomerItem } from '@/api/types/customers'
 import type { PageResp } from '@/api/types/common'
 
 import { api, contractServer, expectFail, expectOk, expectPage } from './_server'
@@ -63,7 +58,7 @@ describe('GET /customers 列表契约（05 §3.1）', () => {
     const data = expectOk(json)
     const page1 = expectPage<CustomerItem>(data)
     expect(page1.total).toBeGreaterThanOrEqual(4)
-    const row = page1.list[0]
+    const row = page1.items[0]
     for (const key of [
       'customerId',
       'companyName',
@@ -82,32 +77,28 @@ describe('GET /customers 列表契约（05 §3.1）', () => {
   })
 
   it('tab 过滤：potential 全部 isFormal=false，formal 全部 isFormal=true', async () => {
-    const potential = expectOk(
-      (await api<PageResp<CustomerItem>>('/customers?tab=potential')).json,
-    )
-    expect(potential.list.length).toBeGreaterThan(0)
-    expect(potential.list.every((c) => c.isFormal === false)).toBe(true)
+    const potential = expectOk((await api<PageResp<CustomerItem>>('/customers?tab=potential')).json)
+    expect(potential.items.length).toBeGreaterThan(0)
+    expect(potential.items.every((c) => c.isFormal === false)).toBe(true)
     const formal = expectOk((await api<PageResp<CustomerItem>>('/customers?tab=formal')).json)
-    expect(formal.list.length).toBeGreaterThan(0)
-    expect(formal.list.every((c) => c.isFormal === true)).toBe(true)
+    expect(formal.items.length).toBeGreaterThan(0)
+    expect(formal.items.every((c) => c.isFormal === true)).toBe(true)
   })
 
   it('scope=self 只返回当前操作人名下客户；keyword 按公司名过滤', async () => {
     const self = expectOk((await api<PageResp<CustomerItem>>('/customers?scope=self')).json)
-    expect(self.list.every((c) => c.ownerId === 'u-demo')).toBe(true)
+    expect(self.items.every((c) => c.ownerId === 'u-demo')).toBe(true)
     const kw = expectOk(
       (await api<PageResp<CustomerItem>>('/customers?keyword=contract%20test%20alpha')).json,
     )
     expect(kw.total).toBe(1)
-    expect(kw.list[0].customerId).toBe(customerA.customerId)
+    expect(kw.items[0].customerId).toBe(customerA.customerId)
   })
 
   it('分页参数回显：page/pageSize 与切片一致', async () => {
-    const data = expectOk(
-      (await api<PageResp<CustomerItem>>('/customers?page=1&pageSize=2')).json,
-    )
+    const data = expectOk((await api<PageResp<CustomerItem>>('/customers?page=1&pageSize=2')).json)
     const p = expectPage<CustomerItem>(data, { page: 1, pageSize: 2 })
-    expect(p.list.length).toBeLessThanOrEqual(2)
+    expect(p.items.length).toBeLessThanOrEqual(2)
   })
 })
 
@@ -135,7 +126,7 @@ describe('POST /customers 添加客户契约（05 §1.2）', () => {
       (await api<PageResp<ContactItem>>('/contacts?keyword=lily%20test')).json,
     )
     expect(contacts.total).toBe(1)
-    contactA = contacts.list[0]
+    contactA = contacts.items[0]
     expect(contactA.customerId).toBe(customerA.customerId)
     expect(contactA.companyName).toBe(customerA.companyName)
   })
@@ -143,7 +134,11 @@ describe('POST /customers 添加客户契约（05 §1.2）', () => {
   it('公司名 org 内唯一：重复 → 40901', async () => {
     const dup = await api('/customers', {
       method: 'POST',
-      body: JSON.stringify({ companyName: 'Contract Test Alpha', country: 'US', ownerId: 'u-demo' }),
+      body: JSON.stringify({
+        companyName: 'Contract Test Alpha',
+        country: 'US',
+        ownerId: 'u-demo',
+      }),
     })
     expectFail(dup.json, ErrorCode.CONFLICT)
   })
@@ -159,9 +154,7 @@ describe('PUT /customers/:id 编辑契约（05 §3.2）', () => {
   })
 
   it('改 ownerId 即转交（admin 允许）：ownerName 联动 + 写 owner_change 活动', async () => {
-    const before = expectOk(
-      (await api<CustomerDetail>(`/customers/${customerA.customerId}`)).json,
-    )
+    const before = expectOk((await api<CustomerDetail>(`/customers/${customerA.customerId}`)).json)
     const updated = expectOk(
       (
         await api<CustomerDetail>(`/customers/${customerA.customerId}`, {
@@ -180,8 +173,8 @@ describe('PUT /customers/:id 编辑契约（05 §3.2）', () => {
         )
       ).json,
     )
-    expect(acts.list.length).toBeGreaterThan(0)
-    expect(acts.list[0].operatorType).toBe('user')
+    expect(acts.items.length).toBeGreaterThan(0)
+    expect(acts.items[0].operatorType).toBe('user')
   })
 
   it('删除锁定客户不可编辑 → 40901（种子 cus_8 已锁定）', async () => {
@@ -242,7 +235,7 @@ describe('删除客户 → 审批契约（05 §3.3/§3.5）', () => {
     const row = expectOk(
       (await api<PageResp<CustomerItem>>(`/customers?keyword=contract%20test%20beta`)).json,
     )
-    expect(row.list[0].deleteLocked).toBe(true)
+    expect(row.items[0].deleteLocked).toBe(true)
     const again = await api(`/customers/${customerB.customerId}`, { method: 'DELETE' })
     expectFail(again.json, ErrorCode.CONFLICT)
   })
@@ -259,10 +252,7 @@ describe('删除客户 → 审批契约（05 §3.3/§3.5）', () => {
     })
     const data = expectOk(json)
     expect(data.approvals.map((a) => a.customerId)).toEqual([customerB2.customerId])
-    expect(data.failed.map((f) => f.customerId)).toEqual([
-      'cus-not-exist',
-      customerB.customerId,
-    ])
+    expect(data.failed.map((f) => f.customerId)).toEqual(['cus-not-exist', customerB.customerId])
   })
 
   it('batch-owner：admin 批量改派返回 updated 数；目标负责人不存在 → 40001', async () => {
@@ -287,7 +277,7 @@ describe('联系人契约（05 §1.3/§2）', () => {
     const p = expectPage<ContactItem>(data)
     expect(p.total).toBeGreaterThan(0)
     for (const key of ['contactId', 'name', 'email', 'customerId', 'companyName']) {
-      expect(key in p.list[0], `缺少字段 ${key}`).toBe(true)
+      expect(key in p.items[0], `缺少字段 ${key}`).toBe(true)
     }
   })
 
@@ -351,14 +341,11 @@ describe('联系人契约（05 §1.3/§2）', () => {
   })
 
   it('DELETE：返回 contactId 且列表不再命中', async () => {
-    const { json } = await api<{ contactId: string }>(
-      `/contacts/${contactA.contactId}`,
-      { method: 'DELETE' },
-    )
+    const { json } = await api<{ contactId: string }>(`/contacts/${contactA.contactId}`, {
+      method: 'DELETE',
+    })
     expect(expectOk(json).contactId).toBe(contactA.contactId)
-    const gone = expectOk(
-      (await api<PageResp<ContactItem>>('/contacts?keyword=lily%20test')).json,
-    )
+    const gone = expectOk((await api<PageResp<ContactItem>>('/contacts?keyword=lily%20test')).json)
     expect(gone.total).toBe(0)
   })
 })
@@ -368,11 +355,18 @@ describe('活动时间线契约（05 §3.4）', () => {
     const { json } = await api<PageResp<ActivityItem>>('/activities')
     const p = expectPage<ActivityItem>(expectOk(json))
     expect(p.total).toBeGreaterThan(0)
-    for (const key of ['activityId', 'type', 'summary', 'operatorType', 'operatorName', 'createdAt']) {
-      expect(key in p.list[0], `缺少字段 ${key}`).toBe(true)
+    for (const key of [
+      'activityId',
+      'type',
+      'summary',
+      'operatorType',
+      'operatorName',
+      'createdAt',
+    ]) {
+      expect(key in p.items[0], `缺少字段 ${key}`).toBe(true)
     }
-    for (let i = 1; i < p.list.length; i++) {
-      expect(p.list[i - 1].createdAt >= p.list[i].createdAt).toBe(true)
+    for (let i = 1; i < p.items.length; i++) {
+      expect(p.items[i - 1].createdAt >= p.items[i].createdAt).toBe(true)
     }
   })
 
@@ -384,8 +378,8 @@ describe('活动时间线契约（05 §3.4）', () => {
         )
       ).json,
     ) as PageResp<ActivityItem>
-    expect(data.list.length).toBeGreaterThan(0)
-    expect(data.list.every((a) => a.type === 'stage_change')).toBe(true)
-    expect(data.list.every((a) => a.customerId === customerA.customerId)).toBe(true)
+    expect(data.items.length).toBeGreaterThan(0)
+    expect(data.items.every((a) => a.type === 'stage_change')).toBe(true)
+    expect(data.items.every((a) => a.customerId === customerA.customerId)).toBe(true)
   })
 })

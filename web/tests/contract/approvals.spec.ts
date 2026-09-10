@@ -14,12 +14,7 @@ vi.mock('@/mocks/utils', async (importOriginal) => {
 })
 
 import type { PageResp } from '@/api/types/common'
-import type {
-  ApprovalItem,
-  ApprovalLog,
-  ApprovalSummary,
-  ApproveResp,
-} from '@/api/types/approvals'
+import type { ApprovalItem, ApprovalLog, ApprovalSummary, ApproveResp } from '@/api/types/approvals'
 import type { CustomerDetail } from '@/api/types/customers'
 import type { ConversationDetail } from '@/api/types/conversations'
 
@@ -31,9 +26,7 @@ afterAll(() => contractServer.close())
 
 describe('GET /approvals/summary 契约（12 §3.1）', () => {
   it('tabs 含 all/email_send/customer_delete 且计数与 pending 列表同源', async () => {
-    const summary = expectOk(
-      (await api<ApprovalSummary>('/approvals/summary')).json,
-    )
+    const summary = expectOk((await api<ApprovalSummary>('/approvals/summary')).json)
     const allTab = summary.tabs.find((t) => t.type === 'all')
     const emailTab = summary.tabs.find((t) => t.type === 'email_send')
     const deleteTab = summary.tabs.find((t) => t.type === 'customer_delete')
@@ -43,8 +36,10 @@ describe('GET /approvals/summary 契约（12 §3.1）', () => {
       (await api<PageResp<ApprovalItem>>('/approvals?status=pending&pageSize=50')).json,
     )
     expect(allTab!.count).toBe(pending.total)
-    expect(pending.list.filter((a) => a.approvalType === 'email_send').length).toBe(emailTab!.count)
-    expect(pending.list.filter((a) => a.approvalType === 'customer_delete').length).toBe(
+    expect(pending.items.filter((a) => a.approvalType === 'email_send').length).toBe(
+      emailTab!.count,
+    )
+    expect(pending.items.filter((a) => a.approvalType === 'customer_delete').length).toBe(
       deleteTab!.count,
     )
   })
@@ -56,7 +51,7 @@ describe('GET /approvals 列表契约（12 §3.2）', () => {
     const data = expectOk(json)
     const result = expectPage<ApprovalItem>(data, { pageSize: 50 })
     expect(result.total).toBeGreaterThanOrEqual(3)
-    for (const row of result.list) {
+    for (const row of result.items) {
       for (const key of [
         'approvalId',
         'approvalType',
@@ -78,28 +73,26 @@ describe('GET /approvals 列表契约（12 §3.2）', () => {
     const email = expectOk(
       (await api<PageResp<ApprovalItem>>('/approvals?type=email_send&pageSize=50')).json,
     )
-    expect(email.list.every((a) => a.approvalType === 'email_send')).toBe(true)
+    expect(email.items.every((a) => a.approvalType === 'email_send')).toBe(true)
 
     const del = expectOk(
       (await api<PageResp<ApprovalItem>>('/approvals?type=customer_delete&pageSize=50')).json,
     )
-    expect(del.list.every((a) => a.approvalType === 'customer_delete')).toBe(true)
+    expect(del.items.every((a) => a.approvalType === 'customer_delete')).toBe(true)
 
     const processed = expectOk(
       (await api<PageResp<ApprovalItem>>('/approvals?status=processed&pageSize=50')).json,
     )
     expect(
-      processed.list.every((a) =>
+      processed.items.every((a) =>
         ['approved', 'edited_approved', 'rejected', 'auto_approved'].includes(a.status),
       ),
     ).toBe(true)
   })
 
   it('created_at 倒序排列（最新在前）', async () => {
-    const data = expectOk(
-      (await api<PageResp<ApprovalItem>>('/approvals?pageSize=50')).json,
-    )
-    const times = data.list.map((a) => new Date(a.createdAt).getTime())
+    const data = expectOk((await api<PageResp<ApprovalItem>>('/approvals?pageSize=50')).json)
+    const times = data.items.map((a) => new Date(a.createdAt).getTime())
     for (let i = 1; i < times.length; i++) expect(times[i - 1] >= times[i]).toBe(true)
   })
 })
@@ -175,7 +168,9 @@ describe('POST /approvals/{id}/approve 契约（12 §3.3）', () => {
           method: 'POST',
           body: JSON.stringify({
             action: 'edited_approved',
-            editedContent: { aiProposal: { emailContent: 'Dear Mike, final revised terms inside.' } },
+            editedContent: {
+              aiProposal: { emailContent: 'Dear Mike, final revised terms inside.' },
+            },
           }),
         })
       ).json,
@@ -228,10 +223,12 @@ describe('POST /approvals/{id}/reject 契约（12 §3.4）', () => {
 
     const pending = expectOk(
       (
-        await api<PageResp<ApprovalItem>>('/approvals?type=customer_delete&status=pending&pageSize=50')
+        await api<PageResp<ApprovalItem>>(
+          '/approvals?type=customer_delete&status=pending&pageSize=50',
+        )
       ).json,
     )
-    const target = pending.list.find((a) => a.context.customerId === created.customerId)
+    const target = pending.items.find((a) => a.context.customerId === created.customerId)
     expect(target).toBeTruthy()
 
     const rejected = expectOk(

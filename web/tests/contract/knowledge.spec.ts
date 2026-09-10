@@ -13,11 +13,7 @@ vi.mock('@/mocks/utils', async (importOriginal) => {
 })
 
 import { ErrorCode } from '@/api/error-codes'
-import type {
-  KnowledgeDocument,
-  KnowledgeSearchResp,
-  KnowledgeStats,
-} from '@/api/types/knowledge'
+import type { KnowledgeDocument, KnowledgeSearchResp, KnowledgeStats } from '@/api/types/knowledge'
 import type { PageResp } from '@/api/types/common'
 
 import { api, contractServer, expectFail, expectOk, expectPage } from './_server'
@@ -26,7 +22,10 @@ import { api, contractServer, expectFail, expectOk, expectPage } from './_server
  * 手工构造 multipart body（jsdom FormData 经 msw/node fetch 管道解析不可靠）：
  * 服务端（msw request.formData()）按标准 multipart 解析，与 axios FormData 行为同构。
  */
-function multipartBody(fileName: string, category: string): {
+function multipartBody(
+  fileName: string,
+  category: string,
+): {
   body: string
   headers: Record<string, string>
 } {
@@ -57,24 +56,24 @@ describe('GET /knowledge/documents 列表契约（11 §1.1/§2）', () => {
     const p = expectPage<KnowledgeDocument>(expectOk(json))
     expect(p.total).toBeGreaterThan(0)
     for (const key of ['docId', 'fileName', 'category', 'status']) {
-      expect(key in p.list[0], `缺少字段 ${key}`).toBe(true)
+      expect(key in p.items[0], `缺少字段 ${key}`).toBe(true)
     }
     // doc_3 为软删种子（deleted=true），列表强制过滤（11 §3.4）
-    expect(p.list.some((d) => d.docId === 'doc_3')).toBe(false)
-    expect(p.list.every((d) => !d.deleted)).toBe(true)
+    expect(p.items.some((d) => d.docId === 'doc_3')).toBe(false)
+    expect(p.items.every((d) => !d.deleted)).toBe(true)
   })
 
   it('category 过滤生效；keyword 按文件名过滤（大小写不敏感）', async () => {
     const product = expectOk(
       (await api<PageResp<KnowledgeDocument>>('/knowledge/documents?category=product')).json,
     )
-    expect(product.list.length).toBeGreaterThan(0)
-    expect(product.list.every((d) => d.category === 'product')).toBe(true)
+    expect(product.items.length).toBeGreaterThan(0)
+    expect(product.items.every((d) => d.category === 'product')).toBe(true)
     const kw = expectOk(
       (await api<PageResp<KnowledgeDocument>>('/knowledge/documents?keyword=carbon')).json,
     )
     expect(kw.total).toBe(1)
-    expect(kw.list[0].docId).toBe('doc_1')
+    expect(kw.items[0].docId).toBe('doc_1')
   })
 })
 
@@ -93,7 +92,7 @@ describe('POST /knowledge/documents 上传契约（11 §3.1）', () => {
     const list = expectOk(
       (await api<PageResp<KnowledgeDocument>>('/knowledge/documents?category=product')).json,
     )
-    const row = list.list.find((d) => d.docId === data.docId)
+    const row = list.items.find((d) => d.docId === data.docId)
     expect(row?.status).toBe('indexing')
     expect(row?.fileType).toBe('pdf')
   })
@@ -117,11 +116,9 @@ describe('软删留痕契约（11 §3.4/§3.5）', () => {
     expect(expectOk(del.json).deleted).toBe(true)
 
     const list = expectOk((await api<PageResp<KnowledgeDocument>>('/knowledge/documents')).json)
-    expect(list.list.some((d) => d.docId === 'doc_2')).toBe(false)
+    expect(list.items.some((d) => d.docId === 'doc_2')).toBe(false)
 
-    const trace = expectOk(
-      (await api<KnowledgeDocument>('/knowledge/documents/doc_2')).json,
-    )
+    const trace = expectOk((await api<KnowledgeDocument>('/knowledge/documents/doc_2')).json)
     expect(trace.deleted).toBe(true)
     expect(trace.deletedAt).toBeTruthy()
     expect(trace.deletedBy).toBeTruthy()
@@ -145,7 +142,7 @@ describe('POST /knowledge/documents/{id}/retry 重试契约（11 §3.2）', () =
     expect(data.status).toBe('indexing')
 
     const list = expectOk((await api<PageResp<KnowledgeDocument>>('/knowledge/documents')).json)
-    const row = list.list.find((d) => d.docId === 'doc_5')
+    const row = list.items.find((d) => d.docId === 'doc_5')
     expect(row?.status).toBe('indexing')
 
     const notFailed = await api('/knowledge/documents/doc_1/retry', { method: 'POST' })

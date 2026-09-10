@@ -588,7 +588,7 @@ function entityContacts(ref: EntityRef): ContactItem[] {
 
 export function customer360ContactsPage(raw: string, keyword = '', page = 1, pageSize = 20) {
   const ref = resolve360Entity(raw)
-  if (!ref) return { list: [] as ContactItem[], total: 0, page, pageSize }
+  if (!ref) return { items: [] as ContactItem[], total: 0, page, pageSize }
   const kw = keyword.toLowerCase()
   let items = entityContacts(ref)
   if (kw) {
@@ -600,7 +600,7 @@ export function customer360ContactsPage(raw: string, keyword = '', page = 1, pag
     )
   }
   return {
-    list: items.slice((page - 1) * pageSize, page * pageSize),
+    items: items.slice((page - 1) * pageSize, page * pageSize),
     total: items.length,
     page,
     pageSize,
@@ -689,10 +689,10 @@ function entityConversations(ref: EntityRef): ConversationItem[] {
 
 export function customer360Conversations(raw: string, page = 1, pageSize = 20) {
   const ref = resolve360Entity(raw)
-  if (!ref) return { list: [] as ConversationItem[], total: 0, page, pageSize }
+  if (!ref) return { items: [] as ConversationItem[], total: 0, page, pageSize }
   const items = entityConversations(ref)
   return {
-    list: items.slice((page - 1) * pageSize, page * pageSize),
+    items: items.slice((page - 1) * pageSize, page * pageSize),
     total: items.length,
     page,
     pageSize,
@@ -704,12 +704,12 @@ export function customer360Conversations(raw: string, page = 1, pageSize = 20) {
 export function customer360Activities(raw: string, type?: string, page = 1, pageSize = 20) {
   const ref = resolve360Entity(raw)
   if (!ref || ref.kind === 'lead')
-    return { list: [] as typeof mockActivities, total: 0, page, pageSize }
+    return { items: [] as typeof mockActivities, total: 0, page, pageSize }
   let items = [...mockActivities].filter((a) => a.customerId === ref.key)
   if (type) items = items.filter((a) => a.type === type)
   items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   return {
-    list: items.slice((page - 1) * pageSize, page * pageSize),
+    items: items.slice((page - 1) * pageSize, page * pageSize),
     total: items.length,
     page,
     pageSize,

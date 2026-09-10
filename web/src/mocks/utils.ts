@@ -16,9 +16,9 @@ export function fail(code: number, message: string): HttpResponse<ApiResponse<un
   return HttpResponse.json<ApiResponse<null>>({ code, message, data: null })
 }
 
-/** 分页包装（接口规范 §2.3） */
-export function page<T>(list: T[], total: number, page = 1, pageSize = 20): PageResp<T> {
-  return { list, total, page, pageSize }
+/** 分页包装（接口规范 §2.2：{ items, total, page, pageSize }） */
+export function page<T>(items: T[], total: number, page = 1, pageSize = 20): PageResp<T> {
+  return { items, total, page, pageSize }
 }
 
 /** 读取 JSON body（容错空体） */

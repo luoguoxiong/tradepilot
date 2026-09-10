@@ -41,7 +41,7 @@ const rolesQuery = useQuery({
   staleTime: staleTime.DICT,
 })
 
-const cards = computed<EmployeeCard[]>(() => employeesQuery.data.value?.list ?? [])
+const cards = computed<EmployeeCard[]>(() => employeesQuery.data.value?.items ?? [])
 
 const ROLE_ICONS: Record<string, string> = {
   lead_hunter: '🤖',

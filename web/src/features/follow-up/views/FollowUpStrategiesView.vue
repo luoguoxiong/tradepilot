@@ -9,10 +9,7 @@ import StrategyTimeline from '../components/StrategyTimeline.vue'
 import StrategyFormDrawer from '../components/StrategyFormDrawer.vue'
 import ApplyStrategyDialog from '../components/ApplyStrategyDialog.vue'
 import ExecutionsDrawer from '../components/ExecutionsDrawer.vue'
-import {
-  deleteFollowUpStrategy,
-  getFollowUpStrategies,
-} from '@/api/resources/follow-ups'
+import { deleteFollowUpStrategy, getFollowUpStrategies } from '@/api/resources/follow-ups'
 import type { FollowUpStrategy } from '@/api/types/follow-up'
 import { qk } from '@/query/keys'
 import { staleTime } from '@/query/options'
@@ -36,7 +33,7 @@ const strategiesQuery = useQuery({
   staleTime: staleTime.LIST,
 })
 
-const strategies = computed<FollowUpStrategy[]>(() => strategiesQuery.data.value?.list ?? [])
+const strategies = computed<FollowUpStrategy[]>(() => strategiesQuery.data.value?.items ?? [])
 
 // ===== 表单抽屉（新建 / 编辑 / 复制并编辑） =====
 const formVisible = ref(false)
@@ -74,7 +71,11 @@ async function onDelete(strategy: FollowUpStrategy) {
   const confirmed = await ElMessageBox.confirm(
     t('followUp.deleteConfirm', { name: strategy.name }),
     t('common.delete'),
-    { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') },
+    {
+      type: 'warning',
+      confirmButtonText: t('common.confirm'),
+      cancelButtonText: t('common.cancel'),
+    },
   ).catch(() => false)
   if (!confirmed) return
   try {

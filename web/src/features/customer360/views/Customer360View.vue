@@ -151,7 +151,7 @@ const primaryContactsQuery = useQuery<PageResp<ContactItem>>({
 })
 
 const primaryContact = computed(() => {
-  const list = primaryContactsQuery.data.value?.list ?? []
+  const list = primaryContactsQuery.data.value?.items ?? []
   return list.find((c) => c.isPrimary) ?? list[0] ?? null
 })
 

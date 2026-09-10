@@ -39,7 +39,7 @@ watch(
   },
 )
 
-const list = computed(() => convQuery.data.value?.list ?? [])
+const list = computed(() => convQuery.data.value?.items ?? [])
 const total = computed(() => convQuery.data.value?.total ?? 0)
 
 function timeText(value: string): string {

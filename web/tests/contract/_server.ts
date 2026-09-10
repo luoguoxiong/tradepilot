@@ -57,7 +57,7 @@ export function expectFail<T>(json: ApiResponse<T>, code: number) {
 /** 断言分页结构（接口规范 §2.3：list/total/page/pageSize） */
 export function expectPage<T>(data: unknown, opts?: { page?: number; pageSize?: number }) {
   const p = data as PageResp<T>
-  expect(Array.isArray(p.list)).toBe(true)
+  expect(Array.isArray(p.items)).toBe(true)
   expect(typeof p.total).toBe('number')
   expect(p.page).toBe(opts?.page ?? 1)
   expect(p.pageSize).toBe(opts?.pageSize ?? 20)

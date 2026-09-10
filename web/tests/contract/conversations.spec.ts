@@ -35,7 +35,7 @@ describe('GET /conversations 会话列表契约（06 §3.1 / FR-11）', () => {
     const data = expectOk(json)
     const result = expectPage<ConversationListItem>(data)
     expect(result.total).toBeGreaterThanOrEqual(9)
-    const row = result.list[0]
+    const row = result.items[0]
     for (const key of [
       'conversationId',
       'contactName',
@@ -54,24 +54,26 @@ describe('GET /conversations 会话列表契约（06 §3.1 / FR-11）', () => {
     const kw = expectOk(
       (await api<PageResp<ConversationListItem>>('/conversations?keyword=running%20pro')).json,
     )
-    expect(kw.list.length).toBeGreaterThan(0)
-    expect(kw.list.every((c) => c.companyName === 'Running Pro')).toBe(true)
+    expect(kw.items.length).toBeGreaterThan(0)
+    expect(kw.items.every((c) => c.companyName === 'Running Pro')).toBe(true)
 
     const high = expectOk(
       (await api<PageResp<ConversationListItem>>('/conversations?priority=high')).json,
     )
-    expect(high.list.every((c) => c.priority === 'high')).toBe(true)
+    expect(high.items.every((c) => c.priority === 'high')).toBe(true)
 
     const unread = expectOk(
       (await api<PageResp<ConversationListItem>>('/conversations?unreadOnly=true')).json,
     )
-    expect(unread.list.every((c) => c.unreadCount > 0)).toBe(true)
-    expect(unread.list.length).toBeGreaterThan(0)
+    expect(unread.items.every((c) => c.unreadCount > 0)).toBe(true)
+    expect(unread.items.length).toBeGreaterThan(0)
   })
 
   it('mailboxId 过滤 + 多邮箱来源聚合（mb-1/mb-2/mb-3 均出现，FR-11）', async () => {
-    const all = expectOk((await api<PageResp<ConversationListItem>>('/conversations?pageSize=50')).json)
-    const sources = new Set(all.list.map((c) => c.mailboxId))
+    const all = expectOk(
+      (await api<PageResp<ConversationListItem>>('/conversations?pageSize=50')).json,
+    )
+    const sources = new Set(all.items.map((c) => c.mailboxId))
     expect(sources.has('mb-1')).toBe(true)
     expect(sources.has('mb-2')).toBe(true)
     expect(sources.has('mb-3')).toBe(true)
@@ -79,17 +81,18 @@ describe('GET /conversations 会话列表契约（06 §3.1 / FR-11）', () => {
     const mb3 = expectOk(
       (await api<PageResp<ConversationListItem>>('/conversations?mailboxId=mb-3')).json,
     )
-    expect(mb3.list.length).toBeGreaterThan(0)
-    expect(mb3.list.every((c) => c.mailboxId === 'mb-3')).toBe(true)
+    expect(mb3.items.length).toBeGreaterThan(0)
+    expect(mb3.items.every((c) => c.mailboxId === 'mb-3')).toBe(true)
   })
 })
 
 describe('GET /conversations/{id} 会话详情契约（06 §1.2）', () => {
   it('详情字段 + 消息字段齐备；拉取后未读清零（mock 便利语义）', async () => {
     const before = expectOk(
-      (await api<PageResp<ConversationListItem>>('/conversations?keyword=abc%20sports&pageSize=50')).json,
+      (await api<PageResp<ConversationListItem>>('/conversations?keyword=abc%20sports&pageSize=50'))
+        .json,
     )
-    const conv1 = before.list.find((c) => c.conversationId === 'conv_1')
+    const conv1 = before.items.find((c) => c.conversationId === 'conv_1')
     expect(conv1?.unreadCount).toBeGreaterThan(0)
 
     const { json } = await api<ConversationDetail>('/conversations/conv_1')
@@ -103,9 +106,10 @@ describe('GET /conversations/{id} 会话详情契约（06 §1.2）', () => {
     }
 
     const after = expectOk(
-      (await api<PageResp<ConversationListItem>>('/conversations?keyword=abc%20sports&pageSize=50')).json,
+      (await api<PageResp<ConversationListItem>>('/conversations?keyword=abc%20sports&pageSize=50'))
+        .json,
     )
-    expect(after.list.find((c) => c.conversationId === 'conv_1')?.unreadCount).toBe(0)
+    expect(after.items.find((c) => c.conversationId === 'conv_1')?.unreadCount).toBe(0)
   })
 
   it('不存在会话返回 40401', async () => {
@@ -241,7 +245,8 @@ describe('POST /conversations/{id}/send 发送双分支契约（06 §3.3 + 12 �
 
   it('分支 B（审批策略）：approval 载荷 + 12 列表出现 email_send 新单 + 消息等待审核态', async () => {
     const before = expectOk(
-      (await api<PageResp<ConversationListItem>>('/approvals?type=email_send&status=pending')).json as never,
+      (await api<PageResp<ConversationListItem>>('/approvals?type=email_send&status=pending'))
+        .json as never,
     ) as unknown as PageResp<{ approvalId: string }>
     const beforeCount = before.total
 
@@ -274,7 +279,7 @@ describe('POST /conversations/{id}/send 发送双分支契约（06 §3.3 + 12 �
       ).json,
     )
     expect(after.total).toBe(beforeCount + 1)
-    expect(after.list.some((a) => a.approvalId === branch.approval.approvalId)).toBe(true)
+    expect(after.items.some((a) => a.approvalId === branch.approval.approvalId)).toBe(true)
 
     const detail = expectOk((await api<ConversationDetail>('/conversations/conv_1')).json)
     const message = detail.messages.find((m) => m.messageId === draft.draftId)
@@ -315,9 +320,7 @@ describe('Ask AI 与建议执行契约（06 §3.4/§3.5）', () => {
   })
 
   it('suggestions/apply：insert_draft 合并要点 / create_tasks 生成任务', async () => {
-    const copilot = expectOk(
-      (await api<CopilotData>('/conversations/conv_1/copilot')).json,
-    )
+    const copilot = expectOk((await api<CopilotData>('/conversations/conv_1/copilot')).json)
     expect(copilot.intent).toBe('rfq')
     expect(copilot.purchaseProbability).toBeGreaterThan(0)
     expect(copilot.suggestions.length).toBeGreaterThan(0)
@@ -327,7 +330,11 @@ describe('Ask AI 与建议执行契约（06 §3.4/§3.5）', () => {
       (
         await api<SuggestionsApplyResp>('/copilot/suggestions/apply', {
           method: 'POST',
-          body: JSON.stringify({ conversationId: 'conv_1', suggestionIds: ids, mode: 'insert_draft' }),
+          body: JSON.stringify({
+            conversationId: 'conv_1',
+            suggestionIds: ids,
+            mode: 'insert_draft',
+          }),
         })
       ).json,
     )
@@ -339,7 +346,9 @@ describe('Ask AI 与建议执行契约（06 §3.4/§3.5）', () => {
           method: 'POST',
           body: JSON.stringify({
             conversationId: 'conv_1',
-            suggestionIds: copilot.suggestions.filter((s) => s.kind === 'process').map((s) => s.suggestionId),
+            suggestionIds: copilot.suggestions
+              .filter((s) => s.kind === 'process')
+              .map((s) => s.suggestionId),
             mode: 'create_tasks',
           }),
         })
@@ -352,7 +361,10 @@ describe('Ask AI 与建议执行契约（06 §3.4/§3.5）', () => {
     for (const conv of ['conv_1', 'conv_3', 'conv_4', 'conv_5', 'conv_7', 'conv_9']) {
       const copilot = expectOk((await api<CopilotData>(`/conversations/${conv}/copilot`)).json)
       const processSuggestions = copilot.suggestions.filter((s) => s.kind === 'process')
-      expect(processSuggestions.every((s) => s.action !== 'create_quote'), `${conv} 产出 create_quote`).toBe(true)
+      expect(
+        processSuggestions.every((s) => s.action !== 'create_quote'),
+        `${conv} 产出 create_quote`,
+      ).toBe(true)
     }
     const empty = await api('/copilot/suggestions/apply', {
       method: 'POST',

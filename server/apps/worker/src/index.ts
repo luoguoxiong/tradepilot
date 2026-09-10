@@ -2,6 +2,8 @@ import { Redis as IORedis } from 'ioredis';
 import { ALL_QUEUES, QUEUE_CONCURRENCY } from '@tradepilot/shared';
 import {
   ApprovalGate,
+  DEFAULT_EMBEDDING_FALLBACK,
+  DEFAULT_SEARCH_FALLBACK,
   GraphCompiler,
   LlmGateway,
   TaskEnqueuer,
@@ -10,16 +12,17 @@ import {
   createCheckpointer,
   resolveActiveModel,
   toEmbeddingProviderConfig,
+  toSearchProviderConfig,
 } from '@tradepilot/runtime';
 import { createToolRegistry, configureEmailSend, configureOrgSearchQuota } from '@tradepilot/tools';
 import type { MailboxDriverOptions } from '@tradepilot/integrations';
 import {
   configureObjectStorage,
-  configureSearchProvider,
   createEmbeddingProvider,
   createS3Storage,
   createSearchProvider,
   setEmbeddingProviderFactory,
+  setSearchProviderFactory,
 } from '@tradepilot/integrations';
 import {
   createFlowRegistry,
@@ -29,6 +32,7 @@ import {
 } from '@tradepilot/workflows';
 import { createDb } from '@tradepilot/db';
 import { loadEnv } from './env.js';
+import { loadLocalDotEnv } from './local-env.js';
 import { createRootLogger } from './logger.js';
 import { createWorkers } from './queues/registry.js';
 import { createProcessor } from './queues/processor.js';
@@ -43,6 +47,9 @@ import { DelayedJobReconciler, RECONCILE_INTERVAL_MS } from './scheduler/delayed
 import { ZombieReaper, ZOMBIE_SCAN_INTERVAL_MS } from './scheduler/zombie-reaper.js';
 import { QuotaResetScanner, QUOTA_RESET_INTERVAL_MS } from './scheduler/quota-reset.js';
 import { startLoop } from './scheduler/loop.js';
+
+// 入口先补齐本地 .env（仅补缺失键，不覆盖 k8s/CI/shell 已注入变量）
+loadLocalDotEnv();
 
 /**
  * Worker 启动入口（后端技术方案 04 §3 / 05 §2 / 09 §2）：
@@ -161,22 +168,29 @@ async function bootstrap(): Promise<void> {
   // （凭据解密 + OAuth 客户端 + 失败留痕独立事务连接）
   configureEmailSend({ ...mailboxDriverOptions, db });
   // M4 #6：搜索供应商适配 + org 级搜索日额度（06 §3）
-  configureSearchProvider(
-    createSearchProvider({
-      provider: env.SEARCH_PROVIDER,
-      baseUrl: env.SEARCH_BASE_URL,
-      apiKey: env.SEARCH_API_KEY,
-    }),
-  );
+  // 16 FR-10 扩展：按 org 解析「AI 模型配置」选用的搜索供应商（type=search，仅 admin 可维护，不再读环境变量）；
+  // 未配置台账时回落内置 mock 兜底。
+  const searchFallback = DEFAULT_SEARCH_FALLBACK;
+  setSearchProviderFactory(async (orgId) => {
+    const active =
+      orgId === undefined
+        ? null
+        : await resolveActiveModel(db, orgId, 'search', env.ENCRYPTION_KEY).catch(
+            (err: unknown) => {
+              logger.warn(
+                { orgId, err: err instanceof Error ? err.message : String(err) },
+                '读取搜索供应商配置失败，回落内置兜底',
+              );
+              return null;
+            },
+          );
+    return createSearchProvider(toSearchProviderConfig(active, searchFallback));
+  });
   configureOrgSearchQuota(Number(process.env['ORG_SEARCH_DAILY_LIMIT'] || 0) || 2000);
   // M4 #7：嵌入服务 + S3 对象存储进程级注入（知识入库流水线 07 §2）
-  // 16 FR-10 扩展：按 org 解析「AI 模型配置」选用的 embedding 模型，未配置回落 EMBEDDING_* 环境变量。
-  const embeddingFallback = {
-    provider: env.EMBEDDING_PROVIDER,
-    baseUrl: env.EMBEDDING_BASE_URL,
-    apiKey: env.EMBEDDING_API_KEY,
-    model: env.EMBEDDING_MODEL,
-  };
+  // 16 FR-10 扩展：按 org 解析「AI 模型配置」选用的 embedding 模型（仅 admin 可维护，不再读环境变量）；
+  // 未配置台账时回落内置 mock 兜底。
+  const embeddingFallback = DEFAULT_EMBEDDING_FALLBACK;
   setEmbeddingProviderFactory(async (orgId) => {
     const active =
       orgId === undefined
@@ -185,7 +199,7 @@ async function bootstrap(): Promise<void> {
             (err: unknown) => {
               logger.warn(
                 { orgId, err: err instanceof Error ? err.message : String(err) },
-                '读取 embedding 模型配置失败，回落环境变量',
+                '读取 embedding 模型配置失败，回落内置兜底',
               );
               return null;
             },

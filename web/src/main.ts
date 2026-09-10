@@ -18,6 +18,7 @@ import { queryClient } from './query/client'
 import { router } from './router'
 import { useAuthStore } from './stores/auth'
 import './styles/index.scss'
+import { setDayjsLocale } from './utils/date'
 import { initWebVitals } from './utils/web-vitals'
 
 async function bootstrap() {
@@ -31,6 +32,8 @@ async function bootstrap() {
 
   app.use(createPinia())
   app.use(i18n)
+  // 初始化 dayjs 相对时间 locale（与界面语言一致，01 §6）
+  setDayjsLocale(i18n.global.locale.value as 'zh-CN' | 'en')
   app.use(router)
   app.use(VueQueryPlugin, { queryClient })
   // v-loading 全局指令（模板组件按需注册见 vite.config Components 插件）

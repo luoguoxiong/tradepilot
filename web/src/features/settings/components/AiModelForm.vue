@@ -16,8 +16,9 @@ import { useDictStore } from '@/stores/dict'
 
 /**
  * AI 模型表单（16 FR-10 扩展）：
- * - type 由父级 tab 决定（llm / embedding），表单内不可切换；
+ * - type 由父级 tab 决定（llm / embedding / search），表单内不可切换；
  * - llm 关注 temperature / maxTokens；embedding 关注 dimensions；
+ * - search 无模型标识/温度/维度，provider=http（Serper 兼容）时必填接口地址与 API Key；
  * - apiKey 仅提交不回显，编辑留空表示不变更。
  */
 const props = withDefaults(
@@ -36,6 +37,7 @@ const dict = useDictStore()
 
 const formRef = ref<FormInstance>()
 const isEmbedding = computed(() => props.type === 'embedding')
+const isSearch = computed(() => props.type === 'search')
 const isEdit = computed(() => props.model !== null)
 
 const form = reactive({
@@ -57,18 +59,33 @@ const providerOptions = computed(() =>
     ),
 )
 
-const rules = computed<FormRules>(() => ({
-  name: [{ required: true, message: t('settings.modelNameRequired'), trigger: 'blur' }],
-  provider: [{ required: true, message: t('settings.modelProviderRequired'), trigger: 'change' }],
-  model: [{ required: true, message: t('settings.modelIdentifierRequired'), trigger: 'blur' }],
-  ...(isEmbedding.value
-    ? {
-        dimensions: [
-          { required: true, message: t('settings.modelDimensionsRequired'), trigger: 'blur' },
-        ],
+const rules = computed<FormRules>(() => {
+  const base: FormRules = {
+    name: [{ required: true, message: t('settings.modelNameRequired'), trigger: 'blur' }],
+    provider: [{ required: true, message: t('settings.modelProviderRequired'), trigger: 'change' }],
+  }
+  if (isSearch.value) {
+    // http 供应商必须给出端点与凭据（与后端 assertSearchUsable 同口径）；编辑留空表示不变更
+    if (form.provider === 'http') {
+      base.baseUrl = [
+        { required: true, message: t('settings.modelBaseUrlRequired'), trigger: 'blur' },
+      ]
+      if (!isEdit.value) {
+        base.apiKey = [
+          { required: true, message: t('settings.modelApiKeyRequired'), trigger: 'blur' },
+        ]
       }
-    : {}),
-}))
+    }
+    return base
+  }
+  base.model = [{ required: true, message: t('settings.modelIdentifierRequired'), trigger: 'blur' }]
+  if (isEmbedding.value) {
+    base.dimensions = [
+      { required: true, message: t('settings.modelDimensionsRequired'), trigger: 'blur' },
+    ]
+  }
+  return base
+})
 
 function reset() {
   const current = props.model
@@ -92,6 +109,22 @@ function submit() {
     const modelId = form.model.trim()
     const baseUrl = form.baseUrl.trim()
     const apiKey = form.apiKey.trim()
+
+    // search：无模型标识/温度/维度，仅 provider + baseUrl + apiKey（06 §3）
+    if (isSearch.value) {
+      const base = { name, provider: form.provider, ...(apiKey ? { apiKey } : {}) }
+      if (isEdit.value) {
+        // baseUrl 显式传 null 以支持清空自定义端点
+        emit('submit', { ...base, baseUrl: baseUrl || null } as UpdateAiModelReq)
+      } else {
+        emit('submit', {
+          type: props.type,
+          ...base,
+          ...(baseUrl ? { baseUrl } : {}),
+        } as CreateAiModelReq)
+      }
+      return
+    }
 
     const shared = {
       name,
@@ -148,15 +181,25 @@ function submit() {
       </el-select>
     </el-form-item>
 
-    <el-form-item :label="t('settings.modelIdentifier')" prop="model">
+    <el-form-item v-if="!isSearch" :label="t('settings.modelIdentifier')" prop="model">
       <el-input v-model="form.model" :placeholder="t('settings.modelIdentifierPlaceholder')" />
     </el-form-item>
 
-    <el-form-item :label="t('settings.modelBaseUrl')">
-      <el-input v-model="form.baseUrl" :placeholder="t('settings.modelBaseUrlPlaceholder')" />
+    <el-form-item
+      :label="isSearch ? t('settings.modelSearchBaseUrl') : t('settings.modelBaseUrl')"
+      prop="baseUrl"
+    >
+      <el-input
+        v-model="form.baseUrl"
+        :placeholder="
+          isSearch
+            ? t('settings.modelSearchBaseUrlPlaceholder')
+            : t('settings.modelBaseUrlPlaceholder')
+        "
+      />
     </el-form-item>
 
-    <el-form-item :label="t('settings.modelApiKey')">
+    <el-form-item :label="t('settings.modelApiKey')" prop="apiKey">
       <el-input
         v-model="form.apiKey"
         type="password"
@@ -172,7 +215,7 @@ function submit() {
       </el-form-item>
     </template>
 
-    <template v-else>
+    <template v-else-if="!isSearch">
       <el-form-item :label="t('settings.modelTemperature')">
         <el-input-number v-model="form.temperature" :min="0" :max="2" :step="0.1" :precision="2" />
       </el-form-item>

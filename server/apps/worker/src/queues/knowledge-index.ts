@@ -78,7 +78,7 @@ export class KnowledgeIndexProcessor {
         throw new Error('文档解析后无可索引内容（空文本）');
       }
 
-      // ⑤ embed（≤100/批）；16 FR-10 扩展：按 org 选用模型解析（未配置回落 EMBEDDING_*）
+      // ⑤ embed（≤100/批）；16 FR-10 扩展：按 org 选用模型解析（未配置回落内置 mock）
       const embedding = await getEmbeddingProvider(doc.orgId);
       const vectors: number[][] = [];
       for (let i = 0; i < chunks.length; i += EMBED_BATCH_SIZE) {

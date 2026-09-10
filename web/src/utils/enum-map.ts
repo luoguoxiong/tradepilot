@@ -41,6 +41,7 @@ export const ENUMS = {
   aiModelType: [
     { value: 'llm', labelKey: 'enums.aiModelType.llm' },
     { value: 'embedding', labelKey: 'enums.aiModelType.embedding' },
+    { value: 'search', labelKey: 'enums.aiModelType.search' },
   ],
   /** AI 模型提供方（16 FR-10 扩展） */
   aiModelProvider: [
@@ -49,6 +50,7 @@ export const ENUMS = {
     { value: 'deepseek', labelKey: 'enums.aiModelProvider.deepseek' },
     { value: 'azure', labelKey: 'enums.aiModelProvider.azure' },
     { value: 'mock', labelKey: 'enums.aiModelProvider.mock' },
+    { value: 'http', labelKey: 'enums.aiModelProvider.http' },
   ],
   customerStage: [
     {

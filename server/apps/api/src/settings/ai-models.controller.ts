@@ -16,13 +16,13 @@ import type { AccessTokenPayload } from '../auth/token.service.js';
  * AI 模型配置接口（接口 16 FR-10 扩展）：
  * - GET/POST/PUT/DELETE /settings/ai-models/catalog：模型台账 CRUD；
  * - PUT /settings/ai-models/catalog/selection：设置某 type 的全局选用模型。
- * 变更仅 admin（03 §4）；读取 admin+manager（settings: view）。
+ * 权限：仅 admin（03 §4）——模型/供应商配置属敏感配置，不开放给 manager。
  */
 @Controller('settings/ai-models')
 export class AiModelsController {
   constructor(@Inject(AiModelsService) private readonly aiModels: AiModelsService) {}
 
-  @Roles('admin', 'manager')
+  @Roles('admin')
   @Get('catalog')
   async listCatalog(@Req() req: Request & { authUser?: AccessTokenPayload }) {
     return this.aiModels.list(this.requireUser(req).orgId);

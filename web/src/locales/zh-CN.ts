@@ -71,13 +71,14 @@ export default {
     memberStatus: { active: '已激活', invited: '已邀请', disabled: '已停用' },
     mailboxProvider: { gmail: 'Gmail', outlook: 'Outlook', smtpImap: 'SMTP / IMAP' },
     mailboxStatus: { connected: '已连接', error: '连接异常', disconnected: '已断连' },
-    aiModelType: { llm: '大语言模型', embedding: '向量模型' },
+    aiModelType: { llm: '大语言模型', embedding: '向量模型', search: '搜索供应商' },
     aiModelProvider: {
       openai: 'OpenAI',
       anthropic: 'Anthropic',
       deepseek: 'DeepSeek',
       azure: 'Azure OpenAI',
       mock: 'Mock（测试）',
+      http: 'HTTP（Serper 兼容）',
     },
     customerStage: {
       newLead: '新线索',
@@ -859,12 +860,15 @@ export default {
     channelEmail: '邮件通知',
     // ===== AI 模型配置（16 FR-10 扩展）=====
     aiModelsHint:
-      '为整个服务配置可用模型：大语言模型用于全部文本生成，向量模型用于知识检索与文档索引；每类可维护多个并选择其一，选用后立即对全服务生效。',
+      '为整个服务配置可用模型：大语言模型用于全部文本生成，向量模型用于知识检索与文档索引，搜索供应商用于获客检索与官网抓取；每类可维护多个并选择其一，选用后立即对全服务生效。',
     aiModelsLlmHint:
       '大语言模型用于获客、回信、跟进与分析等全部文本生成场景，选用后全服务统一生效。',
     aiModelsEmbeddingHint: '向量模型用于知识库检索与文档索引，选用后全服务统一生效。',
+    aiModelsSearchHint:
+      '搜索供应商用于获客检索（web_search）与官网抓取（site_crawl），选用后全服务统一生效；未配置时回落环境变量。',
     tabLlm: '大语言模型',
     tabEmbedding: '向量模型（Embedding）',
+    tabSearch: '搜索供应商',
     addModel: '添加模型',
     editModel: '编辑模型',
     modelName: '名称',
@@ -873,6 +877,8 @@ export default {
     modelIdentifierPlaceholder: '如 gpt-4o / text-embedding-3-small',
     modelBaseUrl: '接口地址（可选）',
     modelBaseUrlPlaceholder: '如 https://api.openai.com/v1',
+    modelSearchBaseUrl: '搜索接口地址',
+    modelSearchBaseUrlPlaceholder: '如 https://google.serper.dev',
     modelApiKey: 'API Key',
     modelApiKeyPlaceholder: '仅保存时提交，服务端加密存储',
     modelApiKeyKeep: '留空表示不修改',
@@ -894,6 +900,8 @@ export default {
     modelIdentifierRequired: '请输入模型标识',
     modelProviderRequired: '请选择提供方',
     modelDimensionsRequired: '请输入向量维度',
+    modelBaseUrlRequired: '请输入接口地址',
+    modelApiKeyRequired: '请输入 API Key',
   },
   onboarding: {
     title: '企业初始化',

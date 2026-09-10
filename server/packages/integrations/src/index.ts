@@ -55,12 +55,14 @@ export type { ObjectStorage, S3StorageOptions } from './storage/index.js';
 export {
   createSearchProvider,
   configureSearchProvider,
+  setSearchProviderFactory,
   getSearchProvider,
   MockSearchProvider,
   HttpSearchProvider,
 } from './search/index.js';
 export type {
   SearchProvider,
+  SearchProviderFactory,
   WebSearchHit,
   SiteCrawlResult,
   HttpSearchOptions,

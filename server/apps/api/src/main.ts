@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module.js';
 import { loadEnv } from './config/env.js';
+import { loadLocalDotEnv } from './config/local-env.js';
 import { createRootLogger } from './common/logger/logger.factory.js';
 import { NestPinoLogger } from './common/logger/nest-pino.logger.js';
 import { DB } from './db/db.module.js';
@@ -13,7 +14,14 @@ import {
   setEmbeddingProviderFactory,
 } from '@tradepilot/integrations';
 import type { Db } from '@tradepilot/db';
-import { resolveActiveModel, toEmbeddingProviderConfig } from '@tradepilot/runtime';
+import {
+  DEFAULT_EMBEDDING_FALLBACK,
+  resolveActiveModel,
+  toEmbeddingProviderConfig,
+} from '@tradepilot/runtime';
+
+// 入口先补齐本地 .env（仅补缺失键，不覆盖 k8s/CI/shell 已注入变量）
+loadLocalDotEnv();
 
 /**
  * API 启动入口（后端技术方案 00 §4 / 01）：
@@ -40,14 +48,10 @@ async function bootstrap(): Promise<void> {
   });
 
   // M4 #7 + 16 FR-10 扩展：嵌入服务（检索 query 向量化）按 org 解析
-  // 「系统设置 → AI 模型配置」选用的 embedding 模型；未配置回落 EMBEDDING_* 环境变量。
+  // 「系统设置 → AI 模型配置」选用的 embedding 模型（仅 admin 可维护，不再读环境变量）；
+  // 未配置台账时回落内置 mock 兜底。
   const db = app.get<Db>(DB);
-  const embeddingFallback = {
-    provider: env.EMBEDDING_PROVIDER,
-    baseUrl: env.EMBEDDING_BASE_URL,
-    apiKey: env.EMBEDDING_API_KEY,
-    model: env.EMBEDDING_MODEL,
-  };
+  const embeddingFallback = DEFAULT_EMBEDDING_FALLBACK;
   setEmbeddingProviderFactory(async (orgId) => {
     const active =
       orgId === undefined
@@ -56,7 +60,7 @@ async function bootstrap(): Promise<void> {
             (err: unknown) => {
               root.warn(
                 { orgId, err: err instanceof Error ? err.message : String(err) },
-                '读取 embedding 模型配置失败，回落环境变量',
+                '读取 embedding 模型配置失败，回落内置兜底',
               );
               return null;
             },

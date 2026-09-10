@@ -1,11 +1,12 @@
 /**
  * M5-D3 16 AI 模型配置（扩展）· ai_model 台账 + org 级全局选用：
- * - llm / embedding 两类模型清单 CRUD；
+ * - llm / embedding / search 三类配置清单 CRUD；
  * - 首建自动选中；selection 切换（每 type 至多一个 selected）；
  * - 删除生效模型自动回退；apiKey 加密落库（响应不回显，resolveActiveModel 可解密）；
  * - embedding 必须指定向量维度（且须与知识索引 vector(1536) 一致）；
- * - 运行时接入：选用模型驱动 LlmGateway.resolveTarget 与 Embedding Provider（全服务统一口径）。
- * 前置：docker compose up（PG 5432 / Redis 6379）+ 迁移已执行。
+ * - search（搜索供应商）provider 限 http/mock，http 必须有端点与凭据；
+ * - 运行时接入：选用模型驱动 LlmGateway.resolveTarget / Embedding Provider / Search Provider（全服务统一口径）。
+ * 前置：docker compose up（PG 5432 / Redis 6379）+ 迁移已执行（含 manual 0011 的 ai_model_type='search'）。
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
@@ -13,13 +14,23 @@ import { Redis } from 'ioredis';
 import pino from 'pino';
 import { createId } from '@tradepilot/core';
 import { closeDb, createDb, schema, type Db } from '@tradepilot/db';
-import { LlmGateway, resolveActiveModel, toEmbeddingProviderConfig } from '@tradepilot/runtime';
+import {
+  LlmGateway,
+  resolveActiveModel,
+  toEmbeddingProviderConfig,
+  toSearchProviderConfig,
+} from '@tradepilot/runtime';
 import {
   createEmbeddingProvider,
+  createSearchProvider,
   getEmbeddingProvider,
+  getSearchProvider,
+  HttpSearchProvider,
   MockEmbeddingProvider,
+  MockSearchProvider,
   OpenAiEmbeddingProvider,
   setEmbeddingProviderFactory,
+  setSearchProviderFactory,
 } from '@tradepilot/integrations';
 import { EnvService } from '../src/config/env.service.js';
 import { AuthService } from '../src/auth/auth.service.js';
@@ -298,5 +309,107 @@ describe('M5-D3 · 运行时接入：选用模型驱动 LlmGateway / Embedding�
     expect(await getEmbeddingProvider(orgId)).toBeInstanceOf(OpenAiEmbeddingProvider);
     // 未配置台账的 org → 回落环境变量（本例 mock）
     expect(await getEmbeddingProvider('org-not-configured')).toBeInstanceOf(MockEmbeddingProvider);
+  });
+});
+
+describe('M5-D3 · 搜索供应商接入：选用驱动 web_search/site_crawl 供应商（16 FR-10 扩展）', () => {
+  let searchId = '';
+
+  it('search 字段按 type 收窄：http 缺端点/缺凭据/provider 越界均拒绝', async () => {
+    await expect(
+      aiModels.create(orgId, userId, {
+        type: 'search',
+        name: 'No Endpoint',
+        provider: 'http',
+        apiKey: 'sk-search-123',
+      }),
+    ).rejects.toThrow('接口地址');
+
+    await expect(
+      aiModels.create(orgId, userId, {
+        type: 'search',
+        name: 'No Key',
+        provider: 'http',
+        baseUrl: 'https://google.serper.dev',
+      }),
+    ).rejects.toThrow('API Key');
+
+    await expect(
+      aiModels.create(orgId, userId, {
+        type: 'search',
+        name: 'Wrong Provider',
+        provider: 'anthropic',
+      }),
+    ).rejects.toThrow('提供方');
+  });
+
+  it('创建 search 无需模型标识（以 provider 占位），首建即选中并出现在 selection.search', async () => {
+    const serper = await aiModels.create(orgId, userId, {
+      type: 'search',
+      name: 'Serper',
+      provider: 'http',
+      baseUrl: 'https://google.serper.dev',
+      apiKey: 'sk-search-123',
+    });
+    expect(serper.type).toBe('search');
+    expect(serper.isSelected).toBe(true);
+    // 无模型标识 → 以 provider 名占位（model 列 NOT NULL，06 §3）
+    expect(serper.model).toBe('http');
+    expect(serper.hasApiKey).toBe(true);
+    searchId = serper.id;
+
+    const view = await aiModels.list(orgId);
+    expect(view.selection.search).toBe(serper.id);
+    // 其他类型选中项不受影响
+    expect(view.selection.llm).not.toBeNull();
+    expect(view.selection.embedding).not.toBeNull();
+  });
+
+  it('resolveActiveModel(search) 解密凭据，toSearchProviderConfig 输出 http 端点', async () => {
+    const active = await aiModels.resolveActiveModel(orgId, 'search');
+    expect(active).not.toBeNull();
+    expect(active?.provider).toBe('http');
+    expect(active?.apiKey).toBe('sk-search-123');
+
+    const config = toSearchProviderConfig(active, { provider: 'mock', baseUrl: '', apiKey: '' });
+    expect(config).toEqual({
+      provider: 'http',
+      baseUrl: 'https://google.serper.dev',
+      apiKey: 'sk-search-123',
+    });
+
+    // 未配置台账（active=null）→ 原样回落环境变量
+    expect(toSearchProviderConfig(null, { provider: 'mock', baseUrl: '', apiKey: '' })).toEqual({
+      provider: 'mock',
+      baseUrl: '',
+      apiKey: '',
+    });
+  });
+
+  it('setSearchProviderFactory 后 getSearchProvider(orgId) 按 org 解析，未命中回落 mock', async () => {
+    setSearchProviderFactory(async (oid) => {
+      const active =
+        oid === undefined
+          ? null
+          : await resolveActiveModel(appDb, oid, 'search', process.env.ENCRYPTION_KEY).catch(
+              () => null,
+            );
+      return createSearchProvider(
+        toSearchProviderConfig(active, { provider: 'mock', baseUrl: '', apiKey: '' }),
+      );
+    });
+
+    expect(await getSearchProvider(orgId)).toBeInstanceOf(HttpSearchProvider);
+    expect(await getSearchProvider('org-not-configured')).toBeInstanceOf(MockSearchProvider);
+  });
+
+  it('search 编辑：provider 切 mock 可清空端点；切回 http 缺端点被拒', async () => {
+    const asMock = await aiModels.update(orgId, searchId, { provider: 'mock', baseUrl: null });
+    expect(asMock.provider).toBe('mock');
+    expect(asMock.baseUrl).toBeNull();
+
+    await expect(aiModels.update(orgId, searchId, { provider: 'http' })).rejects.toThrow(
+      '接口地址',
+    );
   });
 });

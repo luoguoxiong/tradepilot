@@ -11,18 +11,22 @@ import type { AiModelSelectionDto, CreateAiModelDto, UpdateAiModelDto } from './
 /** embedding 支持的 provider（integrations 仅实现 mock / openai 兼容协议） */
 const EMBEDDING_PROVIDERS: readonly string[] = ['mock', 'openai'];
 
+/** search 支持的 provider（integrations 仅实现 mock / http 即 Serper 兼容搜索 API，06 §3） */
+const SEARCH_PROVIDERS: readonly string[] = ['mock', 'http'];
+
 /**
  * AI 模型配置服务（接口 16 FR-10 扩展）：
- * - 模型台账：按 org 维护 type=llm / type=embedding 两组模型（CRUD）；
- * - 全局选用：每个 type 至多一个 isSelected 模型，作为整个服务该类型的默认模型；
+ * - 模型台账：按 org 维护 type=llm / type=embedding / type=search 三组配置（CRUD）；
+ * - 全局选用：每个 type 至多一个 isSelected 配置，作为整个服务该类型的默认值；
  * - 凭据安全：apiKey AES-256-GCM 信封加密落库（08 §2），响应仅回显 hasApiKey；
- * - 首建自动选中：某 type 下第一个模型创建即置为 selected；删除选中的模型自动回退到该 type 最早创建的模型；
- * - 生效链路：LlmGateway / Embedding Provider 经 runtime resolveActiveModel 读取选用模型（全服务统一口径）。
+ * - 首建自动选中：某 type 下第一个配置创建即置为 selected；删除选中的配置自动回退到该 type 最早创建的配置；
+ * - 生效链路：LlmGateway / Embedding Provider / Search Provider 经 runtime resolveActiveModel
+ *   读取选用配置（全服务统一口径）。
  */
 
 export interface AiModelView {
   id: string;
-  type: 'llm' | 'embedding';
+  type: 'llm' | 'embedding' | 'search';
   name: string;
   provider: string;
   model: string;
@@ -40,7 +44,7 @@ export interface AiModelView {
 
 export interface AiModelsView {
   models: AiModelView[];
-  selection: { llm: string | null; embedding: string | null };
+  selection: { llm: string | null; embedding: string | null; search: string | null };
 }
 
 /** 运行时消费视图（已解密）；实现见 runtime model-config.resolveActiveModel */
@@ -58,8 +62,16 @@ export class AiModelsService {
   }
 
   async create(orgId: string, userId: string, dto: CreateAiModelDto): Promise<AiModelView> {
-    if (dto.type === 'embedding') {
-      assertEmbeddingUsable(dto.provider, dto.dimensions ?? null);
+    // 按 type 收窄：字段必填性与 provider 白名单随类型而异（与 embedding 维度校验同口径）
+    if (dto.type === 'search') {
+      assertSearchUsable(dto.provider, dto.baseUrl ?? null, Boolean(dto.apiKey));
+    } else {
+      if (!dto.model) {
+        throw new BizException(ErrorCode.BIZ_VALIDATION, '模型标识必填');
+      }
+      if (dto.type === 'embedding') {
+        assertEmbeddingUsable(dto.provider, dto.dimensions ?? null);
+      }
     }
     return withOrg(this.db, orgId, async (tx) => {
       const [dup] = await tx
@@ -92,7 +104,8 @@ export class AiModelsService {
           type: dto.type,
           name: dto.name,
           provider: dto.provider,
-          model: dto.model,
+          // search 无「模型标识」，以 provider 名占位（model 列 NOT NULL，06 §3）
+          model: dto.model ?? dto.provider,
           baseUrl: dto.baseUrl ?? null,
           apiKeyEnc: dto.apiKey ? encryptSecret(dto.apiKey, this.encryptionKey) : null,
           dimensions: dto.dimensions ?? null,
@@ -135,7 +148,14 @@ export class AiModelsService {
           throw new BizException(ErrorCode.CONFLICT, '同名模型已存在');
         }
       }
-      if (current.type === 'embedding') {
+      if (current.type === 'search') {
+        // 合并后校验：未传即沿用现值（baseUrl 显式 null = 清除端点，不能吞并现值）
+        assertSearchUsable(
+          dto.provider ?? current.provider,
+          dto.baseUrl !== undefined ? dto.baseUrl : current.baseUrl,
+          dto.apiKey !== undefined || current.apiKeyEnc !== null,
+        );
+      } else if (current.type === 'embedding') {
         // 合并后校验：未传即沿用现值
         assertEmbeddingUsable(
           dto.provider ?? current.provider,
@@ -241,7 +261,7 @@ export class AiModelsService {
    */
   async resolveActiveModel(
     orgId: string,
-    type: 'llm' | 'embedding',
+    type: 'llm' | 'embedding' | 'search',
   ): Promise<ActiveAiModel | null> {
     return resolveActiveModel(this.db, orgId, type, this.encryptionKey);
   }
@@ -252,7 +272,7 @@ export class AiModelsService {
       .from(schema.aiModel)
       .where(eq(schema.aiModel.orgId, orgId))
       .orderBy(asc(schema.aiModel.type), asc(schema.aiModel.createdAt));
-    const selection: AiModelsView['selection'] = { llm: null, embedding: null };
+    const selection: AiModelsView['selection'] = { llm: null, embedding: null, search: null };
     for (const row of rows) {
       if (row.isSelected) {
         selection[row.type] = row.id;
@@ -287,6 +307,25 @@ function assertEmbeddingUsable(provider: string, dimensions: number | null): voi
       ErrorCode.BIZ_VALIDATION,
       `向量维度需为 ${KNOWLEDGE_EMBEDDING_DIMENSIONS}（与知识索引一致）`,
     );
+  }
+}
+
+/**
+ * search 供应商可用性校验：provider 必须已实现；http（Serper 兼容）必须有接口地址与 API Key，
+ * 否则 worker 侧 web_search/site_crawl 会在首次调用时才失败（前置拦截给出可读错误，06 §3）。
+ */
+function assertSearchUsable(provider: string, baseUrl: string | null, hasApiKey: boolean): void {
+  if (!SEARCH_PROVIDERS.includes(provider)) {
+    throw new BizException(
+      ErrorCode.BIZ_VALIDATION,
+      `搜索供应商仅支持 ${SEARCH_PROVIDERS.join(' / ')} 提供方`,
+    );
+  }
+  if (provider === 'http' && !baseUrl) {
+    throw new BizException(ErrorCode.BIZ_VALIDATION, 'http 搜索供应商需配置接口地址');
+  }
+  if (provider === 'http' && !hasApiKey) {
+    throw new BizException(ErrorCode.BIZ_VALIDATION, 'http 搜索供应商需配置 API Key');
   }
 }
 

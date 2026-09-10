@@ -82,16 +82,17 @@ export interface NotificationSettings {
   >
 }
 
-/** AI 模型类型（16 FR-10 扩展）：普通大模型 / 向量化模型 */
-export type AiModelType = 'llm' | 'embedding'
+/** AI 模型类型（16 FR-10 扩展）：普通大模型 / 向量化模型 / 搜索供应商 */
+export type AiModelType = 'llm' | 'embedding' | 'search'
 
-/** 模型提供方（与后端 LlmProvider / EmbeddingOptions 对齐） */
-export type AiModelProvider = 'mock' | 'openai' | 'anthropic' | 'deepseek' | 'azure'
+/** 模型提供方（与后端 LlmProvider / EmbeddingOptions / SearchOptions 并集对齐） */
+export type AiModelProvider = 'mock' | 'openai' | 'anthropic' | 'deepseek' | 'azure' | 'http'
 
-/** 各模型类型可选的提供方（embedding 目前仅 mock/openai） */
+/** 各模型类型可选的提供方（与后端 service 的按 type 白名单同口径） */
 export const AI_MODEL_PROVIDERS: Record<AiModelType, readonly AiModelProvider[]> = {
   llm: ['openai', 'anthropic', 'deepseek', 'azure', 'mock'],
   embedding: ['openai', 'mock'],
+  search: ['http', 'mock'],
 }
 
 /**
@@ -121,14 +122,15 @@ export interface AiModel {
 /** GET /settings/ai-models/catalog 响应 */
 export interface AiModelCatalog {
   models: AiModel[]
-  selection: { llm: string | null; embedding: string | null }
+  selection: { llm: string | null; embedding: string | null; search: string | null }
 }
 
 export interface CreateAiModelReq {
   type: AiModelType
   name: string
   provider: AiModelProvider
-  model: string
+  /** llm/embedding 必填；search 无模型标识（服务端以 provider 占位） */
+  model?: string
   baseUrl?: string
   /** 仅请求携带，服务端加密落库、响应不回显；编辑留空表示不变更 */
   apiKey?: string

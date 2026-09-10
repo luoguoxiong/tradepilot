@@ -71,13 +71,14 @@ export default {
     memberStatus: { active: 'Active', invited: 'Invited', disabled: 'Disabled' },
     mailboxProvider: { gmail: 'Gmail', outlook: 'Outlook', smtpImap: 'SMTP / IMAP' },
     mailboxStatus: { connected: 'Connected', error: 'Error', disconnected: 'Disconnected' },
-    aiModelType: { llm: 'LLM', embedding: 'Embedding' },
+    aiModelType: { llm: 'LLM', embedding: 'Embedding', search: 'Search provider' },
     aiModelProvider: {
       openai: 'OpenAI',
       anthropic: 'Anthropic',
       deepseek: 'DeepSeek',
       azure: 'Azure OpenAI',
       mock: 'Mock (test)',
+      http: 'HTTP (Serper-compatible)',
     },
     customerStage: {
       newLead: 'New Lead',
@@ -880,13 +881,16 @@ export default {
     channelEmail: 'Email',
     // ===== AI Model Config (16 FR-10 extension) =====
     aiModelsHint:
-      'Configure models for the whole service: LLMs for all text generation, embedding models for knowledge retrieval and document indexing. Keep multiple per type and pick one; the choice takes effect service-wide immediately.',
+      'Configure models for the whole service: LLMs for all text generation, embedding models for knowledge retrieval and document indexing, search providers for lead sourcing and site crawling. Keep multiple per type and pick one; the choice takes effect service-wide immediately.',
     aiModelsLlmHint:
       'LLMs power all text generation: lead hunting, replies, follow-ups and analysis. The active model applies service-wide.',
     aiModelsEmbeddingHint:
       'Embedding models power knowledge retrieval and document indexing. The active model applies service-wide.',
+    aiModelsSearchHint:
+      'Search providers power lead sourcing (web_search) and site crawling (site_crawl). The active provider applies service-wide; when unset it falls back to environment variables.',
     tabLlm: 'LLM',
     tabEmbedding: 'Embedding',
+    tabSearch: 'Search provider',
     addModel: 'Add model',
     editModel: 'Edit model',
     modelName: 'Name',
@@ -895,6 +899,8 @@ export default {
     modelIdentifierPlaceholder: 'e.g. gpt-4o / text-embedding-3-small',
     modelBaseUrl: 'Base URL (optional)',
     modelBaseUrlPlaceholder: 'e.g. https://api.openai.com/v1',
+    modelSearchBaseUrl: 'Search endpoint',
+    modelSearchBaseUrlPlaceholder: 'e.g. https://google.serper.dev',
     modelApiKey: 'API Key',
     modelApiKeyPlaceholder: 'Submitted on save only, encrypted at rest',
     modelApiKeyKeep: 'Leave blank to keep unchanged',
@@ -916,6 +922,8 @@ export default {
     modelIdentifierRequired: 'Enter the model ID',
     modelProviderRequired: 'Select a provider',
     modelDimensionsRequired: 'Enter the vector dimensions',
+    modelBaseUrlRequired: 'Enter the endpoint URL',
+    modelApiKeyRequired: 'Enter the API key',
   },
   onboarding: {
     title: 'Company Onboarding',

@@ -36,7 +36,7 @@ function sanitize(mailbox: Mailbox): Mailbox {
 
 /** 组装 AI 模型台账响应（含各类型选中项），副本返回避免外部改动内存态 */
 function aiModelCatalog(): AiModelCatalog {
-  const selection: AiModelCatalog['selection'] = { llm: null, embedding: null }
+  const selection: AiModelCatalog['selection'] = { llm: null, embedding: null, search: null }
   for (const model of mockAiModels) {
     if (model.isSelected) selection[model.type] = model.id
   }
@@ -52,6 +52,20 @@ function validateEmbedding(provider: string, dimensions: number | null): string 
   if (dimensions !== KNOWLEDGE_EMBEDDING_DIMENSIONS) {
     return `向量维度需为 ${KNOWLEDGE_EMBEDDING_DIMENSIONS}（与知识索引一致）`
   }
+  return null
+}
+
+/** search 供应商可用性校验（与后端 assertSearchUsable 同口径），返回错误文案或 null */
+function validateSearch(
+  provider: string,
+  baseUrl: string | null,
+  hasApiKey: boolean,
+): string | null {
+  if (provider !== 'mock' && provider !== 'http') {
+    return '搜索供应商仅支持 mock / http 提供方'
+  }
+  if (provider === 'http' && !baseUrl) return 'http 搜索供应商需配置接口地址'
+  if (provider === 'http' && !hasApiKey) return 'http 搜索供应商需配置 API Key'
   return null
 }
 
@@ -159,12 +173,18 @@ export const settingsHandlers = [
   http.post('/api/v1/settings/ai-models/catalog', async ({ request }) => {
     await delay(LATENCY)
     const body = await readJson<CreateAiModelReq>(request)
-    if (!body.type || !body.name || !body.provider || !body.model) {
-      return fail(ErrorCode.BAD_REQUEST, '类型、名称、提供方与模型标识必填')
+    if (!body.type || !body.name || !body.provider) {
+      return fail(ErrorCode.BAD_REQUEST, '类型、名称与提供方必填')
     }
-    if (body.type === 'embedding') {
-      const invalid = validateEmbedding(body.provider, body.dimensions ?? null)
+    if (body.type === 'search') {
+      const invalid = validateSearch(body.provider, body.baseUrl ?? null, Boolean(body.apiKey))
       if (invalid) return fail(ErrorCode.BIZ_VALIDATION, invalid)
+    } else {
+      if (!body.model) return fail(ErrorCode.BAD_REQUEST, '模型标识必填')
+      if (body.type === 'embedding') {
+        const invalid = validateEmbedding(body.provider, body.dimensions ?? null)
+        if (invalid) return fail(ErrorCode.BIZ_VALIDATION, invalid)
+      }
     }
     if (mockAiModels.some((m) => m.type === body.type && m.name === body.name)) {
       return fail(ErrorCode.CONFLICT, '同名模型已存在')
@@ -175,7 +195,8 @@ export const settingsHandlers = [
       type: body.type,
       name: body.name,
       provider: body.provider,
-      model: body.model,
+      // search 无「模型标识」，以 provider 名占位（与后端一致）
+      model: body.model ?? body.provider,
       baseUrl: body.baseUrl ?? null,
       dimensions: body.type === 'embedding' ? (body.dimensions ?? null) : null,
       temperature: (body.temperature ?? 0.7).toFixed(2),
@@ -218,7 +239,15 @@ export const settingsHandlers = [
     ) {
       return fail(ErrorCode.CONFLICT, '同名模型已存在')
     }
-    if (model.type === 'embedding') {
+    if (model.type === 'search') {
+      // 合并后校验：与后端口径一致（baseUrl 显式 null = 清除端点）
+      const invalid = validateSearch(
+        body.provider ?? model.provider,
+        body.baseUrl !== undefined ? body.baseUrl : model.baseUrl,
+        body.apiKey !== undefined || model.hasApiKey,
+      )
+      if (invalid) return fail(ErrorCode.BIZ_VALIDATION, invalid)
+    } else if (model.type === 'embedding') {
       // 合并后校验：与后端口径一致
       const invalid = validateEmbedding(
         body.provider ?? model.provider,

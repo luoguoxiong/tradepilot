@@ -6,7 +6,8 @@
  * 抓取合规（08 §7 获客与数据合规，M4 C8）：robots.txt 尊重（解析失败视为允许，业界惯例）、
  * 单站限速（per-host 最小间隔）、UA 标识（TradePilotBot）、excludeDomains 硬过滤、
  * 数据最小化（只存 title/desc 摘要，不整页入库）。搜索 API 侧 ToS 由供应商契约承担。
- * 进程级注入（同 email-send-config 模式）：worker 启动时 configureSearchProvider 一次。
+ * 进程级注入（同 email-send-config 模式）：worker 启动时 setSearchProviderFactory 一次，
+ * 按 org 解析「系统设置 → AI 模型配置」选用的搜索供应商（type=search，06 §3）。
  */
 
 /** 爬虫 UA 标识（08 §7：`TradePilotBot`） */
@@ -268,12 +269,13 @@ export class HttpSearchProvider implements SearchProvider {
         // 数据最小化（08 §7）：只提取 title/meta description 摘要与产品线索，不整页入库
         const title = /<title[^>]*>([^<]{1,200})<\/title>/i.exec(html)?.[1]?.trim();
         const desc =
-          /<meta[^>]+name=["']description["'][^>]+content=["']([^"']{1,400})["']/i.exec(
-            html,
-          )?.[1]?.trim() ?? '';
+          /<meta[^>]+name=["']description["'][^>]+content=["']([^"']{1,400})["']/i
+            .exec(html)?.[1]
+            ?.trim() ?? '';
         summaries.push(`${p}: ${title ?? ''}${desc ? ` — ${desc}` : ''}`.trim());
         // 产品线索：产品/目录链接锚文本（去重、截断）
-        const linkRe = /<a[^>]+href=["']([^"']*(?:product|catalog|item)[^"']*)["'][^>]*>([^<]{1,80})<\/a>/gi;
+        const linkRe =
+          /<a[^>]+href=["']([^"']*(?:product|catalog|item)[^"']*)["'][^>]*>([^<]{1,80})<\/a>/gi;
         let m: RegExpExecArray | null;
         while ((m = linkRe.exec(html)) !== null && products.length < 20) {
           const text = (m[2] ?? '').trim();
@@ -308,16 +310,30 @@ export function createSearchProvider(options: {
 }
 
 // ===== 进程级注入（未注入默认 mock）=====
+// 16 FR-10 扩展后为「按 org 解析」：工厂可读库拿到 org 在「系统设置 → AI 模型配置」选用的
+// 搜索供应商（worker 侧装配），未注册工厂时回落到 mock。configureSearchProvider 保留为
+// 静态注册（单测/离线演练），签名与旧版一致。
 
-let configured: SearchProvider | null = null;
+/** org → provider 工厂（异步：需读该 org 的 AI 模型选用配置） */
+export type SearchProviderFactory = (orgId?: string) => SearchProvider | Promise<SearchProvider>;
 
-export function configureSearchProvider(provider: SearchProvider): void {
-  configured = provider;
+let factory: SearchProviderFactory | null = null;
+let defaultProvider: SearchProvider | null = null;
+
+/** 注册 org 级解析工厂（worker 启动时一次） */
+export function setSearchProviderFactory(next: SearchProviderFactory): void {
+  factory = next;
 }
 
-export function getSearchProvider(): SearchProvider {
-  if (!configured) {
-    configured = new MockSearchProvider();
+/** 静态注册（忽略 orgId）：等价于固定 provider，单测与离线演练使用 */
+export function configureSearchProvider(provider: SearchProvider): void {
+  factory = () => provider;
+}
+
+export async function getSearchProvider(orgId?: string): Promise<SearchProvider> {
+  if (factory) {
+    return await factory(orgId);
   }
-  return configured;
+  defaultProvider ??= new MockSearchProvider();
+  return defaultProvider;
 }

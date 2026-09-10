@@ -273,11 +273,12 @@ export const aiModelSetting = pgTable(
 
 /**
  * AI 模型台账（16 FR-10 扩展：模型清单 + org 级全局选用）：
- * - type 区分普通大模型（llm）与向量化模型（embedding），同一 type 下可维护多个模型；
- * - provider/model/baseUrl/apiKey 决定该模型的实际调用端点（llm 与 embedding 通用）；
+ * - type 区分普通大模型（llm）、向量化模型（embedding）与搜索供应商（search），同一 type 下可维护多个模型；
+ * - provider/model/baseUrl/apiKey 决定该模型的实际调用端点（llm / embedding / search 通用）；
  * - isSelected 标记该 type 下当前生效模型（部分唯一索引保证同 type 至多一个 selected）；
  * - apiKeyEnc 为 AES-256-GCM 信封加密密文（08 §2），任何接口永不回显明文；
- * - dimensions 仅 embedding 使用（对齐既有 knowledge_chunk.embedding 1536 维度）。
+ * - dimensions 仅 embedding 使用（对齐既有 knowledge_chunk.embedding 1536 维度）；
+ * - search 无「模型标识」概念，model 列以 provider 名占位（列 NOT NULL，06 §3）。
  */
 export const aiModel = pgTable(
   'ai_model',

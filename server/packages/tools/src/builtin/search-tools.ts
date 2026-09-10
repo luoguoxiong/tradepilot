@@ -3,7 +3,8 @@
  * M4-1：lead_hunting 图真实链路落地——搜索轮次换词、联系人发现与公开渠道查找、
  * 决策影响力 90/75/40 档确定性映射（04 需求 §3.2）。
  * M4-6：web_search/site_crawl 接供应商适配器（06 §3，@tradepilot/integrations getSearchProvider，
- * 默认 mock 兜底；worker 启动时 configureSearchProvider 注入真实供应商）+ org 级日额度令牌桶。
+ * 默认 mock 兜底；worker 启动时 setSearchProviderFactory 按 org 注入「AI 模型配置」选用的供应商）
+ * + org 级日额度令牌桶。
  * find_contact/lookup_contact/lead_scoring 保持确定性规则（联系人供应商属 P1 扩展）。
  */
 import { z } from 'zod';
@@ -135,7 +136,8 @@ export const webSearchTool: ToolDefinition<
     // org 级供应商日额度（06 §3 令牌桶，org 时区日界）
     await assertOrgSearchQuota(ctx, 1);
 
-    const provider = getSearchProvider();
+    // 按 org 解析选用的搜索供应商（系统设置 → AI 模型配置；未配置回落环境变量）
+    const provider = await getSearchProvider(ctx.orgId);
     const hits = await provider.webSearch(query, round);
     const companies: (CompanyLead & { source: string })[] = hits
       .map(hitToCompany)
@@ -174,7 +176,7 @@ export const siteCrawlTool: ToolDefinition<
   async execute(ctx, input) {
     // org 级供应商日额度（crawl ×2）
     await assertOrgSearchQuota(ctx, 2);
-    const provider = getSearchProvider();
+    const provider = await getSearchProvider(ctx.orgId);
     const result = await provider.crawlSite(input.domain);
     await writeToolLog(
       ctx,

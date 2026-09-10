@@ -34,12 +34,17 @@ export {
   type StructuredResult,
 } from './llm-gateway.js';
 export {
+  DEFAULT_EMBEDDING_FALLBACK,
+  DEFAULT_SEARCH_FALLBACK,
   resolveActiveModel,
   toEmbeddingProviderConfig,
+  toSearchProviderConfig,
   type ActiveModelConfig,
   type AiModelKind,
   type EmbeddingFallbackOptions,
   type EmbeddingProviderConfig,
+  type SearchFallbackOptions,
+  type SearchProviderConfig,
 } from './model-config.js';
 export {
   APPROVAL_TTL_MS,

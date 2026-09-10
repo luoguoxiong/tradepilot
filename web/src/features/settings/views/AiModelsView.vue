@@ -24,15 +24,18 @@ import { useDictStore } from '@/stores/dict'
 
 /**
  * AI 模型配置（16 FR-10 扩展）：
- * - 双 Tab 管理「大语言模型 / 向量模型」两类台账，每类可维护多个；
- * - 每个类型至多一个「当前生效」模型，作为整个服务该类型的默认模型；
+ * - 三 Tab 管理「大语言模型 / 向量模型 / 搜索供应商」三类台账，每类可维护多个；
+ * - 每个类型至多一个「当前生效」模型，作为整个服务该类型的默认值；
  * - 凭据仅提交不回显，服务端加密存储。
  */
 const { t } = useI18n()
 const dict = useDictStore()
 
 const loading = ref(false)
-const catalog = ref<AiModelCatalog>({ models: [], selection: { llm: null, embedding: null } })
+const catalog = ref<AiModelCatalog>({
+  models: [],
+  selection: { llm: null, embedding: null, search: null },
+})
 const activeType = ref<AiModelType>('llm')
 
 const dialogVisible = ref(false)
@@ -131,12 +134,17 @@ async function onDelete(row: AiModel) {
     <el-tabs v-model="activeType" class="ai-models__tabs">
       <el-tab-pane :label="t('settings.tabLlm')" name="llm" />
       <el-tab-pane :label="t('settings.tabEmbedding')" name="embedding" />
+      <el-tab-pane :label="t('settings.tabSearch')" name="search" />
     </el-tabs>
 
     <div class="ai-models__toolbar">
       <span class="ai-models__hint">
         {{
-          activeType === 'llm' ? t('settings.aiModelsLlmHint') : t('settings.aiModelsEmbeddingHint')
+          activeType === 'llm'
+            ? t('settings.aiModelsLlmHint')
+            : activeType === 'embedding'
+              ? t('settings.aiModelsEmbeddingHint')
+              : t('settings.aiModelsSearchHint')
         }}
       </span>
       <el-button type="primary" @click="openCreate">{{ t('settings.addModel') }}</el-button>
@@ -151,13 +159,23 @@ async function onDelete(row: AiModel) {
       <el-table-column :label="t('settings.modelProvider')" min-width="120">
         <template #default="{ row }">{{ dict.label('aiModelProvider', row.provider) }}</template>
       </el-table-column>
-      <el-table-column :label="t('settings.modelIdentifier')" min-width="220">
+      <el-table-column
+        :label="
+          activeType === 'search' ? t('settings.modelBaseUrl') : t('settings.modelIdentifier')
+        "
+        min-width="220"
+      >
         <template #default="{ row }">
-          <div class="ai-models__model">{{ row.model }}</div>
-          <div v-if="row.baseUrl" class="ai-models__base-url">{{ row.baseUrl }}</div>
+          <div class="ai-models__model">
+            {{ activeType === 'search' ? (row.baseUrl ?? '—') : row.model }}
+          </div>
+          <div v-if="activeType !== 'search' && row.baseUrl" class="ai-models__base-url">
+            {{ row.baseUrl }}
+          </div>
         </template>
       </el-table-column>
       <el-table-column
+        v-if="activeType !== 'search'"
         :label="
           activeType === 'embedding'
             ? t('settings.modelDimensions')

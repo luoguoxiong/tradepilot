@@ -168,6 +168,22 @@ export const mockAiModels: AiModel[] = [
     createdAt: '2026-08-01T02:00:00Z',
     updatedAt: '2026-08-01T02:00:00Z',
   },
+  {
+    id: 'aim-4',
+    type: 'search',
+    name: 'Serper',
+    provider: 'http',
+    // search 无模型标识，以 provider 占位（与后端一致）
+    model: 'http',
+    baseUrl: 'https://google.serper.dev',
+    dimensions: null,
+    temperature: '0.70',
+    maxTokens: null,
+    hasApiKey: true,
+    isSelected: true,
+    createdAt: '2026-08-01T02:00:00Z',
+    updatedAt: '2026-08-01T02:00:00Z',
+  },
 ]
 
 let seq = 100

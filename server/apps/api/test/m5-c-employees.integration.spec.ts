@@ -114,7 +114,9 @@ afterAll(async () => {
   if (orgId) {
     await superDb.transaction(async (tx) => {
       await tx.delete(schema.notification).where(eq(schema.notification.orgId, orgId));
-      await tx.delete(schema.notificationSetting).where(eq(schema.notificationSetting.orgId, orgId));
+      await tx
+        .delete(schema.notificationSetting)
+        .where(eq(schema.notificationSetting.orgId, orgId));
       await tx.delete(schema.llmCall).where(eq(schema.llmCall.orgId, orgId));
       await tx.delete(schema.aiTaskLog).where(eq(schema.aiTaskLog.orgId, orgId));
       await tx.delete(schema.aiTaskStep).where(eq(schema.aiTaskStep.orgId, orgId));
@@ -127,7 +129,9 @@ afterAll(async () => {
         .delete(schema.followUpStrategyStep)
         .where(eq(schema.followUpStrategyStep.orgId, orgId));
       await tx.delete(schema.followUpStrategy).where(eq(schema.followUpStrategy.orgId, orgId));
-      await tx.delete(schema.conversationInsight).where(eq(schema.conversationInsight.orgId, orgId));
+      await tx
+        .delete(schema.conversationInsight)
+        .where(eq(schema.conversationInsight.orgId, orgId));
       await tx.delete(schema.message).where(eq(schema.message.orgId, orgId));
       await tx.delete(schema.conversation).where(eq(schema.conversation.orgId, orgId));
       await tx.delete(schema.customerInsight).where(eq(schema.customerInsight.orgId, orgId));
@@ -156,7 +160,14 @@ describe('M5-C3 · GET /ai-employees/roles（创建向导预填）', () => {
     expect(templates.length).toBe(6);
     const roles = templates.map((t) => t.role);
     expect(roles).toEqual(
-      expect.arrayContaining(['lead_hunter', 'customer_researcher', 'sales', 'follow_up', 'merchandiser', 'manager']),
+      expect.arrayContaining([
+        'lead_hunter',
+        'customer_researcher',
+        'sales',
+        'follow_up',
+        'merchandiser',
+        'manager',
+      ]),
     );
 
     for (const t of templates) {
@@ -202,7 +213,11 @@ describe('M5-C3 · POST /ai-employees（创建）', () => {
     expect(row!.role).toBe('lead_hunter');
     expect(row!.status).toBe('idle');
     expect(row!.createdBy).toBe(adminId);
-    expect(row!.approvalPolicy).toMatchObject({ email_send: 'high_value_only', quote: 'always', autoExecute: [] });
+    expect(row!.approvalPolicy).toMatchObject({
+      email_send: 'high_value_only',
+      quote: 'always',
+      autoExecute: [],
+    });
     expect(row!.kpiConfig).toMatchObject({ metric: 'daily_leads', target: 35, period: 'daily' });
 
     // SOP 副本：is_preset=false + 参数合并进 advancedSettings
@@ -218,7 +233,17 @@ describe('M5-C3 · POST /ai-employees（创建）', () => {
 
   it('kpiConfig.metric 与角色不匹配 → 42201', async () => {
     await expectBiz(
-      employees.create(adminCtx, createBody({ kpiConfig: { metric: 'daily_profiles', target: 20, period: 'daily' } })),
+      employees.create(
+        adminCtx,
+        createBody({ kpiConfig: { metric: 'daily_replies', target: 30, period: 'daily' } }),
+      ),
+      ErrorCode.BIZ_VALIDATION,
+    );
+  });
+
+  it('sopParams 含模板未定义参数键 → 42201（02 §3.2）', async () => {
+    await expectBiz(
+      employees.create(adminCtx, createBody({ sopParams: { foo: 1 } })),
       ErrorCode.BIZ_VALIDATION,
     );
   });
@@ -231,7 +256,10 @@ describe('M5-C3 · POST /ai-employees（创建）', () => {
 
   it('approvalPolicy.quote 传 none → 42201', async () => {
     await expectBiz(
-      employees.create(adminCtx, createBody({ approvalPolicy: { quote: 'none', autoExecute: [] } })),
+      employees.create(
+        adminCtx,
+        createBody({ approvalPolicy: { quote: 'none', autoExecute: [] } }),
+      ),
       ErrorCode.BIZ_VALIDATION,
     );
   });
@@ -250,7 +278,13 @@ describe('M5-C3 · POST /ai-employees（创建）', () => {
   it('email_send 缺省 → high_value_only；显式 always 生效', async () => {
     const always = await employees.create(
       adminCtx,
-      createBody({ name: 'M5C 销售专员', role: 'sales', kpiConfig: { metric: ROLE_KPI_METRIC.sales, target: 90, period: 'daily' }, approvalPolicy: { email_send: 'always', quote: 'always', autoExecute: [] } }),
+      createBody({
+        name: 'M5C 销售专员',
+        role: 'sales',
+        sopParams: {},
+        kpiConfig: { metric: ROLE_KPI_METRIC.sales, target: 90, period: 'daily' },
+        approvalPolicy: { email_send: 'always', quote: 'always', autoExecute: [] },
+      }),
     );
     const [row] = await superDb
       .select({ approvalPolicy: schema.aiEmployee.approvalPolicy })

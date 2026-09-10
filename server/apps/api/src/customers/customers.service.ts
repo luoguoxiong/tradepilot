@@ -47,6 +47,27 @@ const STAGE_INDEX: Record<CustomerStage, number> = {
   cold: 3,
 };
 
+/** 04 §1.3 推荐动作 type 枚举（前端 Customer360NextAction 三值） */
+const NEXT_ACTION_TYPES = ['contact_decision_maker', 'generate_outreach', 'send_quote'] as const;
+
+/**
+ * 归一化 AI 洞察 nextAction：DB 可能存流程内部语义（如 follow_up）→ 收敛到前端枚举，
+ * 并补 targetId（主联系人）；无联系人时退化为「联系决策人」引导。
+ */
+function normalizeCustomer360NextAction(
+  raw: { type: string; label: string; targetId?: string } | null,
+  fallbackTargetId?: string,
+): { type: string; label: string; targetId?: string } | null {
+  if (!raw || !raw.label) return null;
+  const targetId = raw.targetId ?? fallbackTargetId;
+  const type = (NEXT_ACTION_TYPES as readonly string[]).includes(raw.type)
+    ? raw.type
+    : targetId
+      ? 'generate_outreach'
+      : 'contact_decision_maker';
+  return { type, label: raw.label, ...(targetId ? { targetId } : {}) };
+}
+
 export interface CustomerListItem {
   customerId: string;
   companyName: string;
@@ -1153,8 +1174,25 @@ export class CustomersService {
     });
   }
 
-  /** B3 §3.2 GET /customers/{id}/insights AI 客户洞察 */
-  async insights(ctx: OrgScopeContext, customerId: string) {
+  /**
+   * B3 §3.2 GET /customers/{id}/insights AI 客户洞察。
+   * 响应契约（04 §3.2 / web Customer360Insight）：`{ purchaseProbability, nextAction }`。
+   * 数据源 customer_insight（product_analysis 写回；uq_customer_insight_type 每类型单行）；
+   * 无 purchase_probability 行 → 双 null（前端引导「重新分析」空态）。
+   */
+  async insights(
+    ctx: OrgScopeContext,
+    customerId: string,
+  ): Promise<{
+    purchaseProbability: {
+      value: number;
+      confidence: number;
+      reasons: { text: string; evidence?: string; source?: string }[];
+      citations: { docId: string; chunkId?: string }[];
+      generatedAt: string;
+    } | null;
+    nextAction: { type: string; label: string; targetId?: string } | null;
+  }> {
     return withOrg(this.db, ctx.orgId, async (tx) => {
       const [raw] = await tx
         .select({ id: schema.customer.id, ownerId: schema.customer.ownerId })
@@ -1163,27 +1201,60 @@ export class CustomersService {
         .limit(1);
       assertResourceAccess(raw, ctx);
 
-      const rows = await tx
+      const [row] = await tx
         .select()
         .from(schema.customerInsight)
         .where(
           and(
             eq(schema.customerInsight.customerId, customerId),
             eq(schema.customerInsight.orgId, ctx.orgId),
+            eq(schema.customerInsight.insightType, 'purchase_probability'),
           ),
         )
-        .orderBy(desc(schema.customerInsight.generatedAt));
+        .limit(1);
 
-      return rows.map((r) => ({
-        insightType: r.insightType,
-        value: r.value ? Number(r.value) : null,
-        confidence: r.confidence ? Number(r.confidence) : null,
-        reasons: r.reasons,
-        citations: r.citations ?? [],
-        nextAction: r.nextAction ?? null,
-        taskId: r.taskId,
-        generatedAt: r.generatedAt.toISOString(),
-      }));
+      if (!row) {
+        return { purchaseProbability: null, nextAction: null };
+      }
+
+      // targetId 兜底主联系人（04 §1.3：推荐动作点击执行 → 联系决策人 / 生成开发信）
+      const [primaryContact] = await tx
+        .select({ id: schema.contact.id })
+        .from(schema.contact)
+        .where(and(eq(schema.contact.customerId, customerId), eq(schema.contact.orgId, ctx.orgId)))
+        .orderBy(desc(schema.contact.isPrimary), desc(schema.contact.createdAt))
+        .limit(1);
+
+      return {
+        purchaseProbability: {
+          value: row.value === null ? 0 : Number(row.value),
+          confidence: row.confidence === null ? 0 : Number(row.confidence),
+          reasons: row.reasons ?? [],
+          citations: row.citations ?? [],
+          generatedAt: row.generatedAt.toISOString(),
+        },
+        nextAction: normalizeCustomer360NextAction(row.nextAction ?? null, primaryContact?.id),
+      };
+    });
+  }
+
+  /**
+   * B3 GET /customers/{id}/products 产品匹配列表（04 §1.5 Products 页签；D7 行内抽屉）。
+   * 产品目录表未落地前（08 产品中心 P1）复用 detail.overview.productMatches 口径 → 返回 []。
+   */
+  async listCustomerProducts(ctx: OrgScopeContext, customerId: string): Promise<unknown[]> {
+    return withOrg(this.db, ctx.orgId, async (tx) => {
+      const [raw] = await tx
+        .select({
+          id: schema.customer.id,
+          ownerId: schema.customer.ownerId,
+          deletedAt: schema.customer.deletedAt,
+        })
+        .from(schema.customer)
+        .where(and(eq(schema.customer.id, customerId), notDeleted(schema.customer.deletedAt)))
+        .limit(1);
+      assertResourceAccess(raw, ctx);
+      return [];
     });
   }
 
@@ -1198,6 +1269,7 @@ export class CustomersService {
       const [raw] = await tx
         .select({
           id: schema.customer.id,
+          companyName: schema.customer.companyName,
           ownerId: schema.customer.ownerId,
           deletedAt: schema.customer.deletedAt,
         })
@@ -1222,6 +1294,8 @@ export class CustomersService {
       return {
         items: rows.map((r) => ({
           contactId: r.id,
+          customerId: r.customerId,
+          companyName: raw?.companyName ?? '',
           name: r.name,
           title: r.title,
           email: r.email,

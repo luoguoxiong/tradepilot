@@ -1,9 +1,9 @@
 /**
  * 02 AI 数字员工中心 DTO（M5-C3）。
  * 契约来源：web/src/api/types/employees.ts（前端契约为唯一事实源）+ 页面级接口文档 02 §1.2。
- * - 角色/KPI metric 枚举（需求 02 §3.2 + seed PRESET_EMPLOYEES 口径）：
- *   lead_hunter=daily_leads / customer_researcher=daily_insights / sales=reply_rate /
- *   follow_up=followup_completion / merchandiser=risk_alert_timeliness / manager=report_on_time；
+ * - 角色/KPI metric 枚举（02 §1.1 注 + web mock 口径，联调 v0.1.8 统一）：
+ *   lead_hunter=daily_leads / customer_researcher=daily_profiles / sales=daily_replies /
+ *   follow_up=daily_followups / merchandiser=active_orders / manager=daily_reports；
  * - role / kpiConfig.metric / approvalPolicy.quote 属业务校验（非法 → 42201，服务层校验，02 §3.1/§3.2）；
  * - approvalPolicy.email_send 缺省 'high_value_only'、autoExecute 缺省 []（02 §1.2）。
  */
@@ -19,14 +19,14 @@ export const EMPLOYEE_ROLES = [
 ] as const;
 export type EmployeeRole = (typeof EMPLOYEE_ROLES)[number];
 
-/** 角色 → KPI metric 固定映射（需求 02 §3.2 + seed PRESET_EMPLOYEES；period 恒 daily） */
+/** 角色 → KPI metric 固定映射（02 §1.1 注 + web mock 口径；period 恒 daily） */
 export const ROLE_KPI_METRIC: Record<EmployeeRole, string> = {
   lead_hunter: 'daily_leads',
-  customer_researcher: 'daily_insights',
-  sales: 'reply_rate',
-  follow_up: 'followup_completion',
-  merchandiser: 'risk_alert_timeliness',
-  manager: 'report_on_time',
+  customer_researcher: 'daily_profiles',
+  sales: 'daily_replies',
+  follow_up: 'daily_followups',
+  merchandiser: 'active_orders',
+  manager: 'daily_reports',
 };
 
 export const approvalPolicySchema = z.object({

@@ -319,7 +319,7 @@ watch(entityId, () => {
           <!-- 评分（Score） -->
           <div class="c360__score" :class="`c360__score--${scoreTier}`">
             <span class="c360__score-value">
-              {{ profile.score === undefined ? '—' : `${profile.score}%` }}
+              {{ profile.score == null ? '—' : `${profile.score}%` }}
             </span>
             <span class="c360__score-label">{{ t('c360.scoreLabel') }}</span>
           </div>

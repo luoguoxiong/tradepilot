@@ -117,7 +117,14 @@ const PRESET_EMPLOYEES: PresetEmployee[] = [
     name: 'AI 获客专员',
     goal: '按画像持续挖掘高价值潜在客户，产出可验证线索入 ai_lead 共享池',
     skills: ['market_scan', 'profile_match', 'contact_discovery'],
-    tools: ['web_search', 'site_crawl', 'find_contact', 'lookup_contact', 'crm_write', 'knowledge_search'],
+    tools: [
+      'web_search',
+      'site_crawl',
+      'find_contact',
+      'lookup_contact',
+      'crm_write',
+      'knowledge_search',
+    ],
     kpi: { metric: 'daily_leads', target: 35 },
     sop: {
       steps: [
@@ -137,7 +144,7 @@ const PRESET_EMPLOYEES: PresetEmployee[] = [
     goal: '对目标客户做背景调研与需求洞察，产出客户画像与切入建议',
     skills: ['background_research', 'insight_extraction'],
     tools: ['web_search', 'knowledge_search'],
-    kpi: { metric: 'daily_insights', target: 20 },
+    kpi: { metric: 'daily_profiles', target: 20 },
     sop: {
       steps: ['collect_background', 'analyze_demand', 'summarize_insight'],
       prompts: { system: '你是客户研究员，输出结构化客户画像与切入点建议。' },
@@ -149,7 +156,7 @@ const PRESET_EMPLOYEES: PresetEmployee[] = [
     goal: '响应询盘生成专业回复与报价草稿，推动商机进入下一阶段',
     skills: ['inquiry_reply', 'quote_draft'],
     tools: ['email_draft', 'knowledge_search', 'product_search'],
-    kpi: { metric: 'reply_rate', target: 90 },
+    kpi: { metric: 'daily_replies', target: 30 },
     sop: {
       steps: ['parse_inquiry', 'retrieve_context', 'draft_reply', 'attach_quote_hint'],
       prompts: { system: '你是外贸销售员，按客户最近来信语言回复，专业友好。' },
@@ -161,7 +168,7 @@ const PRESET_EMPLOYEES: PresetEmployee[] = [
     goal: '按策略节奏执行跟进任务，识别回复信号并及时止损/加速',
     skills: ['cadence_planning', 'signal_detection'],
     tools: ['email_draft', 'check_replied', 'crm_read'],
-    kpi: { metric: 'followup_completion', target: 95 },
+    kpi: { metric: 'daily_followups', target: 95 },
     sop: {
       steps: ['load_strategy', 'check_replied', 'draft_touch', 'schedule_next'],
       prompts: { system: '你是跟进专员，严格遵循频控与发送窗口，Break-up 邮件必须转人工。' },
@@ -173,7 +180,7 @@ const PRESET_EMPLOYEES: PresetEmployee[] = [
     goal: '监控订单履约进度与风险，异常及时预警（随订单中心 P1 启用）',
     skills: ['progress_tracking', 'risk_alert'],
     tools: ['order_read'],
-    kpi: { metric: 'risk_alert_timeliness', target: 99 },
+    kpi: { metric: 'active_orders', target: 99 },
     sop: {
       steps: ['load_order', 'compare_progress', 'emit_alert'],
       prompts: { system: '你是跟单员，按里程碑比对实际进度，逾期即预警。' },
@@ -185,7 +192,7 @@ const PRESET_EMPLOYEES: PresetEmployee[] = [
     goal: '汇总全局数据产出经营报告与行动建议，统筹六员工协作',
     skills: ['report_generation', 'prioritization'],
     tools: ['analytics_read', 'knowledge_search'],
-    kpi: { metric: 'report_on_time', target: 100 },
+    kpi: { metric: 'daily_reports', target: 100 },
     sop: {
       steps: ['aggregate_metrics', 'diagnose_risk', 'draft_report', 'recommend_actions'],
       prompts: { system: '你是外贸经理，按五段式结构输出经营报告，预测项标记 estimated。' },

@@ -196,9 +196,7 @@ export class EmployeesService {
         const currentTask = currentByEmployee.get(emp.id) ?? null;
         // 状态语义（02 §1.1）：优先 ai_employee.status；有 running 任务 → working
         const status =
-          currentTask?.status === 'running'
-            ? 'working'
-            : (CARD_STATUS[emp.status] ?? 'idle');
+          currentTask?.status === 'running' ? 'working' : (CARD_STATUS[emp.status] ?? 'idle');
         const statLabel = TODAY_STAT_LABEL[role] ?? { label: '今日任务', unit: '个' };
 
         // KPI（02 §1.1）：占位角色（跟单/经理 D4）→ null；其余取 kpiConfig + 今日任务计数
@@ -221,7 +219,9 @@ export class EmployeesService {
           ...(emp.avatar ? { avatar: emp.avatar } : {}),
           status,
           statusDetail: emp.statusDetail ?? null,
-          todayStats: [{ label: statLabel.label, count: todayCount.get(emp.id) ?? 0, unit: statLabel.unit }],
+          todayStats: [
+            { label: statLabel.label, count: todayCount.get(emp.id) ?? 0, unit: statLabel.unit },
+          ],
           kpi,
           currentTask,
           workspacePath: WORKSPACE_PATH[role] ?? null,
@@ -261,12 +261,7 @@ export class EmployeesService {
             eq(schema.aiEmployee.orgId, schema.sopTemplate.orgId),
           ),
         )
-        .where(
-          and(
-            eq(schema.sopTemplate.orgId, ctx.orgId),
-            eq(schema.sopTemplate.isPreset, true),
-          ),
-        )
+        .where(and(eq(schema.sopTemplate.orgId, ctx.orgId), eq(schema.sopTemplate.isPreset, true)))
         .orderBy(asc(schema.sopTemplate.createdAt));
 
       return rows.map((row) => {
@@ -316,12 +311,24 @@ export class EmployeesService {
     }
     // 6 类高风险动作审批绑定红线：quote 不可为 none/缺失（非法 → 42201）
     if (dto.approvalPolicy.quote !== 'always') {
-      throw new BizException(ErrorCode.BIZ_VALIDATION, '高风险动作（quote）必须绑定审批，不可设为 none');
+      throw new BizException(
+        ErrorCode.BIZ_VALIDATION,
+        '高风险动作（quote）必须绑定审批，不可设为 none',
+      );
     }
 
     return withOrg(this.db, ctx.orgId, async (tx) => {
       // 解析 SOP 模板（优先传入，否则取该角色预置），sopParams 合并进 org 级副本（is_preset=false）
       const source = await this.resolveSopTemplate(tx, ctx.orgId, role, dto.sopTemplateId);
+      // sopParams 键须为模板已定义参数（02 §3.2：未定义键 → 42201）
+      const definedKeys = new Set(Object.keys(source.content.advancedSettings ?? {}));
+      const unknownKeys = Object.keys(dto.sopParams ?? {}).filter((k) => !definedKeys.has(k));
+      if (unknownKeys.length > 0) {
+        throw new BizException(
+          ErrorCode.BIZ_VALIDATION,
+          `sopParams 含模板未定义的参数键: ${unknownKeys.join(', ')}`,
+        );
+      }
       const sopTemplateId = await this.copySopTemplate(tx, ctx.orgId, role, dto, source);
 
       const employeeId = createId('emp');
@@ -362,7 +369,10 @@ export class EmployeesService {
    * - 名下 scheduled 排队任务保持不动（员工空闲后由 Dispatcher 照常投递，属「暂停后新排期」，
    *   管理员可通过暂停时段内不派新任务 + 逐个任务处置来收口，MVP 不阻断队列语义）。
    */
-  async pause(ctx: OrgScopeContext, employeeId: string): Promise<{ employeeId: string; pausedTasks: number }> {
+  async pause(
+    ctx: OrgScopeContext,
+    employeeId: string,
+  ): Promise<{ employeeId: string; pausedTasks: number }> {
     this.assertManager(ctx);
     const now = new Date();
     const pausedTaskIds = await withOrg(this.db, ctx.orgId, async (tx) => {
@@ -377,7 +387,9 @@ export class EmployeesService {
         await tx
           .update(schema.aiEmployee)
           .set({ status: 'idle', statusDetail: null, updatedAt: now })
-          .where(and(eq(schema.aiEmployee.id, employeeId), eq(schema.aiEmployee.status, 'working')));
+          .where(
+            and(eq(schema.aiEmployee.id, employeeId), eq(schema.aiEmployee.status, 'working')),
+          );
         // 留痕（task_log_type 无 pause 取值，随额度耗尽 paused 先例用 error 语义记录中止）
         for (const row of rows) {
           await tx.insert(schema.aiTaskLog).values({
@@ -404,7 +416,10 @@ export class EmployeesService {
    * 02 §2/§3.4 恢复员工：名下全部 paused 任务 → scheduled（Dispatcher 按员工并发=1 依次投递续跑；
    * checkpointer 超步幂等保证 resume 不重发已完成的步骤/工具）。恢复仅改变任务排期，不触发审批。
    */
-  async resume(ctx: OrgScopeContext, employeeId: string): Promise<{ employeeId: string; resumedTasks: number }> {
+  async resume(
+    ctx: OrgScopeContext,
+    employeeId: string,
+  ): Promise<{ employeeId: string; resumedTasks: number }> {
     this.assertManager(ctx);
     const now = new Date();
     const resumed = await withOrg(this.db, ctx.orgId, async (tx) => {
@@ -508,9 +523,10 @@ export class EmployeesService {
   }
 
   /** 从预置 advancedSettings 派生 sopParams + sopParamDefs（02 §3.1 参数级微调） */
-  private deriveSopParams(
-    advancedSettings: Record<string, unknown> | undefined,
-  ): { sopParams: Record<string, string | number>; sopParamDefs: SopParamDef[] } {
+  private deriveSopParams(advancedSettings: Record<string, unknown> | undefined): {
+    sopParams: Record<string, string | number>;
+    sopParamDefs: SopParamDef[];
+  } {
     const sopParams: Record<string, string | number> = {};
     const sopParamDefs: SopParamDef[] = [];
     if (!advancedSettings) {

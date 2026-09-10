@@ -146,6 +146,15 @@ export class CustomersController {
     return this.customers.insights(this.ctx(req), customerId);
   }
 
+  /** B3 GET /customers/{id}/products 产品匹配列表（04 §1.5 Products 页签；产品目录未落地 → []） */
+  @Get(':id/products')
+  async listCustomerProducts(
+    @Param('id') customerId: string,
+    @Req() req: Request & { authUser?: AccessTokenPayload },
+  ) {
+    return this.customers.listCustomerProducts(this.ctx(req), customerId);
+  }
+
   /** B3 GET /customers/{id}/contacts 联系人列表 */
   @Get(':id/contacts')
   async listCustomerContacts(

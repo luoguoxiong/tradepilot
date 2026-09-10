@@ -1,4 +1,10 @@
-import type { CreateEmployeeReq, EmployeeCard, RoleTemplate } from '@/api/types/employees'
+import type {
+  CreateEmployeeReq,
+  EmployeeCard,
+  PauseEmployeeResp,
+  ResumeEmployeeResp,
+  RoleTemplate,
+} from '@/api/types/employees'
 import type { PageResp } from '@/api/types/common'
 import type { TaskItem } from '@/api/types/tasks'
 
@@ -24,5 +30,21 @@ export function getEmployeeTasks(employeeId: string) {
   return request<PageResp<TaskItem>>({
     url: `/ai-employees/${employeeId}/tasks`,
     method: 'GET',
+  })
+}
+
+/** POST /ai-employees/{id}/pause：暂停员工全部执行中任务（02 §3.4，仅 admin/manager） */
+export function pauseEmployee(employeeId: string) {
+  return request<PauseEmployeeResp>({
+    url: `/ai-employees/${employeeId}/pause`,
+    method: 'POST',
+  })
+}
+
+/** POST /ai-employees/{id}/resume：恢复员工（paused 任务重新排队续跑） */
+export function resumeEmployee(employeeId: string) {
+  return request<ResumeEmployeeResp>({
+    url: `/ai-employees/${employeeId}/resume`,
+    method: 'POST',
   })
 }

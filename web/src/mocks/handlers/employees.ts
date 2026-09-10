@@ -53,4 +53,29 @@ export const employeeHandlers = [
     refreshEmployeeCards()
     return ok({ employeeId: `emp_${mockEmployees.length}` })
   }),
+
+  // 02 §3.4 暂停员工全部执行中任务（仅 admin/manager）
+  http.post('/api/v1/ai-employees/:id/pause', async ({ params }) => {
+    await delay(LATENCY)
+    const { mockEmployees, refreshEmployeeCards } = await import('../data/business')
+    const emp = mockEmployees.find((e) => e.employeeId === params.id)
+    if (!emp) return fail(ErrorCode.NOT_FOUND, 'AI 员工不存在')
+    const pausedTasks = emp.currentTask ? 1 : 0
+    emp.status = 'idle'
+    emp.statusDetail = '已人工暂停'
+    emp.currentTask = null
+    refreshEmployeeCards()
+    return ok({ employeeId: emp.employeeId, pausedTasks })
+  }),
+
+  // 02 §3.4 恢复员工（paused 任务重新排队续跑）
+  http.post('/api/v1/ai-employees/:id/resume', async ({ params }) => {
+    await delay(LATENCY)
+    const { mockEmployees, refreshEmployeeCards } = await import('../data/business')
+    const emp = mockEmployees.find((e) => e.employeeId === params.id)
+    if (!emp) return fail(ErrorCode.NOT_FOUND, 'AI 员工不存在')
+    delete emp.statusDetail
+    refreshEmployeeCards()
+    return ok({ employeeId: emp.employeeId, resumedTasks: 0 })
+  }),
 ]

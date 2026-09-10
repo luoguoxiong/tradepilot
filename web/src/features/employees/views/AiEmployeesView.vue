@@ -3,12 +3,18 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
+import { ElMessage } from 'element-plus'
 
 import AiStatusTag from '@/components/business/AiStatusTag.vue'
 import EmptyState from '@/components/business/EmptyState.vue'
 import TaskWorkspace from '@/features/lead-gen/components/TaskWorkspace.vue'
 import EmployeeCreateWizard from '@/features/employees/components/EmployeeCreateWizard.vue'
-import { getEmployeeRoles, getEmployees } from '@/api/resources/employees'
+import {
+  getEmployeeRoles,
+  getEmployees,
+  pauseEmployee,
+  resumeEmployee,
+} from '@/api/resources/employees'
 import type { EmployeeCard } from '@/api/types/employees'
 import { staleTime } from '@/query/options'
 import { qk } from '@/query/keys'
@@ -80,6 +86,35 @@ function onCreated() {
 function enterWorkspace(card: EmployeeCard) {
   if (!card.workspacePath) return
   void router.push(card.workspacePath)
+}
+
+// ===== 暂停 / 恢复（02 §3.4，仅 admin/manager） =====
+const busyEmployeeId = ref<string | null>(null)
+
+/** 有执行中任务 → 展示「暂停」；否则展示「恢复」（后端幂等，返回 0 亦安全） */
+const isWorking = (card: EmployeeCard) =>
+  card.status === 'working' || card.currentTask?.status === 'running'
+
+async function onPause(card: EmployeeCard) {
+  busyEmployeeId.value = card.employeeId
+  try {
+    const { pausedTasks } = await pauseEmployee(card.employeeId)
+    ElMessage.success(t('employees.pauseDone', { n: pausedTasks }))
+    await queryClient.invalidateQueries({ queryKey: qk.employees.all })
+  } finally {
+    busyEmployeeId.value = null
+  }
+}
+
+async function onResume(card: EmployeeCard) {
+  busyEmployeeId.value = card.employeeId
+  try {
+    const { resumedTasks } = await resumeEmployee(card.employeeId)
+    ElMessage.success(t('employees.resumeDone', { n: resumedTasks }))
+    await queryClient.invalidateQueries({ queryKey: qk.employees.all })
+  } finally {
+    busyEmployeeId.value = null
+  }
 }
 </script>
 
@@ -160,6 +195,28 @@ function enterWorkspace(card: EmployeeCard) {
           </div>
 
           <div class="ai-employees__card-footer">
+            <template v-if="canManage">
+              <el-button
+                v-if="isWorking(card)"
+                link
+                type="warning"
+                size="small"
+                :loading="busyEmployeeId === card.employeeId"
+                @click="onPause(card)"
+              >
+                {{ t('employees.pause') }}
+              </el-button>
+              <el-button
+                v-else
+                link
+                type="primary"
+                size="small"
+                :loading="busyEmployeeId === card.employeeId"
+                @click="onResume(card)"
+              >
+                {{ t('employees.resume') }}
+              </el-button>
+            </template>
             <el-tooltip
               :content="t('employees.comingSoonTip')"
               :disabled="Boolean(card.workspacePath)"
@@ -337,7 +394,9 @@ function enterWorkspace(card: EmployeeCard) {
 
   &__card-footer {
     display: flex;
+    align-items: center;
     justify-content: flex-end;
+    gap: 8px;
   }
 }
 </style>

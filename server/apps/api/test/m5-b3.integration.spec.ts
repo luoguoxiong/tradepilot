@@ -198,6 +198,8 @@ afterAll(async () => {
       await tx.delete(schema.approvalLog).where(eq(schema.approvalLog.orgId, orgId));
       await tx.delete(schema.approvalRequest).where(eq(schema.approvalRequest.orgId, orgId));
       await tx.delete(schema.llmCall).where(eq(schema.llmCall.orgId, orgId));
+      // customer_insight.task_id → ai_task FK：须先于 ai_task 清理
+      await tx.delete(schema.customerInsight).where(eq(schema.customerInsight.orgId, orgId));
       await tx.delete(schema.aiTaskLog).where(eq(schema.aiTaskLog.orgId, orgId));
       await tx.delete(schema.aiTaskStep).where(eq(schema.aiTaskStep.orgId, orgId));
       await tx.delete(schema.aiTask).where(eq(schema.aiTask.orgId, orgId));
@@ -212,7 +214,6 @@ afterAll(async () => {
         .where(eq(schema.conversationInsight.orgId, orgId));
       await tx.delete(schema.message).where(eq(schema.message.orgId, orgId));
       await tx.delete(schema.conversation).where(eq(schema.conversation.orgId, orgId));
-      await tx.delete(schema.customerInsight).where(eq(schema.customerInsight.orgId, orgId));
       await tx.delete(schema.customerActivity).where(eq(schema.customerActivity.orgId, orgId));
       await tx.delete(schema.contact).where(eq(schema.contact.orgId, orgId));
       await tx
@@ -283,17 +284,28 @@ describe('M5-B3-2 · POST /customers/{id}/analyze', () => {
 // ============================== B3-3 insights ==============================
 
 describe('M5-B3-3 · GET /customers/{id}/insights AI 客户洞察', () => {
-  it('返回客户洞察列表', async () => {
+  it('返回 Insight Schema 洞察（purchaseProbability + nextAction，04 §3.2）', async () => {
     const customers = (globalThis as Record<string, unknown>).__customers as CustomersService;
     const result = await customers.insights(adminCtx, customerId);
-    expect(result.length).toBeGreaterThanOrEqual(1);
-    const insight = result.find((i) => i.insightType === 'purchase_probability');
-    expect(insight).toBeDefined();
-    expect(Number(insight!.value)).toBe(92);
-    expect(Number(insight!.confidence)).toBeCloseTo(0.88);
-    expect(insight!.reasons.length).toBeGreaterThanOrEqual(1);
-    expect(insight!.nextAction).toBeDefined();
-    expect(insight!.nextAction!.type).toBe('contact_decision_maker');
+    expect(result.purchaseProbability).not.toBeNull();
+    expect(result.purchaseProbability!.value).toBe(92);
+    expect(result.purchaseProbability!.confidence).toBeCloseTo(0.88);
+    expect(result.purchaseProbability!.reasons.length).toBeGreaterThanOrEqual(1);
+    expect(result.purchaseProbability!.generatedAt).toBeTruthy();
+    expect(result.nextAction).toBeDefined();
+    expect(result.nextAction!.type).toBe('contact_decision_maker');
+    expect(result.nextAction!.targetId).toBeTruthy();
+  });
+
+  it('无分析数据 → purchaseProbability/nextAction 双 null（前端引导重新分析）', async () => {
+    const customers = (globalThis as Record<string, unknown>).__customers as CustomersService;
+    const created = await customers.create(adminCtx, {
+      companyName: `B3 无洞察客户 ${Date.now()}`,
+      country: 'US',
+    });
+    const result = await customers.insights(adminCtx, created.customerId);
+    expect(result.purchaseProbability).toBeNull();
+    expect(result.nextAction).toBeNull();
   });
 });
 
@@ -304,6 +316,8 @@ describe('M5-B3-4 · GET /customers/{id}/contacts 联系人列表', () => {
     const customers = (globalThis as Record<string, unknown>).__customers as CustomersService;
     const result = await customers.listCustomerContacts(adminCtx, customerId, 1, 10);
     expect(result.items.length).toBeGreaterThanOrEqual(1);
+    expect(result.items[0]!.customerId).toBe(customerId);
+    expect(result.items[0]!.companyName).toBeTruthy();
     expect(result.items[0]!.name).toBe('John Doe');
     expect(result.items[0]!.title).toBe('Purchasing Manager');
     expect(result.items[0]!.email).toBe('john@b3testcorp.com');

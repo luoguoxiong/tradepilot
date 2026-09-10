@@ -11,7 +11,13 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, ilike, inArray, sql, type SQL } from 'drizzle-orm';
 import { BizException, ErrorCode, createId } from '@tradepilot/core';
 import { schema, withOrg, type Db, type Tx } from '@tradepilot/db';
+import { LlmGateway } from '@tradepilot/runtime';
+import { z } from 'zod';
+import type { Logger } from 'pino';
+import pino from 'pino';
 import { DB } from '../db/db.module.js';
+import { EnvService } from '../config/env.service.js';
+import { PINO_ROOT } from '../common/logger/logger.factory.js';
 import { TasksService } from '../tasks/tasks.service.js';
 import { CustomersService } from '../customers/customers.service.js';
 import type {
@@ -38,17 +44,56 @@ export interface LeadHunterSummary {
   } | null;
 }
 
+/** 目标文本结构化解析结果（03 §1.3）：parse / lead-tasks 共用 4 字段口径 */
+export interface ParsedGoal {
+  targetMarket: string;
+  customerType: string;
+  targetProduct: string;
+  companySize?: string;
+}
+
 export interface ParseResult {
-  parsed: {
-    targetMarket: string;
-    customerType: string;
-    targetProduct: string;
-    companySize?: string;
-  };
+  parsed: ParsedGoal;
   optimizedGoal: string;
   confidence: number;
   reasons: { text: string }[];
 }
+
+/**
+ * lead-tasks/parse 的 LLM 场景/节点（05 §6.2：ai_model_setting.scene 命中→默认兜底）。
+ * 与工作流 `parse_goal` 节点同场景 `lead_hunting`，便于 org 级模型配置统一生效。
+ */
+const LEAD_PARSE_SCENE = 'lead_hunting';
+const LEAD_PARSE_NODE = 'lead_task_parse';
+
+/**
+ * 结构化输出契约（与 workflows `parsedGoalSchema` 同构扩展优化目标/置信度/理由；
+ * 项目硬约束：契约一律 .strict()，未知键触发重试回喂而非静默剥离）。
+ * parsed 四要素允许空串（缺失留空），由服务端逐项回落规则解析。
+ */
+const leadParseOutputSchema = z
+  .object({
+    targetMarket: z.string(),
+    customerType: z.string(),
+    targetProduct: z.string(),
+    companySize: z.string().optional(),
+    optimizedGoal: z.string().min(1),
+    confidence: z.number().min(0).max(1),
+    reasons: z.array(z.object({ text: z.string().min(1) })).min(1),
+  })
+  .strict();
+
+/**
+ * 国家/地区关键词 → 规范市场码（规则解析兜底 + LLM 结果归一化共用）。
+ * 下游 `plan_search` 直接消费 targetMarket，须保证同一文本得到确定性市场码。
+ */
+const COUNTRY_MAP: ReadonlyArray<{ pattern: string; value: string }> = [
+  { pattern: '美国|USA|US|America|北美', value: 'USA' },
+  { pattern: '德国|Germany|DE|欧洲', value: 'Germany' },
+  { pattern: '日本|Japan|JP', value: 'Japan' },
+  { pattern: '英国|UK|Britain|England', value: 'UK' },
+  { pattern: '法国|France|FR', value: 'France' },
+];
 
 export interface LeadItem {
   leadId: string;
@@ -117,11 +162,34 @@ export interface AddToCrmResult {
 
 @Injectable()
 export class LeadsService {
+  private readonly log: Logger;
+  private gateway: LlmGateway | null = null;
+
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(TasksService) private readonly tasks: TasksService,
     @Inject(CustomersService) private readonly customers: CustomersService,
-  ) {}
+    @Inject(EnvService) private readonly env?: EnvService,
+    @Inject(PINO_ROOT) private readonly logger?: Logger,
+  ) {
+    this.log = this.logger ?? pino({ level: 'silent' });
+  }
+
+  /**
+   * LlmGateway（懒装配，与 06 会话服务同口径）：
+   * 优先使用 org 在「系统设置 → AI 模型配置」选用的大语言模型（含凭据解密）；
+   * 未配置的 org 回落 mock provider（确定性占位产出，仅保证链路可测，不参与业务语义）。
+   */
+  private get llm(): LlmGateway {
+    this.gateway ??= new LlmGateway(this.db, this.log, {
+      provider: 'mock',
+      defaultModel: 'mock-1',
+      ...(this.env?.env.ENCRYPTION_KEY !== undefined && {
+        encryptionKey: this.env.env.ENCRYPTION_KEY,
+      }),
+    });
+    return this.gateway;
+  }
 
   /** B2 §1 工作台头部：员工状态 + 今日产出 + 当前任务 */
   async summary(ctx: OrgScopeContext): Promise<LeadHunterSummary> {
@@ -232,18 +300,81 @@ export class LeadsService {
     });
   }
 
-  /** B2 §2 AI 解析目标文本 → 结构化字段 */
+  /**
+   * B2 §2 AI 解析目标文本 → 结构化字段。
+   *
+   * 主路径：LlmGateway.structured（scene=lead_hunting，与工作流 parse_goal 同场景）
+   * 产出结构化条件 + 优化目标 + 置信度/理由；
+   * 规则解析（simpleParse）作为确定性兜底：LLM 字段缺失时逐项回落，并归一化市场码；
+   * mock provider（org 未配置真实模型）只产出确定性占位文案、无业务语义 → 直接走规则，
+   * 避免 `mock-*` 占位值外泄到前端表单；解析异常同样回落规则，接口不因 LLM 故障失败。
+   */
   async parse(ctx: OrgScopeContext, dto: ParseLeadTaskDto): Promise<ParseResult> {
-    // MVP: 基于规则简单解析，后续可接 LLM
     const text = dto.goalText;
-    const parsed = this.simpleParse(text);
-    const optimizedGoal = `寻找${parsed.targetMarket}的${parsed.customerType}，匹配${parsed.targetProduct}产品线`;
+    const rule = this.simpleParse(text);
+
+    try {
+      const target = await this.llm.resolveTarget(ctx.orgId, LEAD_PARSE_SCENE);
+      if (target.provider === 'mock') {
+        return this.buildRuleParseResult(rule);
+      }
+
+      const { data } = await this.llm.structured(
+        { orgId: ctx.orgId, node: LEAD_PARSE_NODE, scene: LEAD_PARSE_SCENE },
+        leadParseOutputSchema,
+        {
+          system:
+            '你是外贸获客专员。把用户的一段自然语言获客目标解析为结构化条件，只提取明确给出的字段，缺失字段置空字符串；不得脑补未提及的信息。' +
+            '同时输出优化后的获客目标（中文，可直接作为搜索依据）与解析置信度。',
+          user:
+            `获客目标：\n${text}\n\n` +
+            '请输出 JSON：{ targetMarket, customerType, targetProduct, companySize?, optimizedGoal, confidence(0-1), reasons: [{ text }] }。' +
+            'targetMarket 使用规范国家/地区名（如 USA、Germany）。',
+        },
+      );
+
+      const companySize = data.companySize?.trim() || rule.companySize;
+      const parsed: ParsedGoal = {
+        // 市场码须确定性（下游 plan_search 直接消费），显式国家关键词优先于 LLM 表述
+        targetMarket: this.normalizeMarket(text, data.targetMarket.trim() || rule.targetMarket),
+        customerType: data.customerType.trim() || rule.customerType,
+        targetProduct: data.targetProduct.trim() || rule.targetProduct,
+        ...(companySize ? { companySize } : {}),
+      };
+      return {
+        parsed,
+        optimizedGoal: data.optimizedGoal.trim() || this.buildOptimizedGoal(parsed),
+        confidence: data.confidence,
+        reasons: data.reasons.map((r) => ({ text: r.text })),
+      };
+    } catch (err) {
+      this.log.warn(
+        { orgId: ctx.orgId, err: err instanceof Error ? err.message : String(err) },
+        'lead-tasks/parse LLM 解析失败，回落规则解析',
+      );
+      return this.buildRuleParseResult(rule);
+    }
+  }
+
+  /** 规则解析结果 → ParseResult（LLM 不可用/失败时的确定性输出） */
+  private buildRuleParseResult(rule: ParsedGoal): ParseResult {
     return {
-      parsed,
-      optimizedGoal,
+      parsed: rule,
+      optimizedGoal: this.buildOptimizedGoal(rule),
       confidence: 0.85,
       reasons: [{ text: '从目标文本中提取到市场/客户类型/产品三要素' }],
     };
+  }
+
+  private buildOptimizedGoal(parsed: ParsedGoal): string {
+    return `寻找${parsed.targetMarket}的${parsed.customerType}，匹配${parsed.targetProduct}产品线`;
+  }
+
+  /** 显式国家/地区关键词 → 规范市场码；未命中则回落到 LLM/规则给出的值 */
+  private normalizeMarket(text: string, fallback: string): string {
+    return (
+      COUNTRY_MAP.find((entry) => new RegExp(entry.pattern, 'i').test(text))?.value ?? fallback
+    );
   }
 
   /** B2 §3 创建获客任务（复用 tasks 模块 lead_hunting） */
@@ -656,27 +787,15 @@ export class LeadsService {
     return { leadId, customerId, customerName, mapped: !created };
   }
 
-  /** 简单规则解析（MVP 暂替 LLM） */
-  private simpleParse(text: string): {
-    targetMarket: string;
-    customerType: string;
-    targetProduct: string;
-    companySize?: string;
-  } {
+  /** 规则解析：LLM 不可用时的确定性兜底（含中文模式抽取，缺失字段给保守默认值） */
+  private simpleParse(text: string): ParsedGoal {
     let targetMarket = 'Global';
     let customerType = 'Company';
     let targetProduct = text;
     let companySize: string | undefined;
 
     // 国家关键词
-    const countryMap: Array<{ pattern: string; value: string }> = [
-      { pattern: '美国|USA|US|America|北美', value: 'USA' },
-      { pattern: '德国|Germany|DE|欧洲', value: 'Germany' },
-      { pattern: '日本|Japan|JP', value: 'Japan' },
-      { pattern: '英国|UK|Britain|England', value: 'UK' },
-      { pattern: '法国|France|FR', value: 'France' },
-    ];
-    for (const entry of countryMap) {
+    for (const entry of COUNTRY_MAP) {
       if (new RegExp(entry.pattern, 'i').test(text)) {
         targetMarket = entry.value;
         break;

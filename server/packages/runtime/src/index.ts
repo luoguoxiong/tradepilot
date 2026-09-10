@@ -34,6 +34,14 @@ export {
   type StructuredResult,
 } from './llm-gateway.js';
 export {
+  resolveActiveModel,
+  toEmbeddingProviderConfig,
+  type ActiveModelConfig,
+  type AiModelKind,
+  type EmbeddingFallbackOptions,
+  type EmbeddingProviderConfig,
+} from './model-config.js';
+export {
   APPROVAL_TTL_MS,
   ApprovalGate,
   type GateToolMeta,

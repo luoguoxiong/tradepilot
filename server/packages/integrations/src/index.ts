@@ -31,13 +31,19 @@ export type {
 export {
   createEmbeddingProvider,
   configureEmbedding,
+  setEmbeddingProviderFactory,
   getEmbeddingProvider,
   mockEmbed,
   MockEmbeddingProvider,
   OpenAiEmbeddingProvider,
   MOCK_EMBEDDING_DIMENSIONS,
+  KNOWLEDGE_EMBEDDING_DIMENSIONS,
 } from './embedding/index.js';
-export type { EmbeddingProvider, EmbeddingOptions } from './embedding/index.js';
+export type {
+  EmbeddingProvider,
+  EmbeddingProviderFactory,
+  EmbeddingOptions,
+} from './embedding/index.js';
 export {
   createS3Storage,
   configureObjectStorage,

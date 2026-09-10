@@ -1,5 +1,5 @@
 import type { Member, OrgProfile } from '@/api/types/org'
-import type { Mailbox, RolePermissions } from '@/api/types/settings'
+import type { AiModel, Mailbox, RolePermissions } from '@/api/types/settings'
 
 /**
  * mock 内存态（06 §5.3）：与接口文档 schema 同构，MSW handler 与单测复用。
@@ -120,6 +120,55 @@ export const mockNotificationSettings = {
     task_failed: { site: true, email: false },
   },
 }
+
+/** AI 模型台账（16 FR-10 扩展）：每 type 至多一个 isSelected */
+export const mockAiModels: AiModel[] = [
+  {
+    id: 'aim-1',
+    type: 'llm',
+    name: 'GPT-4o',
+    provider: 'openai',
+    model: 'gpt-4o',
+    baseUrl: null,
+    dimensions: null,
+    temperature: '0.70',
+    maxTokens: 4096,
+    hasApiKey: true,
+    isSelected: true,
+    createdAt: '2026-08-01T02:00:00Z',
+    updatedAt: '2026-08-01T02:00:00Z',
+  },
+  {
+    id: 'aim-2',
+    type: 'llm',
+    name: 'Claude Sonnet',
+    provider: 'anthropic',
+    model: 'claude-3-5-sonnet',
+    baseUrl: null,
+    dimensions: null,
+    temperature: '0.30',
+    maxTokens: 8192,
+    hasApiKey: true,
+    isSelected: false,
+    createdAt: '2026-08-05T02:00:00Z',
+    updatedAt: '2026-08-05T02:00:00Z',
+  },
+  {
+    id: 'aim-3',
+    type: 'embedding',
+    name: 'Text Embedding 3 Small',
+    provider: 'openai',
+    model: 'text-embedding-3-small',
+    baseUrl: null,
+    dimensions: 1536,
+    temperature: '0.70',
+    maxTokens: null,
+    hasApiKey: true,
+    isSelected: true,
+    createdAt: '2026-08-01T02:00:00Z',
+    updatedAt: '2026-08-01T02:00:00Z',
+  },
+]
 
 let seq = 100
 export function nextId(prefix: string): string {

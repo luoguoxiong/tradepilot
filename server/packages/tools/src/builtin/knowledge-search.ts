@@ -61,10 +61,12 @@ export async function searchKnowledgeChunks(
     ? params.categories
     : sceneCategories(params.scene ?? null);
 
-  // query 嵌入（向量路）；嵌入服务异常降级为「全文+相似」两路（检索可用性优先）
+  // query 嵌入（向量路）；按 org 选用模型解析（16 FR-10 扩展），
+  // 嵌入服务异常降级为「全文+相似」两路（检索可用性优先）
   let vecLiteral: string | null = null;
   try {
-    const [vec] = await getEmbeddingProvider().embed([params.query]);
+    const embedding = await getEmbeddingProvider(orgId);
+    const [vec] = await embedding.embed([params.query]);
     if (vec?.length) {
       vecLiteral = `[${vec.join(',')}]`;
     }

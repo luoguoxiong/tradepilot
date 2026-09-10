@@ -183,6 +183,9 @@ export const memberStatus = pgEnum('member_status', ['active', 'disabled', 'invi
 export const mailboxProvider = pgEnum('mailbox_provider', ['gmail', 'outlook', 'smtp_imap']);
 export const mailboxStatus = pgEnum('mailbox_status', ['connected', 'error', 'disconnected']);
 
+// AI 模型配置（16 FR-10 扩展）：普通大模型 / 向量化（Embedding）模型
+export const aiModelType = pgEnum('ai_model_type', ['llm', 'embedding']);
+
 // 经理与报告
 export const discoveryType = pgEnum('discovery_type', ['opportunity', 'risk']);
 export const reportPeriod = pgEnum('report_period', ['daily', 'weekly', 'monthly']);

@@ -153,7 +153,7 @@ export const appRoutes: RouteRecordRaw[] = [
           {
             path: 'ai-models',
             name: 'settings-ai-models',
-            component: () => import('@/features/settings/views/SettingsPlaceholderView.vue'),
+            component: () => import('@/features/settings/views/AiModelsView.vue'),
             meta: { title: 'settings.aiModels' },
           },
           {

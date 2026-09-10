@@ -41,6 +41,9 @@ export const qk = {
   /** 邮箱连接（16；inbox 来源筛选下拉） */
   mailboxes: ['settings', 'mailboxes'] as const,
 
+  /** AI 模型台账与选用（16 FR-10 扩展） */
+  aiModels: ['settings', 'ai-models'] as const,
+
   /** 联系人（05 §2，独立资源：页签列表/删除） */
   contacts: {
     all: ['contacts'] as const,

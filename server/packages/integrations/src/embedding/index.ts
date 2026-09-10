@@ -19,11 +19,19 @@ export interface EmbeddingOptions {
   baseUrl: string;
   apiKey: string;
   model: string;
+  /** 真实 provider 返回的向量维度（须与 knowledge_chunk.embedding 一致） */
+  dimensions?: number;
   /** mock 维度（对齐 ER 06 vector(1536)） */
   mockDimensions?: number;
 }
 
 export const MOCK_EMBEDDING_DIMENSIONS = 1536;
+
+/**
+ * 知识索引向量维度硬约束：`knowledge_chunk.embedding` 为 `vector(1536)`（ER 06），
+ * 选用的 embedding 模型维度必须一致，否则入库时报维度不匹配。
+ */
+export const KNOWLEDGE_EMBEDDING_DIMENSIONS = 1536;
 
 /**
  * mock 确定性向量：文本 sha256 派生种子 → 分桶伪随机 + L2 归一。
@@ -70,7 +78,12 @@ export class OpenAiEmbeddingProvider implements EmbeddingProvider {
   readonly model: string;
 
   constructor(
-    private readonly options: { baseUrl: string; apiKey: string; model: string; dimensions?: number },
+    private readonly options: {
+      baseUrl: string;
+      apiKey: string;
+      model: string;
+      dimensions?: number;
+    },
   ) {
     this.model = options.model;
     this.dimensions = options.dimensions ?? 1536;
@@ -108,22 +121,38 @@ export function createEmbeddingProvider(options: EmbeddingOptions): EmbeddingPro
       baseUrl: options.baseUrl,
       apiKey: options.apiKey,
       model: options.model,
+      dimensions: options.dimensions,
     });
   }
   return new MockEmbeddingProvider(options.mockDimensions);
 }
 
-// ===== 进程级注入（api/worker 启动时一次；未注入默认 mock）=====
+// ===== 进程级注入（api/worker 启动时一次）=====
+// 16 FR-10 扩展后为「按 org 解析」：工厂可读库拿到 org 选用的 embedding 模型（api/worker 侧装配），
+// 未注册工厂时回落到 mock。configureEmbedding 保留为静态注册（单测/离线演练）。
 
-let configured: EmbeddingProvider | null = null;
+/** org → provider 工厂（异步：需读该 org 的 AI 模型选用配置） */
+export type EmbeddingProviderFactory = (
+  orgId?: string,
+) => EmbeddingProvider | Promise<EmbeddingProvider>;
 
-export function configureEmbedding(provider: EmbeddingProvider): void {
-  configured = provider;
+let factory: EmbeddingProviderFactory | null = null;
+let defaultProvider: EmbeddingProvider | null = null;
+
+/** 注册 org 级解析工厂（api/worker 启动时一次） */
+export function setEmbeddingProviderFactory(next: EmbeddingProviderFactory): void {
+  factory = next;
 }
 
-export function getEmbeddingProvider(): EmbeddingProvider {
-  if (!configured) {
-    configured = new MockEmbeddingProvider();
+/** 静态注册（忽略 orgId）：等价于固定 provider，单测与离线演练使用 */
+export function configureEmbedding(provider: EmbeddingProvider): void {
+  factory = () => provider;
+}
+
+export async function getEmbeddingProvider(orgId?: string): Promise<EmbeddingProvider> {
+  if (factory) {
+    return await factory(orgId);
   }
-  return configured;
+  defaultProvider ??= new MockEmbeddingProvider();
+  return defaultProvider;
 }

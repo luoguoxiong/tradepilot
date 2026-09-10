@@ -2,16 +2,27 @@ import { http, delay } from 'msw'
 
 import { ErrorCode } from '@/api/error-codes'
 import type {
+  AiModel,
+  AiModelCatalog,
+  CreateAiModelReq,
   CreateMailboxReq,
   Mailbox,
   MailboxTestResult,
   NotificationSettings,
   RolePermissions,
+  SelectAiModelReq,
+  UpdateAiModelReq,
 } from '@/api/types/settings'
-import { MANDATORY_APPROVAL_TYPES } from '@/api/types/settings'
+import { KNOWLEDGE_EMBEDDING_DIMENSIONS, MANDATORY_APPROVAL_TYPES } from '@/api/types/settings'
 import type { Role } from '@/api/types/common'
 
-import { mockMailboxes, mockNotificationSettings, mockRolePermissions, nextId } from '../data/db'
+import {
+  mockAiModels,
+  mockMailboxes,
+  mockNotificationSettings,
+  mockRolePermissions,
+  nextId,
+} from '../data/db'
 import { LATENCY, fail, ok, readJson } from '../utils'
 
 /** 响应剥除明文凭据（16 接口文档 §3.3：永不回显） */
@@ -21,6 +32,27 @@ function sanitize(mailbox: Mailbox): Mailbox {
     imap: mailbox.imap ? { ...mailbox.imap } : undefined,
     smtp: mailbox.smtp ? { ...mailbox.smtp } : undefined,
   }
+}
+
+/** 组装 AI 模型台账响应（含各类型选中项），副本返回避免外部改动内存态 */
+function aiModelCatalog(): AiModelCatalog {
+  const selection: AiModelCatalog['selection'] = { llm: null, embedding: null }
+  for (const model of mockAiModels) {
+    if (model.isSelected) selection[model.type] = model.id
+  }
+  return { models: mockAiModels.map((m) => ({ ...m })), selection }
+}
+
+/** embedding 可用性校验（与后端 ai-models.service 同口径），返回错误文案或 null */
+function validateEmbedding(provider: string, dimensions: number | null): string | null {
+  if (provider !== 'mock' && provider !== 'openai') {
+    return '向量模型仅支持 mock / openai 提供方'
+  }
+  if (dimensions === null) return '向量模型需指定向量维度'
+  if (dimensions !== KNOWLEDGE_EMBEDDING_DIMENSIONS) {
+    return `向量维度需为 ${KNOWLEDGE_EMBEDDING_DIMENSIONS}（与知识索引一致）`
+  }
+  return null
 }
 
 export const settingsHandlers = [
@@ -116,5 +148,107 @@ export const settingsHandlers = [
     if (!body.events) return fail(ErrorCode.BAD_REQUEST, 'events 必填')
     Object.assign(mockNotificationSettings.events, body.events)
     return ok(mockNotificationSettings)
+  }),
+
+  // ===== AI 模型配置（16 FR-10 扩展）=====
+  http.get('/api/v1/settings/ai-models/catalog', async () => {
+    await delay(LATENCY)
+    return ok(aiModelCatalog())
+  }),
+
+  http.post('/api/v1/settings/ai-models/catalog', async ({ request }) => {
+    await delay(LATENCY)
+    const body = await readJson<CreateAiModelReq>(request)
+    if (!body.type || !body.name || !body.provider || !body.model) {
+      return fail(ErrorCode.BAD_REQUEST, '类型、名称、提供方与模型标识必填')
+    }
+    if (body.type === 'embedding') {
+      const invalid = validateEmbedding(body.provider, body.dimensions ?? null)
+      if (invalid) return fail(ErrorCode.BIZ_VALIDATION, invalid)
+    }
+    if (mockAiModels.some((m) => m.type === body.type && m.name === body.name)) {
+      return fail(ErrorCode.CONFLICT, '同名模型已存在')
+    }
+    const now = new Date().toISOString()
+    const model: AiModel = {
+      id: nextId('aim'),
+      type: body.type,
+      name: body.name,
+      provider: body.provider,
+      model: body.model,
+      baseUrl: body.baseUrl ?? null,
+      dimensions: body.type === 'embedding' ? (body.dimensions ?? null) : null,
+      temperature: (body.temperature ?? 0.7).toFixed(2),
+      maxTokens: body.type === 'llm' ? (body.maxTokens ?? null) : null,
+      hasApiKey: Boolean(body.apiKey),
+      // 该类型首个模型创建即选中
+      isSelected: !mockAiModels.some((m) => m.type === body.type),
+      createdAt: now,
+      updatedAt: now,
+    }
+    mockAiModels.push(model)
+    return ok({ ...model })
+  }),
+
+  // 静态段 selection 需先于 :id 注册，避免被动态参数吞掉
+  http.put('/api/v1/settings/ai-models/catalog/selection', async ({ request }) => {
+    await delay(LATENCY)
+    const body = await readJson<SelectAiModelReq>(request)
+    if (!body.type) return fail(ErrorCode.BAD_REQUEST, 'type 必填')
+    if (body.modelId !== null) {
+      const target = mockAiModels.find((m) => m.id === body.modelId)
+      if (!target) return fail(ErrorCode.NOT_FOUND, '模型不存在')
+      if (target.type !== body.type) return fail(ErrorCode.BIZ_VALIDATION, '模型类型不匹配')
+    }
+    for (const model of mockAiModels) {
+      if (model.type === body.type) model.isSelected = model.id === body.modelId
+    }
+    return ok(aiModelCatalog())
+  }),
+
+  http.put('/api/v1/settings/ai-models/catalog/:id', async ({ request, params }) => {
+    await delay(LATENCY)
+    const model = mockAiModels.find((m) => m.id === params.id)
+    if (!model) return fail(ErrorCode.NOT_FOUND, '模型不存在')
+    const body = await readJson<UpdateAiModelReq>(request)
+    if (
+      body.name &&
+      body.name !== model.name &&
+      mockAiModels.some((m) => m.type === model.type && m.name === body.name)
+    ) {
+      return fail(ErrorCode.CONFLICT, '同名模型已存在')
+    }
+    if (model.type === 'embedding') {
+      // 合并后校验：与后端口径一致
+      const invalid = validateEmbedding(
+        body.provider ?? model.provider,
+        body.dimensions ?? model.dimensions,
+      )
+      if (invalid) return fail(ErrorCode.BIZ_VALIDATION, invalid)
+    }
+    if (body.name !== undefined) model.name = body.name
+    if (body.provider !== undefined) model.provider = body.provider
+    if (body.model !== undefined) model.model = body.model
+    if (body.baseUrl !== undefined) model.baseUrl = body.baseUrl
+    if (body.apiKey !== undefined) model.hasApiKey = true
+    if (body.dimensions !== undefined) model.dimensions = body.dimensions
+    if (body.temperature !== undefined) model.temperature = body.temperature.toFixed(2)
+    if (body.maxTokens !== undefined) model.maxTokens = body.maxTokens
+    model.updatedAt = new Date().toISOString()
+    return ok({ ...model })
+  }),
+
+  http.delete('/api/v1/settings/ai-models/catalog/:id', async ({ params }) => {
+    await delay(LATENCY)
+    const index = mockAiModels.findIndex((m) => m.id === params.id)
+    if (index === -1) return fail(ErrorCode.NOT_FOUND, '模型不存在')
+    const removed = mockAiModels[index]
+    mockAiModels.splice(index, 1)
+    // 删除生效模型 → 回退该类型首个剩余模型
+    if (removed?.isSelected) {
+      const fallback = mockAiModels.find((m) => m.type === removed.type)
+      if (fallback) fallback.isSelected = true
+    }
+    return ok(null)
   }),
 ]

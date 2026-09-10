@@ -141,11 +141,19 @@ export class ConversationsService {
     this.log = this.logger ?? pino({ level: 'silent' });
   }
 
-  /** LlmGateway（懒装配：API 未接 LLM 场景配置，mock provider 确定性产出，测试/演练可用） */
+  /**
+   * LlmGateway（懒装配）：
+   * 16 FR-10 扩展后优先使用 org 在「系统设置 → AI 模型配置」选用的大语言模型
+   * （含凭据解密，encryptionKey 缺省则该 org 台账凭据不可用）；
+   * 未配置的 org 回落 mock provider 确定性产出，测试/演练可用。
+   */
   private get llm(): LlmGateway {
     this.gateway ??= new LlmGateway(this.db, this.log, {
       provider: 'mock',
       defaultModel: 'mock-1',
+      ...(this.env?.env.ENCRYPTION_KEY !== undefined && {
+        encryptionKey: this.env.env.ENCRYPTION_KEY,
+      }),
     });
     return this.gateway;
   }

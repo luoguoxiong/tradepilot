@@ -19,7 +19,7 @@ const NAV = [
   { path: '/settings/ai-employees', titleKey: 'settings.aiEmployees' },
   { path: '/settings/crm-integration', titleKey: 'settings.crmIntegration', p1: true },
   { path: '/settings/pricing-rules', titleKey: 'settings.pricingRules', p1: true },
-  { path: '/settings/ai-models', titleKey: 'settings.aiModels', p1: true },
+  { path: '/settings/ai-models', titleKey: 'settings.aiModels' },
   { path: '/settings/api-keys', titleKey: 'settings.apiKeys', p1: true },
 ]
 

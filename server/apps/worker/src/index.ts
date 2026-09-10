@@ -8,16 +8,18 @@ import {
   TaskEventPublisher,
   TaskRunner,
   createCheckpointer,
+  resolveActiveModel,
+  toEmbeddingProviderConfig,
 } from '@tradepilot/runtime';
 import { createToolRegistry, configureEmailSend, configureOrgSearchQuota } from '@tradepilot/tools';
 import type { MailboxDriverOptions } from '@tradepilot/integrations';
 import {
-  configureEmbedding,
   configureObjectStorage,
   configureSearchProvider,
   createEmbeddingProvider,
   createS3Storage,
   createSearchProvider,
+  setEmbeddingProviderFactory,
 } from '@tradepilot/integrations';
 import {
   createFlowRegistry,
@@ -69,6 +71,8 @@ async function bootstrap(): Promise<void> {
   const gateway = new LlmGateway(db, logger, {
     provider: 'mock',
     defaultModel: 'mock-1',
+    // 16 FR-10 扩展：org 在「系统设置 → AI 模型配置」选用的大语言模型优先（含凭据解密）
+    encryptionKey: env.ENCRYPTION_KEY,
     // M3-15：预算跨阈值超限 → q:notify（budget_limit；通知真实分发随 M5 #11，先入队留痕防静默吞）
     alert: (info) => {
       void enqueuer
@@ -166,14 +170,28 @@ async function bootstrap(): Promise<void> {
   );
   configureOrgSearchQuota(Number(process.env['ORG_SEARCH_DAILY_LIMIT'] || 0) || 2000);
   // M4 #7：嵌入服务 + S3 对象存储进程级注入（知识入库流水线 07 §2）
-  configureEmbedding(
-    createEmbeddingProvider({
-      provider: env.EMBEDDING_PROVIDER,
-      baseUrl: env.EMBEDDING_BASE_URL,
-      apiKey: env.EMBEDDING_API_KEY,
-      model: env.EMBEDDING_MODEL,
-    }),
-  );
+  // 16 FR-10 扩展：按 org 解析「AI 模型配置」选用的 embedding 模型，未配置回落 EMBEDDING_* 环境变量。
+  const embeddingFallback = {
+    provider: env.EMBEDDING_PROVIDER,
+    baseUrl: env.EMBEDDING_BASE_URL,
+    apiKey: env.EMBEDDING_API_KEY,
+    model: env.EMBEDDING_MODEL,
+  };
+  setEmbeddingProviderFactory(async (orgId) => {
+    const active =
+      orgId === undefined
+        ? null
+        : await resolveActiveModel(db, orgId, 'embedding', env.ENCRYPTION_KEY).catch(
+            (err: unknown) => {
+              logger.warn(
+                { orgId, err: err instanceof Error ? err.message : String(err) },
+                '读取 embedding 模型配置失败，回落环境变量',
+              );
+              return null;
+            },
+          );
+    return createEmbeddingProvider(toEmbeddingProviderConfig(active, embeddingFallback));
+  });
   const storage = createS3Storage({
     endpoint: env.S3_ENDPOINT,
     bucket: env.S3_BUCKET,

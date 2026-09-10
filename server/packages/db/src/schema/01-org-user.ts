@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  boolean,
   char,
   index,
   integer,
@@ -12,7 +13,7 @@ import {
   unique,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
-import { mailboxProvider, mailboxStatus, memberStatus, userRole } from './enums.js';
+import { aiModelType, mailboxProvider, mailboxStatus, memberStatus, userRole } from './enums.js';
 
 /**
  * ER 01 · 企业与用户设置模块（10 表）。
@@ -270,6 +271,45 @@ export const aiModelSetting = pgTable(
   (t) => [unique('uq_ai_model_org_scene').on(t.orgId, t.scene)],
 );
 
+/**
+ * AI 模型台账（16 FR-10 扩展：模型清单 + org 级全局选用）：
+ * - type 区分普通大模型（llm）与向量化模型（embedding），同一 type 下可维护多个模型；
+ * - provider/model/baseUrl/apiKey 决定该模型的实际调用端点（llm 与 embedding 通用）；
+ * - isSelected 标记该 type 下当前生效模型（部分唯一索引保证同 type 至多一个 selected）；
+ * - apiKeyEnc 为 AES-256-GCM 信封加密密文（08 §2），任何接口永不回显明文；
+ * - dimensions 仅 embedding 使用（对齐既有 knowledge_chunk.embedding 1536 维度）。
+ */
+export const aiModel = pgTable(
+  'ai_model',
+  {
+    id: text('id').primaryKey(),
+    orgId: text('org_id')
+      .notNull()
+      .references(() => org.id),
+    type: aiModelType('type').notNull(),
+    name: text('name').notNull(),
+    provider: text('provider').notNull(),
+    model: text('model').notNull(),
+    baseUrl: text('base_url'),
+    apiKeyEnc: text('api_key_enc'),
+    dimensions: integer('dimensions'),
+    temperature: numeric('temperature', { precision: 3, scale: 2 }).notNull().default('0.70'),
+    maxTokens: integer('max_tokens'),
+    isSelected: boolean('is_selected').notNull().default(false),
+    createdBy: text('created_by').references(() => userAccount.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('uq_ai_model_org_type_name').on(t.orgId, t.type, t.name),
+    index('idx_ai_model_org_type').on(t.orgId, t.type),
+    // 同一 org 同一 type 至多一个 selected（部分唯一索引）
+    uniqueIndex('uq_ai_model_org_type_selected')
+      .on(t.orgId, t.type)
+      .where(sql`${t.isSelected}`),
+  ],
+);
+
 export const apiKey = pgTable(
   'api_key',
   {
@@ -307,3 +347,4 @@ export const webhook = pgTable('webhook', {
 export type Org = typeof org.$inferSelect;
 export type UserAccount = typeof userAccount.$inferSelect;
 export type Mailbox = typeof mailbox.$inferSelect;
+export type AiModel = typeof aiModel.$inferSelect;

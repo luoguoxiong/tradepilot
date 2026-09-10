@@ -81,3 +81,68 @@ export interface NotificationSettings {
     { site: boolean; email: boolean }
   >
 }
+
+/** AI 模型类型（16 FR-10 扩展）：普通大模型 / 向量化模型 */
+export type AiModelType = 'llm' | 'embedding'
+
+/** 模型提供方（与后端 LlmProvider / EmbeddingOptions 对齐） */
+export type AiModelProvider = 'mock' | 'openai' | 'anthropic' | 'deepseek' | 'azure'
+
+/** 各模型类型可选的提供方（embedding 目前仅 mock/openai） */
+export const AI_MODEL_PROVIDERS: Record<AiModelType, readonly AiModelProvider[]> = {
+  llm: ['openai', 'anthropic', 'deepseek', 'azure', 'mock'],
+  embedding: ['openai', 'mock'],
+}
+
+/**
+ * 知识索引向量维度硬约束：`knowledge_chunk.embedding` 为 `vector(1536)`（ER 06），
+ * 选用模型维度必须一致，否则入库报维度不匹配 —— 后端同值校验，表单固定不可改。
+ */
+export const KNOWLEDGE_EMBEDDING_DIMENSIONS = 1536
+
+export interface AiModel {
+  id: string
+  type: AiModelType
+  name: string
+  provider: AiModelProvider
+  model: string
+  baseUrl: string | null
+  dimensions: number | null
+  temperature: string
+  maxTokens: number | null
+  /** 是否已配置 apiKey（明文不回显） */
+  hasApiKey: boolean
+  /** 是否为该类型下当前生效模型 */
+  isSelected: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+/** GET /settings/ai-models/catalog 响应 */
+export interface AiModelCatalog {
+  models: AiModel[]
+  selection: { llm: string | null; embedding: string | null }
+}
+
+export interface CreateAiModelReq {
+  type: AiModelType
+  name: string
+  provider: AiModelProvider
+  model: string
+  baseUrl?: string
+  /** 仅请求携带，服务端加密落库、响应不回显；编辑留空表示不变更 */
+  apiKey?: string
+  dimensions?: number
+  temperature?: number
+  maxTokens?: number
+}
+
+export type UpdateAiModelReq = Partial<Omit<CreateAiModelReq, 'type' | 'baseUrl'>> & {
+  /** 显式 null 清除自定义端点 */
+  baseUrl?: string | null
+}
+
+export interface SelectAiModelReq {
+  type: AiModelType
+  modelId: string | null
+}

@@ -11,8 +11,12 @@ import { schema } from '@tradepilot/db';
 import { createId } from '@tradepilot/core';
 import { and, eq, gte, sql } from 'drizzle-orm';
 import type { ZodType } from 'zod';
+import { resolveActiveModel } from './model-config.js';
 
 export type LlmProvider = 'mock' | 'openai' | 'anthropic' | 'deepseek' | 'azure';
+
+/** 合法 provider 白名单：台账存的是自由文本，运行时须收敛，未知值回落默认 provider */
+const LLM_PROVIDERS: readonly LlmProvider[] = ['mock', 'openai', 'anthropic', 'deepseek', 'azure'];
 
 export interface GatewayOptions {
   provider: LlmProvider;
@@ -20,6 +24,11 @@ export interface GatewayOptions {
   apiKey?: string;
   baseUrl?: string;
   defaultModel: string;
+  /**
+   * 凭据加密主密钥（64 hex）：用于解密 ai_model.api_key_enc（16 FR-10 扩展的 org 级模型选用）。
+   * 缺省则台账 apiKey 不可用，回落 opts.apiKey。
+   */
+  encryptionKey?: string;
   /**
    * 预算超限告警回调（16 FR-10 MVP：跨阈值首超时上报一次；Worker 侧接 q:notify，
    * 未接线时仅 logger.warn —— 仅告警不熔断，LLM 调用不受影响）。
@@ -43,6 +52,9 @@ export interface ModelTarget {
   maxTokens: number;
   /** 场景未配置时的默认兜底（降级链标记，05 §6.2） */
   degraded: boolean;
+  /** org 级选用模型的端点/凭据（台账来源；缺省回落 GatewayOptions） */
+  baseUrl?: string;
+  apiKey?: string;
 }
 
 export interface LlmInvokeMeta {
@@ -110,9 +122,26 @@ export class LlmGateway {
     private readonly opts: GatewayOptions,
   ) {}
 
-  /** org 级路由（05 §6.2）：ai_model_setting 场景精确命中 → 默认模型兜底（degraded 标记） */
+  /**
+   * org 级路由（05 §6.2 / 16 FR-10 扩展）：优先级
+   * ① 系统设置「AI 模型配置」该 org 选用的大语言模型（provider/凭据/模型/温度/maxTokens）；
+   *    场景配置（ai_model_setting）仅保留温度/maxTokens 精调，模型以选用为准（全服务统一口径）。
+   * ② 场景配置（ai_model_setting）命中：沿用环境变量 provider + 场景模型；
+   * ③ 默认兜底：环境变量 defaultModel（degraded 标记）。
+   */
   async resolveTarget(orgId: string, scene: string): Promise<ModelTarget> {
-    return withOrg(this.db, orgId, async (tx) => {
+    // 台账选用独立事务读取：失败（未建表/权限异常）不得污染场景查询所在事务，仅降级告警
+    const active = await resolveActiveModel(this.db, orgId, 'llm', this.opts.encryptionKey).catch(
+      (err: unknown) => {
+        this.logger.warn(
+          { orgId, err: err instanceof Error ? err.message : String(err) },
+          '读取 AI 模型配置失败，回落场景/默认模型',
+        );
+        return null;
+      },
+    );
+
+    const sceneRow = await withOrg(this.db, orgId, async (tx) => {
       const [row] = await tx
         .select({
           model: schema.aiModelSetting.model,
@@ -122,24 +151,48 @@ export class LlmGateway {
         .from(schema.aiModelSetting)
         .where(and(eq(schema.aiModelSetting.orgId, orgId), eq(schema.aiModelSetting.scene, scene)))
         .limit(1);
-      if (row) {
-        return {
-          provider: this.opts.provider,
-          model: row.model,
-          temperature: Number(row.temperature),
-          maxTokens: row.maxTokens,
-          degraded: false,
-        };
+      return row ?? null;
+    });
+
+    if (active) {
+      const provider = LLM_PROVIDERS.includes(active.provider as LlmProvider)
+        ? (active.provider as LlmProvider)
+        : this.opts.provider;
+      if (provider !== active.provider) {
+        this.logger.warn(
+          { orgId, configured: active.provider },
+          '未支持的 LLM provider，回落环境变量 provider',
+        );
       }
-      this.logger.warn({ orgId, scene }, 'LLM 场景未配置，使用默认模型兜底（degraded）');
+      return {
+        provider,
+        model: active.model,
+        temperature: sceneRow ? Number(sceneRow.temperature) : active.temperature,
+        maxTokens: sceneRow ? sceneRow.maxTokens : (active.maxTokens ?? 4096),
+        degraded: false,
+        ...(active.baseUrl !== undefined && { baseUrl: active.baseUrl }),
+        ...(active.apiKey !== undefined && { apiKey: active.apiKey }),
+      };
+    }
+
+    if (sceneRow) {
       return {
         provider: this.opts.provider,
-        model: this.opts.defaultModel,
-        temperature: 0.7,
-        maxTokens: 4096,
-        degraded: true,
+        model: sceneRow.model,
+        temperature: Number(sceneRow.temperature),
+        maxTokens: sceneRow.maxTokens,
+        degraded: false,
       };
-    });
+    }
+
+    this.logger.warn({ orgId, scene }, '未配置 AI 模型与场景模型，使用默认模型兜底（degraded）');
+    return {
+      provider: this.opts.provider,
+      model: this.opts.defaultModel,
+      temperature: 0.7,
+      maxTokens: 4096,
+      degraded: true,
+    };
   }
 
   /** 结构化输出（05 §6.3）：所有 LLM 节点强制 Zod 校验，解析失败重试 2 次 → 仍失败抛错（节点失败语义） */
@@ -294,15 +347,18 @@ export class LlmGateway {
     });
   }
 
+  /** 端点/凭据：台账选用模型优先，缺省回落 GatewayOptions（环境变量/密钥库） */
   private createChatModel(target: ModelTarget) {
     const { provider, model, temperature, maxTokens } = target;
+    const apiKey = target.apiKey ?? this.opts.apiKey;
+    const baseUrl = target.baseUrl ?? this.opts.baseUrl;
     if (provider === 'openai' || provider === 'azure') {
       return new ChatOpenAI({
         model,
         temperature,
         maxTokens,
-        apiKey: this.opts.apiKey,
-        configuration: this.opts.baseUrl ? { baseURL: this.opts.baseUrl } : undefined,
+        apiKey,
+        configuration: baseUrl ? { baseURL: baseUrl } : undefined,
       });
     }
     if (provider === 'deepseek') {
@@ -310,8 +366,9 @@ export class LlmGateway {
         model,
         temperature,
         maxTokens,
-        apiKey: this.opts.apiKey,
-        configuration: { baseURL: 'https://api.deepseek.com' },
+        apiKey,
+        // deepseek 端点固定；仅台账显式端点可覆盖（环境变量 baseUrl 面向 openai 系，不参与）
+        configuration: { baseURL: target.baseUrl ?? 'https://api.deepseek.com' },
       });
     }
     // anthropic
@@ -319,7 +376,7 @@ export class LlmGateway {
       model,
       temperature,
       maxTokens,
-      anthropicApiKey: this.opts.apiKey,
+      anthropicApiKey: apiKey,
     });
   }
 }

@@ -4,3 +4,7 @@ dist/
 .DS_Store
 .pnpm-home
 .pnpm-store
+
+# restart-dev.sh 运行时产物
+.dev-run/
+.dev-logs/

@@ -2,6 +2,7 @@ import type { Role } from '@/api/types/common'
 import type {
   AiModel,
   AiModelCatalog,
+  AiModelVerifyResult,
   CreateAiModelReq,
   CreateMailboxReq,
   Mailbox,
@@ -10,6 +11,7 @@ import type {
   RolePermissions,
   SelectAiModelReq,
   UpdateAiModelReq,
+  VerifyAiModelReq,
 } from '@/api/types/settings'
 
 import { request } from '../http'
@@ -69,6 +71,15 @@ export function fetchAiModels() {
 
 export function createAiModel(data: CreateAiModelReq) {
   return request<AiModel>({ url: '/settings/ai-models/catalog', method: 'POST', data })
+}
+
+/** 保存前连通性验证（不落库）：返回 ok=false 时前端阻断保存 */
+export function verifyAiModel(data: VerifyAiModelReq) {
+  return request<AiModelVerifyResult>({
+    url: '/settings/ai-models/catalog/verify',
+    method: 'POST',
+    data,
+  })
 }
 
 export function updateAiModel(id: string, data: UpdateAiModelReq) {

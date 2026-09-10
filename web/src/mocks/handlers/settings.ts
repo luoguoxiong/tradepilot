@@ -4,6 +4,7 @@ import { ErrorCode } from '@/api/error-codes'
 import type {
   AiModel,
   AiModelCatalog,
+  AiModelVerifyResult,
   CreateAiModelReq,
   CreateMailboxReq,
   Mailbox,
@@ -12,6 +13,7 @@ import type {
   RolePermissions,
   SelectAiModelReq,
   UpdateAiModelReq,
+  VerifyAiModelReq,
 } from '@/api/types/settings'
 import { KNOWLEDGE_EMBEDDING_DIMENSIONS, MANDATORY_APPROVAL_TYPES } from '@/api/types/settings'
 import type { Role } from '@/api/types/common'
@@ -209,6 +211,27 @@ export const settingsHandlers = [
     }
     mockAiModels.push(model)
     return ok({ ...model })
+  }),
+
+  // 保存前连通性验证（不落库）：mock provider 直接通过；
+  // 名称/端点含 "fail" 或缺少凭据时返回 ok=false，便于演练「验证不通过则不允许保存」的交互
+  http.post('/api/v1/settings/ai-models/catalog/verify', async ({ request }) => {
+    await delay(LATENCY)
+    const body = await readJson<VerifyAiModelReq>(request)
+    const target = body.id ? mockAiModels.find((m) => m.id === body.id) : undefined
+    const provider = body.provider ?? target?.provider
+    const baseUrl = body.baseUrl !== undefined ? body.baseUrl : (target?.baseUrl ?? null)
+    const hasApiKey = Boolean(body.apiKey) || Boolean(target?.hasApiKey)
+
+    let result: AiModelVerifyResult
+    if (provider !== 'mock' && !hasApiKey) {
+      result = { ok: false, message: '缺少 API Key，无法验证连通性', latencyMs: 0 }
+    } else if (/fail/i.test(`${target?.name ?? ''} ${baseUrl ?? ''}`)) {
+      result = { ok: false, message: '连接失败：凭据无效或端点不可达', latencyMs: 300 }
+    } else {
+      result = { ok: true, latencyMs: 300 }
+    }
+    return ok(result)
   }),
 
   // 静态段 selection 需先于 :id 注册，避免被动态参数吞掉

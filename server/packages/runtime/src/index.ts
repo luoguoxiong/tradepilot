@@ -33,6 +33,7 @@ export {
   type ModelTarget,
   type StructuredResult,
 } from './llm-gateway.js';
+export { probeLlmConnection, type LlmProbeOptions, type LlmProbeResult } from './llm-probe.js';
 export {
   DEFAULT_EMBEDDING_FALLBACK,
   DEFAULT_SEARCH_FALLBACK,

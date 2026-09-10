@@ -902,6 +902,7 @@ export default {
     modelDimensionsRequired: '请输入向量维度',
     modelBaseUrlRequired: '请输入接口地址',
     modelApiKeyRequired: '请输入 API Key',
+    modelVerifyFailed: '连接验证未通过：{message}',
   },
   onboarding: {
     title: '企业初始化',

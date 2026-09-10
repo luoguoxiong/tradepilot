@@ -9,6 +9,7 @@ import {
   fetchAiModels,
   selectAiModel,
   updateAiModel,
+  verifyAiModel,
 } from '@/api/resources/settings'
 import { handleApiError } from '@/api/error-handler'
 import type {
@@ -17,6 +18,7 @@ import type {
   AiModelType,
   CreateAiModelReq,
   UpdateAiModelReq,
+  VerifyAiModelReq,
 } from '@/api/types/settings'
 import EmptyState from '@/components/business/EmptyState.vue'
 import AiModelForm from '@/features/settings/components/AiModelForm.vue'
@@ -72,6 +74,20 @@ function openEdit(row: AiModel) {
 async function onSubmit(req: CreateAiModelReq | UpdateAiModelReq) {
   submitting.value = true
   try {
+    // 保存前连通性验证：未通过则不落库（编辑未传字段/凭据由服务端回退现值）
+    const verifyResult = await verifyAiModel({
+      type: formType.value,
+      ...(editing.value ? { id: editing.value.id } : {}),
+      ...req,
+    } as VerifyAiModelReq)
+    if (!verifyResult.ok) {
+      ElMessage.error(
+        t('settings.modelVerifyFailed', {
+          message: verifyResult.message ?? t('common.operationFailed'),
+        }),
+      )
+      return
+    }
     if (editing.value) {
       await updateAiModel(editing.value.id, req as UpdateAiModelReq)
       ElMessage.success(t('settings.modelUpdated'))

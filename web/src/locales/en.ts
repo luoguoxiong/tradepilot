@@ -924,6 +924,7 @@ export default {
     modelDimensionsRequired: 'Enter the vector dimensions',
     modelBaseUrlRequired: 'Enter the endpoint URL',
     modelApiKeyRequired: 'Enter the API key',
+    modelVerifyFailed: 'Connection verification failed: {message}',
   },
   onboarding: {
     title: 'Company Onboarding',

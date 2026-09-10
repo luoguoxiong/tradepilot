@@ -1,18 +1,38 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq } from 'drizzle-orm';
-import { BizException, createId, encryptSecret, ErrorCode } from '@tradepilot/core';
+import { BizException, createId, decryptSecret, encryptSecret, ErrorCode } from '@tradepilot/core';
 import { schema, withOrg, type Db, type Tx } from '@tradepilot/db';
-import { KNOWLEDGE_EMBEDDING_DIMENSIONS } from '@tradepilot/integrations';
-import { resolveActiveModel, type ActiveModelConfig } from '@tradepilot/runtime';
+import {
+  createEmbeddingProvider,
+  createSearchProvider,
+  KNOWLEDGE_EMBEDDING_DIMENSIONS,
+} from '@tradepilot/integrations';
+import {
+  probeLlmConnection,
+  resolveActiveModel,
+  type ActiveModelConfig,
+  type LlmProvider,
+} from '@tradepilot/runtime';
 import { DB } from '../db/db.module.js';
 import { EnvService } from '../config/env.service.js';
-import type { AiModelSelectionDto, CreateAiModelDto, UpdateAiModelDto } from './ai-models.dto.js';
+import type {
+  AiModelSelectionDto,
+  CreateAiModelDto,
+  UpdateAiModelDto,
+  VerifyAiModelDto,
+} from './ai-models.dto.js';
 
 /** embedding 支持的 provider（integrations 仅实现 mock / openai 兼容协议） */
 const EMBEDDING_PROVIDERS: readonly string[] = ['mock', 'openai'];
 
 /** search 支持的 provider（integrations 仅实现 mock / http 即 Serper 兼容搜索 API，06 §3） */
 const SEARCH_PROVIDERS: readonly string[] = ['mock', 'http'];
+
+/** llm 支持的 provider（与 runtime LlmProvider 白名单对齐） */
+const LLM_PROVIDERS: readonly string[] = ['mock', 'openai', 'anthropic', 'deepseek', 'azure'];
+
+/** 探活超时（ms）：外部服务无响应时避免保存请求长时间挂起 */
+const PROBE_TIMEOUT_MS = 15_000;
 
 /**
  * AI 模型配置服务（接口 16 FR-10 扩展）：
@@ -45,6 +65,14 @@ export interface AiModelView {
 export interface AiModelsView {
   models: AiModelView[];
   selection: { llm: string | null; embedding: string | null; search: string | null };
+}
+
+/** 保存前连通性验证结果（不落库；ok=false 由前端阻断保存） */
+export interface AiModelVerifyResult {
+  ok: boolean;
+  /** ok=false 时的可读原因（直接展示给用户） */
+  message?: string;
+  latencyMs: number;
 }
 
 /** 运行时消费视图（已解密）；实现见 runtime model-config.resolveActiveModel */
@@ -255,6 +283,65 @@ export class AiModelsService {
   }
 
   /**
+   * 保存前连通性验证（16 FR-10 扩展）：对目标配置做一次最小化真实调用，通过才允许落库。
+   * - 编辑场景（传 id）未显式提供的字段/凭据回退库中现值（apiKey 解密后校验）；
+   * - mock provider 离线可用，直接通过；
+   * - 探活失败返回 ok=false（不抛业务异常），由前端据此阻断保存。
+   */
+  async verify(orgId: string, dto: VerifyAiModelDto): Promise<AiModelVerifyResult> {
+    const current = dto.id ? await this.findRow(orgId, dto.id) : null;
+    if (dto.id && !current) {
+      throw new BizException(ErrorCode.NOT_FOUND, '模型不存在');
+    }
+
+    const allowed =
+      dto.type === 'llm'
+        ? LLM_PROVIDERS
+        : dto.type === 'embedding'
+          ? EMBEDDING_PROVIDERS
+          : SEARCH_PROVIDERS;
+    if (!allowed.includes(dto.provider)) {
+      return { ok: false, message: `该类型不支持 ${dto.provider} 提供方`, latencyMs: 0 };
+    }
+    // mock 离线可用，无需真实调用
+    if (dto.provider === 'mock') {
+      return { ok: true, latencyMs: 0 };
+    }
+
+    const baseUrl = dto.baseUrl !== undefined ? dto.baseUrl : (current?.baseUrl ?? null);
+    const apiKey =
+      dto.apiKey ??
+      (current?.apiKeyEnc ? decryptSecret(current.apiKeyEnc, this.encryptionKey) : undefined);
+    const model = dto.model ?? current?.model;
+    const dimensions = dto.dimensions ?? current?.dimensions ?? null;
+
+    if (dto.type === 'llm') {
+      return probeLlmConnection({
+        provider: dto.provider as LlmProvider,
+        model: model ?? '',
+        ...(baseUrl !== null && { baseUrl }),
+        ...(apiKey !== undefined && { apiKey }),
+      });
+    }
+    if (dto.type === 'embedding') {
+      return probeEmbedding({ baseUrl, apiKey, model, dimensions });
+    }
+    return probeSearch({ baseUrl, apiKey });
+  }
+
+  /** 按 org 读取单条台账（验证时回退现值用；越权/不存在返回 null） */
+  private async findRow(orgId: string, id: string) {
+    return withOrg(this.db, orgId, async (tx) => {
+      const [row] = await tx
+        .select()
+        .from(schema.aiModel)
+        .where(and(eq(schema.aiModel.id, id), eq(schema.aiModel.orgId, orgId)))
+        .limit(1);
+      return row ?? null;
+    });
+  }
+
+  /**
    * 解析某 type 当前选中的模型（含解密后的 apiKey），供运行时（LLM Gateway / Embedding Provider）消费。
    * 未配置选中模型返回 null，由调用方按各自缺省链兜底。
    * 实现复用 runtime（与 LlmGateway / Embedding 解析同一份逻辑，避免口径漂移）。
@@ -287,6 +374,94 @@ export class AiModelsService {
 }
 
 // ===== helpers =====
+
+/**
+ * 向量模型探活：真实调用一次 /embeddings，并校验返回维度与台账配置一致
+ * （维度不一致会在知识入库时报 PG 维度不匹配，故保存前拦截）。
+ */
+async function probeEmbedding(input: {
+  baseUrl: string | null;
+  apiKey: string | undefined;
+  model: string | undefined;
+  dimensions: number | null;
+}): Promise<AiModelVerifyResult> {
+  if (!input.baseUrl) {
+    return { ok: false, message: '缺少接口地址，无法验证连通性', latencyMs: 0 };
+  }
+  if (!input.apiKey) {
+    return { ok: false, message: '缺少 API Key，无法验证连通性', latencyMs: 0 };
+  }
+  if (!input.model) {
+    return { ok: false, message: '缺少模型标识，无法验证连通性', latencyMs: 0 };
+  }
+  const startedAt = Date.now();
+  try {
+    const provider = createEmbeddingProvider({
+      provider: 'openai',
+      baseUrl: input.baseUrl,
+      apiKey: input.apiKey,
+      model: input.model,
+      ...(input.dimensions !== null && { dimensions: input.dimensions }),
+    });
+    const [vector] = await withTimeout(provider.embed(['ping']), PROBE_TIMEOUT_MS);
+    if (!vector || vector.length === 0) {
+      return { ok: false, message: '嵌入服务未返回向量', latencyMs: Date.now() - startedAt };
+    }
+    if (input.dimensions !== null && vector.length !== input.dimensions) {
+      return {
+        ok: false,
+        message: `返回向量维度 ${vector.length}，与配置的 ${input.dimensions} 不一致`,
+        latencyMs: Date.now() - startedAt,
+      };
+    }
+    return { ok: true, latencyMs: Date.now() - startedAt };
+  } catch (err) {
+    return { ok: false, message: errText(err), latencyMs: Date.now() - startedAt };
+  }
+}
+
+/** 搜索供应商探活：真实发起一次最小检索，验证端点与凭据可用（mock 已在调用方短路） */
+async function probeSearch(input: {
+  baseUrl: string | null;
+  apiKey: string | undefined;
+}): Promise<AiModelVerifyResult> {
+  if (!input.baseUrl) {
+    return { ok: false, message: '缺少接口地址，无法验证连通性', latencyMs: 0 };
+  }
+  if (!input.apiKey) {
+    return { ok: false, message: '缺少 API Key，无法验证连通性', latencyMs: 0 };
+  }
+  const startedAt = Date.now();
+  try {
+    const provider = createSearchProvider({
+      provider: 'http',
+      baseUrl: input.baseUrl,
+      apiKey: input.apiKey,
+    });
+    await withTimeout(provider.webSearch('tradepilot'), PROBE_TIMEOUT_MS);
+    return { ok: true, latencyMs: Date.now() - startedAt };
+  } catch (err) {
+    return { ok: false, message: errText(err), latencyMs: Date.now() - startedAt };
+  }
+}
+
+function errText(err: unknown): string {
+  return (err instanceof Error ? err.message : String(err)).slice(0, 300);
+}
+
+/** 探活超时包装（外部服务无响应时避免保存请求长时间挂起） */
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`连接验证超时（>${timeoutMs}ms）`)),
+        timeoutMs,
+      );
+      timer.unref?.();
+    }),
+  ]);
+}
 
 /**
  * embedding 模型可用性校验：provider 必须已实现，且维度必须与知识索引列一致。

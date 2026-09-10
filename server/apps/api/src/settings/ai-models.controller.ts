@@ -6,8 +6,14 @@ import {
   aiModelSelectionSchema,
   createAiModelSchema,
   updateAiModelSchema,
+  verifyAiModelSchema,
 } from './ai-models.dto.js';
-import type { AiModelSelectionDto, CreateAiModelDto, UpdateAiModelDto } from './ai-models.dto.js';
+import type {
+  AiModelSelectionDto,
+  CreateAiModelDto,
+  UpdateAiModelDto,
+  VerifyAiModelDto,
+} from './ai-models.dto.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import type { AccessTokenPayload } from '../auth/token.service.js';
@@ -36,6 +42,16 @@ export class AiModelsController {
   ) {
     const user = this.requireUser(req);
     return this.aiModels.create(user.orgId, user.sub, dto);
+  }
+
+  // 保存前连通性验证：不落库，仅返回探活结果（前端验证通过后才提交 create/update）
+  @Roles('admin')
+  @Post('catalog/verify')
+  async verifyCatalogModel(
+    @Body(new ZodValidationPipe(verifyAiModelSchema)) dto: VerifyAiModelDto,
+    @Req() req: Request & { authUser?: AccessTokenPayload },
+  ) {
+    return this.aiModels.verify(this.requireUser(req).orgId, dto);
   }
 
   // 注意：selection 为静态段，需先于 :id 声明，避免被动态参数吞掉

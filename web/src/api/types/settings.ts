@@ -148,3 +148,23 @@ export interface SelectAiModelReq {
   type: AiModelType
   modelId: string | null
 }
+
+/** POST /settings/ai-models/catalog/verify（保存前连通性验证，不落库） */
+export interface VerifyAiModelReq {
+  /** 编辑场景提供：未显式传的字段/凭据回退库中现值 */
+  id?: string
+  type: AiModelType
+  provider: AiModelProvider
+  model?: string
+  /** 显式 null 表示清空自定义端点 */
+  baseUrl?: string | null
+  apiKey?: string
+  dimensions?: number
+}
+
+export interface AiModelVerifyResult {
+  ok: boolean
+  /** ok=false 时的可读原因 */
+  message?: string
+  latencyMs: number
+}

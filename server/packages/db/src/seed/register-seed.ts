@@ -227,8 +227,8 @@ export async function seedOrg(tx: Tx, orgId: string, adminUserId: string): Promi
     .values({
       id: createId('strat'),
       orgId,
-      name: '标准跟进策略',
-      targetScope: {},
+      name: '默认跟进策略',
+      targetScope: { customerValue: ['high', 'medium', 'low'] },
       autoSendPolicy: 'manual_review',
       enabled: true,
       isDefault: true,

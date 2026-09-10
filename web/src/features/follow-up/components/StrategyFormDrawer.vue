@@ -56,7 +56,9 @@ watch(
         ? t('followUp.copyNameSuffix', { name: source.name })
         : source.name
       : ''
-    customerValue.value = source ? [...source.targetScope.customerValue] : ['high', 'medium']
+    customerValue.value = source
+      ? [...(source.targetScope.customerValue ?? [])]
+      : ['high', 'medium']
     industries.value = source ? [...(source.targetScope.industry ?? [])] : []
     tags.value = source ? [...(source.targetScope.tags ?? [])] : []
     autoSendPolicy.value = source ? source.autoSendPolicy : 'manual_review'

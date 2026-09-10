@@ -131,12 +131,16 @@ afterAll(async () => {
     await superDb.transaction(async (tx) => {
       await tx.delete(schema.followUpExecution).where(eq(schema.followUpExecution.orgId, orgId));
       await tx.delete(schema.followUpTask).where(eq(schema.followUpTask.orgId, orgId));
-      await tx.delete(schema.followUpStrategyStep).where(eq(schema.followUpStrategyStep.orgId, orgId));
+      await tx
+        .delete(schema.followUpStrategyStep)
+        .where(eq(schema.followUpStrategyStep.orgId, orgId));
       await tx.delete(schema.followUpStrategy).where(eq(schema.followUpStrategy.orgId, orgId));
       await tx.delete(schema.customerInsight).where(eq(schema.customerInsight.orgId, orgId));
       await tx.delete(schema.customerActivity).where(eq(schema.customerActivity.orgId, orgId));
       await tx.delete(schema.contact).where(eq(schema.contact.orgId, orgId));
-      await tx.delete(schema.conversationInsight).where(eq(schema.conversationInsight.orgId, orgId));
+      await tx
+        .delete(schema.conversationInsight)
+        .where(eq(schema.conversationInsight.orgId, orgId));
       await tx.delete(schema.message).where(eq(schema.message.orgId, orgId));
       await tx.delete(schema.conversation).where(eq(schema.conversation.orgId, orgId));
       await tx.delete(schema.customer).where(eq(schema.customer.orgId, orgId));
@@ -160,7 +164,10 @@ afterAll(async () => {
 describe('M5-D1 · 总览统计（GET /follow-ups/summary）', () => {
   it('空 org：executingCount 与四 Tab 均为 0', async () => {
     const s = await followUps.summary(adminCtx);
-    expect(s).toEqual({ executingCount: 0, tabs: { all: 0, today: 0, waitingApproval: 0, completed: 0 } });
+    expect(s).toEqual({
+      executingCount: 0,
+      tabs: { all: 0, today: 0, waitingApproval: 0, completed: 0 },
+    });
   });
 });
 
@@ -171,7 +178,10 @@ describe('M5-D1 · 策略列表（GET /follow-up-strategies）', () => {
     const resp = await followUps.listStrategies(adminCtx, { page: 1, pageSize: 50 });
     const def = resp.items.find((s) => s.isDefault);
     expect(def).toBeDefined();
-    expect(def!.name).toBe('标准跟进策略');
+    expect(def!.name).toBe('默认跟进策略');
+    // 契约：默认策略 targetScope.customerValue 必须为完整数组（前端 scopeSummary/copy 直取，缺失会抛错）
+    expect(Array.isArray(def!.targetScope.customerValue)).toBe(true);
+    expect(def!.targetScope.customerValue).toEqual(['high', 'medium', 'low']);
     expect(def!.steps.length).toBe(5);
     expect(def!.steps[0]!.dayOffset).toBe(0);
     expect(def!.steps[4]!.isBreakup).toBe(true);
@@ -202,7 +212,12 @@ describe('M5-D1 · 新建策略（POST /follow-up-strategies）', () => {
       .where(eq(schema.followUpStrategyStep.strategyId, stratId))
       .orderBy(schema.followUpStrategyStep.seq);
     expect(
-      rows.map((r) => ({ seq: r.seq, dayOffset: r.dayOffset, isBreakup: r.isBreakup, channel: r.channel })),
+      rows.map((r) => ({
+        seq: r.seq,
+        dayOffset: r.dayOffset,
+        isBreakup: r.isBreakup,
+        channel: r.channel,
+      })),
     ).toEqual([
       { seq: 1, dayOffset: 3, isBreakup: false, channel: 'email' },
       { seq: 2, dayOffset: 6, isBreakup: true, channel: 'email' },
@@ -256,11 +271,17 @@ describe('M5-D1 · 新建策略（POST /follow-up-strategies）', () => {
   });
 
   it('名称为空 → 42201', async () => {
-    await expectBiz(followUps.createStrategy(adminCtx, strategyDto({ name: '   ' })), ErrorCode.BIZ_VALIDATION);
+    await expectBiz(
+      followUps.createStrategy(adminCtx, strategyDto({ name: '   ' })),
+      ErrorCode.BIZ_VALIDATION,
+    );
   });
 
   it('至少 1 步 → 42201（steps 空数组）', async () => {
-    await expectBiz(followUps.createStrategy(adminCtx, strategyDto({ steps: [] })), ErrorCode.BIZ_VALIDATION);
+    await expectBiz(
+      followUps.createStrategy(adminCtx, strategyDto({ steps: [] })),
+      ErrorCode.BIZ_VALIDATION,
+    );
   });
 });
 
@@ -299,7 +320,10 @@ describe('M5-D1 · 编辑策略（PUT /follow-up-strategies/{id}）', () => {
   it('编辑默认策略 → 40901', async () => {
     const resp = await followUps.listStrategies(adminCtx, { page: 1, pageSize: 50 });
     const def = resp.items.find((s) => s.isDefault)!;
-    await expectBiz(followUps.updateStrategy(adminCtx, def.strategyId, strategyDto()), ErrorCode.CONFLICT);
+    await expectBiz(
+      followUps.updateStrategy(adminCtx, def.strategyId, strategyDto()),
+      ErrorCode.CONFLICT,
+    );
   });
 });
 
@@ -319,7 +343,10 @@ describe('M5-D1 · 删除策略（DELETE /follow-up-strategies/{id}）', () => {
     expect(applyResp.skipped).toHaveLength(0);
     taskA = applyResp.created[0]!.followUpTaskId;
 
-    const [taskRow] = await superDb.select().from(schema.followUpTask).where(eq(schema.followUpTask.id, taskA));
+    const [taskRow] = await superDb
+      .select()
+      .from(schema.followUpTask)
+      .where(eq(schema.followUpTask.id, taskA));
     expect(taskRow!.currentStage).toBe('follow_up_1');
     expect(taskRow!.status).toBe('scheduled'); // 首步 dayOffset=3 > 0
     expect(taskRow!.nextRunAt).not.toBeNull();
@@ -353,11 +380,17 @@ describe('M5-D1 · apply 应用策略到客户（POST /follow-up-strategies/{id}
   });
 
   it('客户不存在 → 40001', async () => {
-    await expectBiz(followUps.apply(adminCtx, stratId, { customerIds: ['cus_not_exist'] }), ErrorCode.BAD_REQUEST);
+    await expectBiz(
+      followUps.apply(adminCtx, stratId, { customerIds: ['cus_not_exist'] }),
+      ErrorCode.BAD_REQUEST,
+    );
   });
 
   it('策略不存在 → 40401', async () => {
-    await expectBiz(followUps.apply(adminCtx, 'strat_not_exist', { customerIds: [customerA] }), ErrorCode.NOT_FOUND);
+    await expectBiz(
+      followUps.apply(adminCtx, 'strat_not_exist', { customerIds: [customerA] }),
+      ErrorCode.NOT_FOUND,
+    );
   });
 });
 
@@ -417,7 +450,11 @@ describe('M5-D1 · summary 计数与任务列表（today 口径 = org 当地日�
   });
 
   it('tab=waiting_approval / completed 筛选', async () => {
-    const wait = await followUps.listTasks(adminCtx, { page: 1, pageSize: 50, tab: 'waiting_approval' });
+    const wait = await followUps.listTasks(adminCtx, {
+      page: 1,
+      pageSize: 50,
+      tab: 'waiting_approval',
+    });
     expect(wait.items.every((i) => i.status === 'waiting_approval')).toBe(true);
     expect(wait.total).toBe(1);
 
@@ -448,7 +485,9 @@ describe('M5-D1 · 暂停 / 跳过（POST /follow-up-tasks/{id}/pause|skip）', 
     const all = await followUps.listTasks(adminCtx, { page: 1, pageSize: 50 });
     waitTaskId = all.items.find((i) => i.status === 'waiting_approval')!.followUpTaskId;
     compTaskId = all.items.find((i) => i.status === 'completed')!.followUpTaskId;
-    todayTaskId = all.items.find((i) => i.status === 'scheduled' && i.followUpTaskId !== taskA)!.followUpTaskId;
+    todayTaskId = all.items.find(
+      (i) => i.status === 'scheduled' && i.followUpTaskId !== taskA,
+    )!.followUpTaskId;
   });
 
   it('pause：waiting_approval → paused，重复 pause 幂等', async () => {
@@ -559,7 +598,10 @@ describe('M5-D1 · 越权：sales 访问 strategy 写操作', () => {
   });
 
   it('sales 编辑策略 → 40301', async () => {
-    await expectBiz(followUps.updateStrategy(salesCtx, stratId, strategyDto()), ErrorCode.FORBIDDEN);
+    await expectBiz(
+      followUps.updateStrategy(salesCtx, stratId, strategyDto()),
+      ErrorCode.FORBIDDEN,
+    );
   });
 
   it('sales 删除策略 → 40301', async () => {

@@ -90,7 +90,8 @@ async function onDelete(strategy: FollowUpStrategy) {
 }
 
 function scopeSummary(strategy: FollowUpStrategy): string {
-  const values = strategy.targetScope.customerValue.map((v) => t(`enums.leadValue.${v}`))
+  // targetScope.customerValue 允许省略（DTO optional / 旧数据 {}），防御缺省
+  const values = (strategy.targetScope.customerValue ?? []).map((v) => t(`enums.leadValue.${v}`))
   const industry = strategy.targetScope.industry ?? []
   return [...values, ...industry].join(' / ') || t('followUp.scopeAll')
 }

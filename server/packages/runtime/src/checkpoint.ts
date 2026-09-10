@@ -11,15 +11,31 @@ export interface CheckpointerHandle {
   close(): Promise<void>;
 }
 
-export async function createCheckpointer(databaseUrl: string): Promise<CheckpointerHandle> {
+export interface CheckpointerOptions {
+  /**
+   * 是否执行 `PostgresSaver.setup()`（DDL：CREATE SCHEMA / CREATE TABLE / 版本写入）。
+   * 默认 false —— checkpoint 4 表的 DDL 归 manual 迁移 0009（以表 owner 身份执行），
+   * 运行时角色 tradepilot_app 无数据库级 CREATE 权限，调用 setup() 会 42501
+   * （`permission denied for database`，其首句即 `CREATE SCHEMA IF NOT EXISTS`）。
+   * 仅在依赖升级需要补列时临时置 true（须用具备 DDL 权限的连接串）。
+   */
+  provisionSchema?: boolean;
+}
+
+export async function createCheckpointer(
+  databaseUrl: string,
+  options: CheckpointerOptions = {},
+): Promise<CheckpointerHandle> {
   const pool = new Pool({
     connectionString: databaseUrl,
     max: 5,
-    // checkpointer 建表/读写均落在 langgraph schema（manual 迁移 0002 授权）
+    // checkpointer 读写落在 langgraph schema（manual 迁移 0003 授权）
     options: '-c search_path=langgraph,public',
   });
   const saver = new PostgresSaver(pool);
-  await saver.setup();
+  if (options.provisionSchema) {
+    await saver.setup();
+  }
   return {
     saver,
     close: async () => {

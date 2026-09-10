@@ -10,7 +10,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, ilike, inArray, sql, type SQL } from 'drizzle-orm';
 import { BizException, ErrorCode, createId } from '@tradepilot/core';
-import { schema, withOrg, type Db } from '@tradepilot/db';
+import { schema, withOrg, type Db, type Tx } from '@tradepilot/db';
 import { DB } from '../db/db.module.js';
 import { TasksService } from '../tasks/tasks.service.js';
 import { CustomersService } from '../customers/customers.service.js';
@@ -39,7 +39,12 @@ export interface LeadHunterSummary {
 }
 
 export interface ParseResult {
-  parsed: { targetMarket: string; customerType: string; targetProduct: string; companySize?: string };
+  parsed: {
+    targetMarket: string;
+    customerType: string;
+    targetProduct: string;
+    companySize?: string;
+  };
   optimizedGoal: string;
   confidence: number;
   reasons: { text: string }[];
@@ -50,10 +55,32 @@ export interface LeadItem {
   companyName: string;
   country: string;
   industry: string | null;
+  website: string | null;
   matchPct: number;
   scoreLevel: string;
   inCrm: boolean;
-  matchReasons: { value: number; confidence: number; reasons: { text: string; evidence?: string; source?: string }[] };
+  matchReasons: {
+    value: number;
+    confidence: number;
+    reasons: { text: string; evidence?: string; source?: string }[];
+  };
+}
+
+/** 03 §2 GET /leads/summary：各价值档数量（`all`/`inCrm` 供 Tab 计数，03 §1.6） */
+export interface LeadSummaryCounts {
+  all: number;
+  high: number;
+  medium: number;
+  low: number;
+  inCrm: number;
+}
+
+/** 04 §2 POST /leads/{id}/convert 响应（单条转化，与批量 add-to-crm 汇总形状不同） */
+export interface ConvertLeadResult {
+  leadId: string;
+  customerId: string;
+  customerName: string;
+  mapped: boolean;
 }
 
 export interface LeadDetail {
@@ -66,8 +93,17 @@ export interface LeadDetail {
   scoreLevel: string;
   inCrm: boolean;
   convertedCustomerId: string | null;
-  matchReasons: { value: number; confidence: number; reasons: { text: string; evidence?: string; source?: string }[] };
-  overview: { companySize?: string; foundedYear?: number; customerType?: string; mainProducts?: string[] } | null;
+  matchReasons: {
+    value: number;
+    confidence: number;
+    reasons: { text: string; evidence?: string; source?: string }[];
+  };
+  overview: {
+    companySize?: string;
+    foundedYear?: number;
+    customerType?: string;
+    mainProducts?: string[];
+  } | null;
   contacts: { name: string; title: string | null; email: string | null }[];
   createdAt: string;
 }
@@ -95,13 +131,14 @@ export class LeadsService {
     return withOrg(this.db, ctx.orgId, async (tx) => {
       // 查找 lead_hunter 角色的 AI 员工
       const [employee] = await tx
-        .select({ id: schema.aiEmployee.id, name: schema.aiEmployee.name, status: schema.aiEmployee.status })
+        .select({
+          id: schema.aiEmployee.id,
+          name: schema.aiEmployee.name,
+          status: schema.aiEmployee.status,
+        })
         .from(schema.aiEmployee)
         .where(
-          and(
-            eq(schema.aiEmployee.orgId, ctx.orgId),
-            eq(schema.aiEmployee.role, 'lead_hunter'),
-          ),
+          and(eq(schema.aiEmployee.orgId, ctx.orgId), eq(schema.aiEmployee.role, 'lead_hunter')),
         )
         .limit(1);
 
@@ -157,10 +194,7 @@ export class LeadsService {
           .select({ n: sql<number>`count(*)::int` })
           .from(schema.aiLead)
           .where(
-            and(
-              eq(schema.aiLead.orgId, ctx.orgId),
-              eq(schema.aiLead.taskId, currentTask.taskId),
-            ),
+            and(eq(schema.aiLead.orgId, ctx.orgId), eq(schema.aiLead.taskId, currentTask.taskId)),
           );
         foundCount = leadCount?.n ?? 0;
 
@@ -223,12 +257,60 @@ export class LeadsService {
       advancedSettings: dto.advancedSettings ?? {},
       targetCount: dto.targetCount ?? 35,
     };
+    const employeeId = await withOrg(this.db, ctx.orgId, (tx) =>
+      this.resolveLeadHunterEmployee(tx, ctx.orgId, dto.employeeId),
+    );
     return this.tasks.create(ctx.orgId, ctx.userId, {
-      employeeId: dto.employeeId,
+      employeeId,
       type: 'lead_hunting',
       title: `获客：${dto.parsed.targetMarket} ${dto.parsed.customerType}`,
       input,
     });
+  }
+
+  /**
+   * 解析 lead_hunting 执行员工（03 §3.2）。
+   * 显式传入 → 必须属本 org 且角色为 lead_hunter（不存在/跨租户 → 40401）；
+   * 未传（§1.3 创建表单并无该字段，前端不传）→ 回退 org 内 lead_hunter，再退 customer_researcher。
+   * 不校验将导致任务落到他人/他租户员工，故与 batchAnalyze 同口径显式解析。
+   */
+  private async resolveLeadHunterEmployee(
+    tx: Tx,
+    orgId: string,
+    employeeId?: string,
+  ): Promise<string> {
+    if (employeeId) {
+      const [row] = await tx
+        .select({ id: schema.aiEmployee.id })
+        .from(schema.aiEmployee)
+        .where(
+          and(
+            eq(schema.aiEmployee.id, employeeId),
+            eq(schema.aiEmployee.orgId, orgId),
+            eq(schema.aiEmployee.role, 'lead_hunter'),
+          ),
+        )
+        .limit(1);
+      if (!row) {
+        throw new BizException(ErrorCode.NOT_FOUND, '获客员工不存在');
+      }
+      return row.id;
+    }
+
+    const [row] = await tx
+      .select({ id: schema.aiEmployee.id })
+      .from(schema.aiEmployee)
+      .where(
+        and(
+          eq(schema.aiEmployee.orgId, orgId),
+          inArray(schema.aiEmployee.role, ['lead_hunter', 'customer_researcher']),
+        ),
+      )
+      .limit(1);
+    if (!row) {
+      throw new BizException(ErrorCode.NOT_FOUND, '未找到可用 AI 员工');
+    }
+    return row.id;
   }
 
   /** B2 §4 客户发现列表 */
@@ -282,6 +364,7 @@ export class LeadsService {
           companyName: r.companyName,
           country: r.country,
           industry: r.industry,
+          website: r.website,
           matchPct: r.matchPct,
           scoreLevel: r.scoreLevel,
           inCrm: r.inCrm,
@@ -294,21 +377,24 @@ export class LeadsService {
     });
   }
 
-  /** B2 §4 各价值档数量 */
-  async summaryCounts(
-    ctx: OrgScopeContext,
-  ): Promise<{ total: number; high: number; medium: number; low: number }> {
+  /**
+   * B2 §4 各价值档数量。
+   * 03 §1.6 Tab 计数需要：`all`（全部）+ 三档 + `inCrm`（已加入 CRM），
+   * 字段名与前端 `LeadSummaryResp` 一致（`all` 而非 `total`，前端取 `summary.all`）。
+   */
+  async summaryCounts(ctx: OrgScopeContext): Promise<LeadSummaryCounts> {
     return withOrg(this.db, ctx.orgId, async (tx) => {
       const [row] = await tx
         .select({
-          total: sql<number>`count(*)::int`,
+          all: sql<number>`count(*)::int`,
           high: sql<number>`count(*) filter (where ${schema.aiLead.scoreLevel} = 'high')::int`,
           medium: sql<number>`count(*) filter (where ${schema.aiLead.scoreLevel} = 'medium')::int`,
           low: sql<number>`count(*) filter (where ${schema.aiLead.scoreLevel} = 'low')::int`,
+          inCrm: sql<number>`count(*) filter (where ${schema.aiLead.inCrm})::int`,
         })
         .from(schema.aiLead)
         .where(eq(schema.aiLead.orgId, ctx.orgId));
-      return row ?? { total: 0, high: 0, medium: 0, low: 0 };
+      return row ?? { all: 0, high: 0, medium: 0, low: 0, inCrm: 0 };
     });
   }
 
@@ -325,7 +411,11 @@ export class LeadsService {
       }
 
       const contacts = await tx
-        .select({ name: schema.aiLeadContact.name, title: schema.aiLeadContact.title, email: schema.aiLeadContact.email })
+        .select({
+          name: schema.aiLeadContact.name,
+          title: schema.aiLeadContact.title,
+          email: schema.aiLeadContact.email,
+        })
         .from(schema.aiLeadContact)
         .where(eq(schema.aiLeadContact.leadId, leadId));
 
@@ -356,15 +446,23 @@ export class LeadsService {
     }
 
     return withOrg(this.db, ctx.orgId, async (tx) => {
+      // 归属校验：显式指定的负责人必须属本租户（与 05 §1.2 创建客户 assertOwnerExists 同口径），
+      // 否则会把客户落到不存在/他租户用户下（此前静默创建，列表 ownerName 兜底为 raw id）。
+      if (ownerId !== ctx.userId) {
+        const [owner] = await tx
+          .select({ id: schema.userAccount.id })
+          .from(schema.userAccount)
+          .where(and(eq(schema.userAccount.id, ownerId), eq(schema.userAccount.orgId, ctx.orgId)))
+          .limit(1);
+        if (!owner) {
+          throw new BizException(ErrorCode.NOT_FOUND, `负责人不存在: ${ownerId}`);
+        }
+      }
+
       const leads = await tx
         .select()
         .from(schema.aiLead)
-        .where(
-          and(
-            eq(schema.aiLead.orgId, ctx.orgId),
-            inArray(schema.aiLead.id, dto.leadIds),
-          ),
-        );
+        .where(and(eq(schema.aiLead.orgId, ctx.orgId), inArray(schema.aiLead.id, dto.leadIds)));
 
       const result: AddToCrmResult = { created: 0, duplicated: 0, customers: [], mapped: [] };
 
@@ -512,13 +610,59 @@ export class LeadsService {
     });
   }
 
-  /** B3 POST /leads/{id}/convert 单条 lead 转 CRM */
-  async convert(ctx: OrgScopeContext, leadId: string, dto: ConvertLeadDto): Promise<AddToCrmResult> {
-    return this.addToCrm(ctx, { leadIds: [leadId], ownerId: dto.ownerId });
+  /**
+   * 04 §2 POST /leads/{id}/convert 单条 lead 转 CRM。
+   * 出参是单条结果 + `mapped` 布尔（前端据此区分「新建客户档案 / 归并已有客户」文案），
+   * 与批量 add-to-crm 的 `{created,duplicated,customers,mapped[]}` 汇总形状不同，故此处做映射。
+   */
+  async convert(
+    ctx: OrgScopeContext,
+    leadId: string,
+    dto: ConvertLeadDto,
+  ): Promise<ConvertLeadResult> {
+    const lead = await withOrg(this.db, ctx.orgId, async (tx) => {
+      const [row] = await tx
+        .select({
+          companyName: schema.aiLead.companyName,
+          convertedCustomerId: schema.aiLead.convertedCustomerId,
+        })
+        .from(schema.aiLead)
+        .where(and(eq(schema.aiLead.id, leadId), eq(schema.aiLead.orgId, ctx.orgId)))
+        .limit(1);
+      return row;
+    });
+    if (!lead) {
+      throw new BizException(ErrorCode.NOT_FOUND, '发现客户不存在');
+    }
+
+    const result = await this.addToCrm(ctx, { leadIds: [leadId], ownerId: dto.ownerId });
+    const created = result.customers[0];
+    // 已转化 lead 重复 convert 时 customers/mapped 皆空 → 回退 lead 上记录的归属客户
+    const customerId =
+      created?.customerId ?? result.mapped[0]?.mappedCustomerId ?? lead.convertedCustomerId;
+    if (!customerId) {
+      throw new BizException(ErrorCode.NOT_FOUND, '发现客户不存在');
+    }
+
+    const customerName = await withOrg(this.db, ctx.orgId, async (tx) => {
+      const [row] = await tx
+        .select({ companyName: schema.customer.companyName })
+        .from(schema.customer)
+        .where(and(eq(schema.customer.id, customerId), eq(schema.customer.orgId, ctx.orgId)))
+        .limit(1);
+      return row?.companyName ?? lead.companyName;
+    });
+
+    return { leadId, customerId, customerName, mapped: !created };
   }
 
   /** 简单规则解析（MVP 暂替 LLM） */
-  private simpleParse(text: string): { targetMarket: string; customerType: string; targetProduct: string; companySize?: string } {
+  private simpleParse(text: string): {
+    targetMarket: string;
+    customerType: string;
+    targetProduct: string;
+    companySize?: string;
+  } {
     let targetMarket = 'Global';
     let customerType = 'Company';
     let targetProduct = text;

@@ -48,8 +48,17 @@ function normDomain(domain: string | null | undefined): string | null {
   );
 }
 
+/**
+ * 公司归并键（03 §3.6 去重口径：归一化域名优先，名称兜底）。
+ * 联系人归并（search-tools.entityKey）与此同口径 —— 不同公司可能同名，
+ * mock 供应商的公司名由查询词派生必然同名，仅按名称归并会把多家公司串在一起。
+ */
+function entityKey(name: string, domain: string | null | undefined): string {
+  return normDomain(domain) ?? name.toLowerCase().trim();
+}
+
 function leadKey(lead: Pick<CompanyLead, 'companyName' | 'domain'>): string {
-  return normDomain(lead.domain) ?? lead.companyName.toLowerCase().trim();
+  return entityKey(lead.companyName, lead.domain);
 }
 
 /** org.send_rules.sendWindow（'HH:MM'）→ core SendWindow（小时粒度） */
@@ -98,6 +107,14 @@ function bagArray<T>(ctx: TaskRunContext, key: string): T[] {
 }
 
 /** ===== lead_hunting ===== */
+
+/**
+ * 发现阶段留存的真实公司身份，按去重键（归一化域名优先）索引，供 assembleLeads 回填域名/官网/国家。
+ * 不能按公司名索引：同名不同域名的公司会互相覆盖，导致后一轮的域名/官网/国家顶掉前一轮，
+ * 且两家公司的联系人被并到同一条 lead。
+ */
+type CompanyIdentity = { domain?: string; website?: string; country?: string };
+type LeadIdentityMap = Record<string, CompanyIdentity>;
 
 /**
  * 三级去重口径（03 §3.6）：excludeDomains/companySizeRange 硬过滤 → 任务内已发现（bag seenKeys）→
@@ -180,9 +197,15 @@ const dedupCheck: FlowNodeFn = async (state, ctx) => {
   if (!fresh) {
     return { branch: 'duplicate' };
   }
-  ctx.bag.set('companyMeta', {
-    ...(ctx.bag.get('companyMeta') as Record<string, string> | undefined),
-    [fresh.companyName]: fresh.country ?? 'Unknown',
+  // 身份锚点：真实公司名/域名/官网只在发现阶段（搜索命中）存在，LLM 评分节点不回显这些字段
+  // （mock provider 下会退化为 'mock-*' / 'Unknown'）。按去重键留存，由 recordScore 记录键后回填。
+  ctx.bag.set('leadIdentity', {
+    ...(ctx.bag.get('leadIdentity') as LeadIdentityMap | undefined),
+    [leadKey(fresh)]: {
+      domain: normDomain(fresh.domain) ?? undefined,
+      website: fresh.website,
+      country: fresh.country,
+    },
   });
   return { patch: { discovered: [fresh] }, branch: 'new' };
 };
@@ -198,9 +221,23 @@ const recordScore: FlowNodeFn = (state, ctx) => {
     return { branch: 'low' };
   }
   const level = mapScoreLevel(current.matchPct, readAdvanced(ctx).matchThresholds);
-  const normalized: LeadScore = { ...current, scoreLevel: level };
+  // 身份以发现阶段为准：match_product 只应决定 matchPct 与理由，
+  // 若采信 LLM 回显的 companyName，则下游 meta/contacts 按名连接、域名级去重、国家画像会全部失配
+  // （本地 mock provider 下正是 'mock-companyName' + 'Unknown' + 联系人恒空）。
+  const discovered = (state['discovered'] as CompanyLead[] | undefined)?.[0];
+  const normalized: LeadScore = {
+    ...current,
+    companyName: discovered?.companyName ?? current.companyName,
+    scoreLevel: level,
+  };
   const all = [...bagArray<LeadScore>(ctx, 'scoredAll'), normalized];
   ctx.bag.set('scoredAll', all);
+  // 与 scoredAll 同下标记录去重键：CompanyLead 的身份字段（domain）不经过 LLM 评分节点回传，
+  // 只能在此把本轮发现的键留住，供 assembleLeads 取回域名/官网/国家并按域名归并联系人。
+  ctx.bag.set('scoredKeys', [
+    ...bagArray<string>(ctx, 'scoredKeys'),
+    discovered ? leadKey(discovered) : entityKey(normalized.companyName, null),
+  ]);
   return { patch: { scored: all }, branch: level === 'low' ? 'low' : 'matched' };
 };
 
@@ -226,27 +263,37 @@ function readTargetCount(state: State, ctx: TaskRunContext): number {
   return typeof value === 'number' && value >= 1 ? Math.min(100, Math.floor(value)) : 1;
 }
 
-/** 汇总发现池 leads（scored × contacts 按 companyName 连接 + 元数据国家）→ crm_write 入参。
- *  contacts 以 bag 累积为准（find_contact/lookup_contact 工具跨轮写入，含公开渠道 email）。 */
+/** 汇总发现池 leads（scored × contacts 归并 + 发现阶段身份）→ crm_write 入参。
+ *  contacts 以 bag 累积为准（find_contact/lookup_contact 工具跨轮写入，含公开渠道 email）。
+ *  两条连接线都按去重键（归一化域名优先，03 §3.6）而非公司名：
+ *  - 身份：domain/website/country 缺失会使 ai_lead.company_domain 恒空，域名级去重永不命中；
+ *  - 联系人：同名不同域名的公司会被串成一条 lead（mock 供应商公司名由查询词派生必然同名）。 */
 const assembleLeads: FlowNodeFn = (state, ctx) => {
   const scoredAll = bagArray<LeadScore>(ctx, 'scoredAll');
-  const meta = (ctx.bag.get('companyMeta') as Record<string, string> | undefined) ?? {};
+  const scoredKeys = bagArray<string>(ctx, 'scoredKeys');
+  const identity = (ctx.bag.get('leadIdentity') as LeadIdentityMap | undefined) ?? {};
   const contacts = bagArray<LeadContact>(ctx, 'contactsAll');
-  const leads = scoredAll.map((s) => ({
-    companyName: s.companyName,
-    country: meta[s.companyName] ?? 'Unknown',
-    matchPct: s.matchPct,
-    scoreLevel: s.scoreLevel,
-    reasons: s.reasons,
-    contacts: contacts
-      .filter((c) => c.companyName === s.companyName)
-      .map((c) => ({
-        name: c.name,
-        title: c.title,
-        email: c.email,
-        decisionInfluencePct: c.decisionInfluencePct,
-      })),
-  }));
+  const leads = scoredAll.map((s, i) => {
+    const key = scoredKeys[i] ?? entityKey(s.companyName, null);
+    const id = identity[key];
+    return {
+      companyName: s.companyName,
+      country: id?.country ?? 'Unknown',
+      domain: id?.domain,
+      website: id?.website,
+      matchPct: s.matchPct,
+      scoreLevel: s.scoreLevel,
+      reasons: s.reasons,
+      contacts: contacts
+        .filter((c) => entityKey(c.companyName, c.domain) === key)
+        .map((c) => ({
+          name: c.name,
+          title: c.title,
+          email: c.email,
+          decisionInfluencePct: c.decisionInfluencePct,
+        })),
+    };
+  });
   return { patch: { crmLeads: leads } };
 };
 

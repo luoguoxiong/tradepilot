@@ -73,7 +73,11 @@ async function collectEvents(redisClient: Redis, taskId: string): Promise<Record
 }
 
 /** 等待 done 事件落袋（PUBLISH 为 fire-and-forget，给订阅端少量缓冲时间） */
-async function waitUntil(events: RecordedEvent[], pred: (e: RecordedEvent) => boolean, timeoutMs = 5_000): Promise<void> {
+async function waitUntil(
+  events: RecordedEvent[],
+  pred: (e: RecordedEvent) => boolean,
+  timeoutMs = 5_000,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (events.some(pred)) {
@@ -111,7 +115,9 @@ beforeAll(async () => {
 
   // ===== 引导数据 =====
   await db.transaction(async (tx) => {
-    await tx.insert(schema.org).values({ id: ORG, name: 'M3全链路租户', timezone: 'Asia/Shanghai' });
+    await tx
+      .insert(schema.org)
+      .values({ id: ORG, name: 'M3全链路租户', timezone: 'Asia/Shanghai' });
     await tx.insert(schema.userAccount).values({
       id: USER,
       orgId: ORG,
@@ -128,7 +134,14 @@ beforeAll(async () => {
         role: 'lead_hunter',
         name: '获客员',
         goal: '完成获客目标',
-        tools: ['web_search', 'site_crawl', 'find_contact', 'lookup_contact', 'crm_write', 'knowledge_search'],
+        tools: [
+          'web_search',
+          'site_crawl',
+          'find_contact',
+          'lookup_contact',
+          'crm_write',
+          'knowledge_search',
+        ],
         permissions: {},
         approvalPolicy: { email_send: 'high_value_only', quote: 'always', autoExecute: [] },
         kpiConfig: [{ metric: 'leads', target: 5, period: 'daily' }],
@@ -161,8 +174,22 @@ beforeAll(async () => {
       isDefault: false,
     });
     await tx.insert(schema.followUpStrategyStep).values([
-      { id: STRATEGY_STEP_1, orgId: ORG, strategyId: STRATEGY, seq: 1, dayOffset: 0, title: '首触' },
-      { id: STRATEGY_STEP_2, orgId: ORG, strategyId: STRATEGY, seq: 2, dayOffset: 3, title: '价值跟进' },
+      {
+        id: STRATEGY_STEP_1,
+        orgId: ORG,
+        strategyId: STRATEGY,
+        seq: 1,
+        dayOffset: 0,
+        title: '首触',
+      },
+      {
+        id: STRATEGY_STEP_2,
+        orgId: ORG,
+        strategyId: STRATEGY,
+        seq: 2,
+        dayOffset: 3,
+        title: '价值跟进',
+      },
     ]);
     await tx.insert(schema.followUpTask).values({
       id: FT,
@@ -244,7 +271,12 @@ describe('全链路：lead_hunting 入队 → Runner → 图执行 → 落库 �
 
     // ④ 落库：任务终态 + 员工回 idle + 心跳清理
     const [task] = await db
-      .select({ status: schema.aiTask.status, outputs: schema.aiTask.outputs, progressPct: schema.aiTask.progressPct, finishedAt: schema.aiTask.finishedAt })
+      .select({
+        status: schema.aiTask.status,
+        outputs: schema.aiTask.outputs,
+        progressPct: schema.aiTask.progressPct,
+        finishedAt: schema.aiTask.finishedAt,
+      })
       .from(schema.aiTask)
       .where(eq(schema.aiTask.id, taskId));
     expect(task.status).toBe('completed');
@@ -255,19 +287,36 @@ describe('全链路：lead_hunting 入队 → Runner → 图执行 → 落库 �
     expect(leadsOut?.['type']).toBe('leads');
     expect((leadsOut?.['payload'] as Record<string, unknown>)['leads']).toHaveLength(1);
     expect((leadsOut?.['payload'] as Record<string, unknown>)['foundCount']).toBe(1);
-    const [emp] = await db.select({ status: schema.aiEmployee.status }).from(schema.aiEmployee).where(eq(schema.aiEmployee.id, EMP_LEAD));
+    const [emp] = await db
+      .select({ status: schema.aiEmployee.status })
+      .from(schema.aiEmployee)
+      .where(eq(schema.aiEmployee.id, EMP_LEAD));
     expect(emp.status).toBe('idle');
     expect(await redis.exists(heartbeatKey(taskId))).toBe(0);
 
     // 步骤全 completed；日志与 llm_call 记账可查；发现池已写入
-    const steps = await db.select({ status: schema.aiTaskStep.status }).from(schema.aiTaskStep).where(eq(schema.aiTaskStep.taskId, taskId));
+    const steps = await db
+      .select({ status: schema.aiTaskStep.status })
+      .from(schema.aiTaskStep)
+      .where(eq(schema.aiTaskStep.taskId, taskId));
     expect(steps.length).toBeGreaterThan(0);
     expect(steps.every((s) => s.status === 'completed')).toBe(true);
-    const logs = await db.select({ id: schema.aiTaskLog.id }).from(schema.aiTaskLog).where(eq(schema.aiTaskLog.taskId, taskId));
+    const logs = await db
+      .select({ id: schema.aiTaskLog.id })
+      .from(schema.aiTaskLog)
+      .where(eq(schema.aiTaskLog.taskId, taskId));
     expect(logs.length).toBeGreaterThan(0);
-    const llmCalls = await db.select({ node: schema.llmCall.node }).from(schema.llmCall).where(eq(schema.llmCall.taskId, taskId));
-    expect(new Set(llmCalls.map((c) => c.node))).toEqual(new Set(['parse_goal', 'plan_search', 'match_product']));
-    const leads = await db.select({ id: schema.aiLead.id }).from(schema.aiLead).where(eq(schema.aiLead.taskId, taskId));
+    const llmCalls = await db
+      .select({ node: schema.llmCall.node })
+      .from(schema.llmCall)
+      .where(eq(schema.llmCall.taskId, taskId));
+    expect(new Set(llmCalls.map((c) => c.node))).toEqual(
+      new Set(['parse_goal', 'plan_search', 'match_product']),
+    );
+    const leads = await db
+      .select({ id: schema.aiLead.id })
+      .from(schema.aiLead)
+      .where(eq(schema.aiLead.taskId, taskId));
     expect(leads.length).toBe(1);
 
     // ⑤ SSE：status(running) → progress → log → done(completed)，且事件契约可校验
@@ -287,10 +336,16 @@ describe('全链路：lead_hunting 入队 → Runner → 图执行 → 落库 �
   it('幂等：重复投递（任务已终态）跳过执行且不重复写发现池', async () => {
     const taskId = await insertLeadTask();
     await runner.run(taskId);
-    const afterFirst = await db.select({ id: schema.aiLead.id }).from(schema.aiLead).where(eq(schema.aiLead.taskId, taskId));
+    const afterFirst = await db
+      .select({ id: schema.aiLead.id })
+      .from(schema.aiLead)
+      .where(eq(schema.aiLead.taskId, taskId));
     const again = await runner.run(taskId);
     expect(again.status).toBe('skipped');
-    const leads = await db.select({ id: schema.aiLead.id }).from(schema.aiLead).where(eq(schema.aiLead.taskId, taskId));
+    const leads = await db
+      .select({ id: schema.aiLead.id })
+      .from(schema.aiLead)
+      .where(eq(schema.aiLead.taskId, taskId));
     expect(leads.length).toBe(afterFirst.length);
     expect(afterFirst.length).toBe(1);
   });
@@ -324,7 +379,12 @@ describe('全链路：follow_up 审批挂起 → 批准 → resume 续跑 → �
 
     // 审批单 pending + 48h 超时；跟进任务同步挂起且 next_run_at 冻结；员工卡片挂起
     const [req] = await db
-      .select({ status: schema.approvalRequest.status, bizId: schema.approvalRequest.bizId, expiresAt: schema.approvalRequest.expiresAt, proposal: schema.approvalRequest.aiProposal })
+      .select({
+        status: schema.approvalRequest.status,
+        bizId: schema.approvalRequest.bizId,
+        expiresAt: schema.approvalRequest.expiresAt,
+        proposal: schema.approvalRequest.aiProposal,
+      })
       .from(schema.approvalRequest)
       .where(eq(schema.approvalRequest.id, approvalId));
     expect(req.status).toBe('pending');
@@ -337,12 +397,20 @@ describe('全链路：follow_up 审批挂起 → 批准 → resume 续跑 → �
     expect(ft1.status).toBe('waiting_approval');
     expect(ft1.nextRunAt).not.toBeNull();
     const frozenAt = ft1.nextRunAt as Date;
-    const [emp1] = await db.select({ status: schema.aiEmployee.status }).from(schema.aiEmployee).where(eq(schema.aiEmployee.id, EMP_FU));
+    const [emp1] = await db
+      .select({ status: schema.aiEmployee.status })
+      .from(schema.aiEmployee)
+      .where(eq(schema.aiEmployee.id, EMP_FU));
     expect(emp1.status).toBe('waiting_approval');
 
     // SSE status 事件携带 linkedApprovalId
-    await waitUntil(events, (e) => e.type === SSE_EVENT_TYPE.STATUS && e.payload?.['status'] === 'waiting_approval');
-    const statusEvt = events.find((e) => e.type === SSE_EVENT_TYPE.STATUS && e.payload?.['status'] === 'waiting_approval');
+    await waitUntil(
+      events,
+      (e) => e.type === SSE_EVENT_TYPE.STATUS && e.payload?.['status'] === 'waiting_approval',
+    );
+    const statusEvt = events.find(
+      (e) => e.type === SSE_EVENT_TYPE.STATUS && e.payload?.['status'] === 'waiting_approval',
+    );
     expect(statusEvt?.payload?.['linkedApprovalId']).toBe(approvalId);
     expect(events.some((e) => e.type === SSE_EVENT_TYPE.DONE)).toBe(false);
 
@@ -356,14 +424,21 @@ describe('全链路：follow_up 审批挂起 → 批准 → resume 续跑 → �
 
     // 邮件落库（message out/sent）+ 执行记录（sent，锚定策略步 1）
     const msgs = await db
-      .select({ id: schema.message.id, direction: schema.message.direction, status: schema.message.status })
+      .select({
+        id: schema.message.id,
+        direction: schema.message.direction,
+        status: schema.message.status,
+      })
       .from(schema.message)
       .where(eq(schema.message.conversationId, CONV));
     expect(msgs).toHaveLength(1);
     expect(msgs[0].direction).toBe('out');
     expect(msgs[0].status).toBe('sent');
     const execs = await db
-      .select({ status: schema.followUpExecution.status, stepId: schema.followUpExecution.strategyStepId })
+      .select({
+        status: schema.followUpExecution.status,
+        stepId: schema.followUpExecution.strategyStepId,
+      })
       .from(schema.followUpExecution)
       .where(eq(schema.followUpExecution.followUpTaskId, FT));
     expect(execs).toHaveLength(1);
@@ -384,11 +459,20 @@ describe('全链路：follow_up 审批挂起 → 批准 → resume 续跑 → �
     expect(insightOut?.['payload']).toMatchObject({ nextStep: { seq: 2 } });
 
     // 终态收口：任务 completed + 员工 idle + done 事件
-    const [task2] = await db.select({ status: schema.aiTask.status }).from(schema.aiTask).where(eq(schema.aiTask.id, taskId));
+    const [task2] = await db
+      .select({ status: schema.aiTask.status })
+      .from(schema.aiTask)
+      .where(eq(schema.aiTask.id, taskId));
     expect(task2.status).toBe('completed');
-    const [emp2] = await db.select({ status: schema.aiEmployee.status }).from(schema.aiEmployee).where(eq(schema.aiEmployee.id, EMP_FU));
+    const [emp2] = await db
+      .select({ status: schema.aiEmployee.status })
+      .from(schema.aiEmployee)
+      .where(eq(schema.aiEmployee.id, EMP_FU));
     expect(emp2.status).toBe('idle');
-    await waitUntil(events, (e) => e.type === SSE_EVENT_TYPE.DONE && e.payload?.['status'] === 'completed');
+    await waitUntil(
+      events,
+      (e) => e.type === SSE_EVENT_TYPE.DONE && e.payload?.['status'] === 'completed',
+    );
   });
 
   it('客户已回复撞车防护：check_replied → 转人工暂停', async () => {
@@ -413,7 +497,13 @@ describe('全链路：follow_up 审批挂起 → 批准 → resume 续跑 → �
         status: 'ready',
         nextRunAt: new Date(),
       });
-      await tx.insert(schema.conversation).values({ id: conv2, orgId: ORG, customerId: customer2, channel: 'email', subject: '撞车会话' });
+      await tx.insert(schema.conversation).values({
+        id: conv2,
+        orgId: ORG,
+        customerId: customer2,
+        channel: 'email',
+        subject: '撞车会话',
+      });
       await tx.insert(schema.message).values({
         id: createId('msg'),
         orgId: ORG,
@@ -441,7 +531,10 @@ describe('全链路：follow_up 审批挂起 → 批准 → resume 续跑 → �
 
     const result = await runner.run(taskId);
     expect(result.status).toBe('completed');
-    const [ft] = await db.select({ status: schema.followUpTask.status }).from(schema.followUpTask).where(eq(schema.followUpTask.id, ft2));
+    const [ft] = await db
+      .select({ status: schema.followUpTask.status })
+      .from(schema.followUpTask)
+      .where(eq(schema.followUpTask.id, ft2));
     expect(ft.status).toBe('paused');
     // 无任何外发消息新增（既有 out 消息仅前一用例批准后发送的 1 条）
     const msgs = await db
@@ -469,13 +562,25 @@ describe('M4-1 lead_hunting：阈值映射 / 硬过滤 / 轮次守卫 / 额度 p
   const EMP2 = createId('aie');
   const EMP3 = createId('aie');
   const EMP_QUOTA = createId('aie');
-  const LEAD_TOOLS = ['web_search', 'site_crawl', 'find_contact', 'lookup_contact', 'crm_write', 'knowledge_search'];
+  const LEAD_TOOLS = [
+    'web_search',
+    'site_crawl',
+    'find_contact',
+    'lookup_contact',
+    'crm_write',
+    'knowledge_search',
+  ];
 
   const MOCK_QUERY = 'carbon fiber insoles manufacturer USA';
 
-  async function seedOrg(orgId: string, employees: { id: string; permissions?: Record<string, unknown> }[]): Promise<void> {
+  async function seedOrg(
+    orgId: string,
+    employees: { id: string; permissions?: Record<string, unknown> }[],
+  ): Promise<void> {
     await db.transaction(async (tx) => {
-      await tx.insert(schema.org).values({ id: orgId, name: `M4-1-${orgId.slice(-4)}`, timezone: 'Asia/Shanghai' });
+      await tx
+        .insert(schema.org)
+        .values({ id: orgId, name: `M4-1-${orgId.slice(-4)}`, timezone: 'Asia/Shanghai' });
       for (const [i, emp] of employees.entries()) {
         await tx.insert(schema.userAccount).values({
           id: createId('usr'),
@@ -501,7 +606,11 @@ describe('M4-1 lead_hunting：阈值映射 / 硬过滤 / 轮次守卫 / 额度 p
     });
   }
 
-  async function runLeadTask(orgId: string, employeeId: string, input: Record<string, unknown>): Promise<string> {
+  async function runLeadTask(
+    orgId: string,
+    employeeId: string,
+    input: Record<string, unknown>,
+  ): Promise<string> {
     const taskId = createId('task');
     await db.insert(schema.aiTask).values({
       id: taskId,
@@ -539,7 +648,9 @@ describe('M4-1 lead_hunting：阈值映射 / 硬过滤 / 轮次守卫 / 额度 p
         // 跟进链路（漏删会跨文件污染 scheduler 扫描：scanner 跨租户扫所有到期 follow_up_task）
         await tx.delete(schema.followUpExecution).where(eq(schema.followUpExecution.orgId, orgId));
         await tx.delete(schema.followUpTask).where(eq(schema.followUpTask.orgId, orgId));
-        await tx.delete(schema.followUpStrategyStep).where(eq(schema.followUpStrategyStep.orgId, orgId));
+        await tx
+          .delete(schema.followUpStrategyStep)
+          .where(eq(schema.followUpStrategyStep.orgId, orgId));
         await tx.delete(schema.followUpStrategy).where(eq(schema.followUpStrategy.orgId, orgId));
         await tx.delete(schema.message).where(eq(schema.message.orgId, orgId));
         await tx.delete(schema.conversation).where(eq(schema.conversation.orgId, orgId));
@@ -620,9 +731,15 @@ describe('M4-1 lead_hunting：阈值映射 / 硬过滤 / 轮次守卫 / 额度 p
         maxRounds: 2,
       },
     });
-    const [task] = await db.select({ status: schema.aiTask.status }).from(schema.aiTask).where(eq(schema.aiTask.id, taskId));
+    const [task] = await db
+      .select({ status: schema.aiTask.status })
+      .from(schema.aiTask)
+      .where(eq(schema.aiTask.id, taskId));
     expect(task.status).toBe('completed');
-    const leads = await db.select({ id: schema.aiLead.id }).from(schema.aiLead).where(eq(schema.aiLead.taskId, taskId));
+    const leads = await db
+      .select({ id: schema.aiLead.id })
+      .from(schema.aiLead)
+      .where(eq(schema.aiLead.taskId, taskId));
     expect(leads).toHaveLength(0); // 03 §3.6：全部候选被硬过滤 → 零写入收尾
   });
 
@@ -638,8 +755,37 @@ describe('M4-1 lead_hunting：阈值映射 / 硬过滤 / 轮次守卫 / 额度 p
       .where(eq(schema.aiTask.id, taskId));
     expect(task.status).toBe('completed');
     expect(task.progressPct).toBe(100);
-    const leads = await db.select({ id: schema.aiLead.id }).from(schema.aiLead).where(eq(schema.aiLead.taskId, taskId));
+    const leads = await db
+      .select({
+        id: schema.aiLead.id,
+        name: schema.aiLead.companyName,
+        domain: schema.aiLead.companyDomain,
+      })
+      .from(schema.aiLead)
+      .where(eq(schema.aiLead.taskId, taskId));
     expect(leads).toHaveLength(2); // 每轮 1 家 × 2 轮
+
+    // 两轮 mock 公司同名（公司名由查询词派生），身份与联系人只能按去重键（域名，03 §3.6）区分：
+    // 按名归并会让后一轮顶掉前一轮的域名（company_domain 恒空、域名级去重永不命中），
+    // 并把两家公司的联系人并到同一条 lead。
+    expect(new Set(leads.map((l) => l.name)).size).toBe(1);
+    expect(leads.filter((l) => !!l.domain)).toHaveLength(2);
+    expect(new Set(leads.map((l) => l.domain)).size).toBe(2);
+    const contacts = await db
+      .select({ leadId: schema.aiLeadContact.leadId, email: schema.aiLeadContact.email })
+      .from(schema.aiLeadContact)
+      .where(
+        inArray(
+          schema.aiLeadContact.leadId,
+          leads.map((l) => l.id),
+        ),
+      );
+    expect(contacts.length).toBeGreaterThan(0);
+    expect(new Set(contacts.map((c) => c.leadId)).size).toBe(2); // 两家各持自己的联系人
+    const domainByLead = new Map(leads.map((l) => [l.id, l.domain]));
+    for (const c of contacts) {
+      expect(c.email?.split('@')[1]).toBe(domainByLead.get(c.leadId)); // 无跨公司串数据
+    }
     const searchLogs = await db
       .select({ content: schema.aiTaskLog.content })
       .from(schema.aiTaskLog)
@@ -652,7 +798,10 @@ describe('M4-1 lead_hunting：阈值映射 / 硬过滤 / 轮次守卫 / 额度 p
         ),
       )
       .orderBy(asc(schema.aiTaskLog.occurredAt));
-    expect(searchLogs.map((l) => l.content)).toEqual(['第 1 轮搜索：' + MOCK_QUERY, '第 2 轮搜索：' + MOCK_QUERY]);
+    expect(searchLogs.map((l) => l.content)).toEqual([
+      '第 1 轮搜索：' + MOCK_QUERY,
+      '第 2 轮搜索：' + MOCK_QUERY,
+    ]);
   });
 
   it('额度耗尽：42901 → 任务 paused 而非 failed，错误日志落库 + SSE 推送', async () => {
@@ -687,12 +836,20 @@ describe('M4-1 lead_hunting：阈值映射 / 硬过滤 / 轮次守卫 / 额度 p
     expect(errLog.content).toContain('额度');
 
     // paused 在 save 之前中断 → 本任务无发现池写入
-    const leads = await db.select({ id: schema.aiLead.id }).from(schema.aiLead).where(eq(schema.aiLead.taskId, taskId));
+    const leads = await db
+      .select({ id: schema.aiLead.id })
+      .from(schema.aiLead)
+      .where(eq(schema.aiLead.taskId, taskId));
     expect(leads).toHaveLength(0);
 
     // SSE：status=paused 事件推送（无 done 事件）
-    await waitUntil(events, (e) => e.type === SSE_EVENT_TYPE.STATUS && e.payload?.['status'] === TASK_STATUS.PAUSED);
-    const statusEvt = events.find((e) => e.type === SSE_EVENT_TYPE.STATUS && e.payload?.['status'] === TASK_STATUS.PAUSED);
+    await waitUntil(
+      events,
+      (e) => e.type === SSE_EVENT_TYPE.STATUS && e.payload?.['status'] === TASK_STATUS.PAUSED,
+    );
+    const statusEvt = events.find(
+      (e) => e.type === SSE_EVENT_TYPE.STATUS && e.payload?.['status'] === TASK_STATUS.PAUSED,
+    );
     expect(statusEvt?.payload?.['error']).toContain('额度');
     expect(events.some((e) => e.type === SSE_EVENT_TYPE.DONE)).toBe(false);
   });

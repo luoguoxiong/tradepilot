@@ -13,7 +13,7 @@
  * 前置：docker compose up（PG 5432 / Redis 6380）+ 迁移已执行。
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import { createId, ErrorCode } from '@tradepilot/core';
 import { closeDb, createDb, schema, type Db, type OrgScopeContext } from '@tradepilot/db';
@@ -46,7 +46,6 @@ let salesCtx: OrgScopeContext;
 let customerId = '';
 let contactId = '';
 let leadId = '';
-let leadHunterEmpId = '';
 
 const adminEmail = `it-m5b3-${createId('org')}@test.com`;
 const salesEmail = `it-m5b3-sales-${createId('org')}@test.com`;
@@ -103,13 +102,6 @@ beforeAll(async () => {
   customerId = createId('cus');
   contactId = createId('cont');
   leadId = createId('lead');
-
-  const [seedEmp] = await superDb
-    .select({ id: schema.aiEmployee.id })
-    .from(schema.aiEmployee)
-    .where(and(eq(schema.aiEmployee.orgId, orgId), eq(schema.aiEmployee.role, 'lead_hunter')))
-    .limit(1);
-  leadHunterEmpId = seedEmp?.id ?? '';
 
   // 创建测试客户
   await superDb.insert(schema.customer).values({
@@ -211,16 +203,26 @@ afterAll(async () => {
       await tx.delete(schema.aiTask).where(eq(schema.aiTask.orgId, orgId));
       await tx.delete(schema.followUpExecution).where(eq(schema.followUpExecution.orgId, orgId));
       await tx.delete(schema.followUpTask).where(eq(schema.followUpTask.orgId, orgId));
-      await tx.delete(schema.followUpStrategyStep).where(eq(schema.followUpStrategyStep.orgId, orgId));
+      await tx
+        .delete(schema.followUpStrategyStep)
+        .where(eq(schema.followUpStrategyStep.orgId, orgId));
       await tx.delete(schema.followUpStrategy).where(eq(schema.followUpStrategy.orgId, orgId));
-      await tx.delete(schema.conversationInsight).where(eq(schema.conversationInsight.orgId, orgId));
+      await tx
+        .delete(schema.conversationInsight)
+        .where(eq(schema.conversationInsight.orgId, orgId));
       await tx.delete(schema.message).where(eq(schema.message.orgId, orgId));
       await tx.delete(schema.conversation).where(eq(schema.conversation.orgId, orgId));
       await tx.delete(schema.customerInsight).where(eq(schema.customerInsight.orgId, orgId));
       await tx.delete(schema.customerActivity).where(eq(schema.customerActivity.orgId, orgId));
       await tx.delete(schema.contact).where(eq(schema.contact.orgId, orgId));
-      await tx.update(schema.customer).set({ sourceLeadId: null }).where(eq(schema.customer.orgId, orgId));
-      await tx.update(schema.aiLead).set({ convertedCustomerId: null }).where(eq(schema.aiLead.orgId, orgId));
+      await tx
+        .update(schema.customer)
+        .set({ sourceLeadId: null })
+        .where(eq(schema.customer.orgId, orgId));
+      await tx
+        .update(schema.aiLead)
+        .set({ convertedCustomerId: null })
+        .where(eq(schema.aiLead.orgId, orgId));
       await tx.delete(schema.aiLeadContact).where(eq(schema.aiLeadContact.orgId, orgId));
       await tx.delete(schema.aiLead).where(eq(schema.aiLead.orgId, orgId));
       await tx.delete(schema.customer).where(eq(schema.customer.orgId, orgId));
@@ -391,25 +393,35 @@ describe('M5-B3-9 · POST /contacts/{id}/generate-outreach 生成开发信', () 
 // ============================== B3-10 convert ==============================
 
 describe('M5-B3-10 · POST /leads/{id}/convert 单条 lead 转 CRM', () => {
-  it('转换成功返回 created=1', async () => {
+  it('转换成功返回单条结果 {leadId,customerId,customerName,mapped=false}', async () => {
     const leads = (globalThis as Record<string, unknown>).__leads as LeadsService;
     const result = await leads.convert(adminCtx, leadId, {});
-    expect(result.created).toBe(1);
-    expect(result.duplicated).toBe(0);
+    // 04 §2 出参是单条结果 + mapped 布尔（前端据此区分「新建 / 归并」文案），
+    // 非批量 add-to-crm 的 {created,duplicated,customers,mapped[]} 汇总形状。
+    expect(result.leadId).toBe(leadId);
+    expect(result.mapped).toBe(false);
+    expect(result.customerId).toBeTruthy();
+    expect(result.customerName).toBeTruthy();
 
     // 验证 lead 已标记
     const [lead] = await superDb
-      .select({ inCrm: schema.aiLead.inCrm, convertedCustomerId: schema.aiLead.convertedCustomerId })
+      .select({
+        inCrm: schema.aiLead.inCrm,
+        convertedCustomerId: schema.aiLead.convertedCustomerId,
+      })
       .from(schema.aiLead)
       .where(eq(schema.aiLead.id, leadId));
     expect(lead?.inCrm).toBe(true);
     expect(lead?.convertedCustomerId).toBeTruthy();
+    expect(result.customerId).toBe(lead?.convertedCustomerId);
   });
 
-  it('已转换的 lead 重复提交 → duplicated', async () => {
+  it('已转换的 lead 重复提交 → mapped=true 且回退原归属客户', async () => {
     const leads = (globalThis as Record<string, unknown>).__leads as LeadsService;
-    const result = await leads.convert(adminCtx, leadId, {});
-    expect(result.duplicated).toBe(1);
+    const first = await leads.convert(adminCtx, leadId, {});
+    const again = await leads.convert(adminCtx, leadId, {});
+    expect(again.mapped).toBe(true);
+    expect(again.customerId).toBe(first.customerId);
   });
 });
 
@@ -419,14 +431,26 @@ describe('M5-B3-11 · 数据范围越权：sales(self) 访问他人客户 360° 
   it('detail / analyze / insights 对他人客户 → 40301', async () => {
     const customers = (globalThis as Record<string, unknown>).__customers as CustomersService;
     await expectBiz(customers.detail(salesCtx, customerId), ErrorCode.FORBIDDEN);
-    await expectBiz(customers.analyze(salesCtx, customerId, { scope: 'overview' }), ErrorCode.FORBIDDEN);
+    await expectBiz(
+      customers.analyze(salesCtx, customerId, { scope: 'overview' }),
+      ErrorCode.FORBIDDEN,
+    );
     await expectBiz(customers.insights(salesCtx, customerId), ErrorCode.FORBIDDEN);
   });
 
   it('contacts / conversations / activities 子资源对他人客户 → 40301', async () => {
     const customers = (globalThis as Record<string, unknown>).__customers as CustomersService;
-    await expectBiz(customers.listCustomerContacts(salesCtx, customerId, 1, 10), ErrorCode.FORBIDDEN);
-    await expectBiz(customers.listCustomerConversations(salesCtx, customerId, 1, 10), ErrorCode.FORBIDDEN);
-    await expectBiz(customers.listCustomerActivities(salesCtx, customerId, 1, 10), ErrorCode.FORBIDDEN);
+    await expectBiz(
+      customers.listCustomerContacts(salesCtx, customerId, 1, 10),
+      ErrorCode.FORBIDDEN,
+    );
+    await expectBiz(
+      customers.listCustomerConversations(salesCtx, customerId, 1, 10),
+      ErrorCode.FORBIDDEN,
+    );
+    await expectBiz(
+      customers.listCustomerActivities(salesCtx, customerId, 1, 10),
+      ErrorCode.FORBIDDEN,
+    );
   });
 });

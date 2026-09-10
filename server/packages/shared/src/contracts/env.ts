@@ -83,6 +83,17 @@ export const workerEnvSchema = baseEnvSchema.extend({
   SEARCH_PROVIDER: z.enum(['mock', 'http']).default('mock'),
   SEARCH_BASE_URL: z.string().default('https://google.serper.dev'),
   SEARCH_API_KEY: z.string().default(''),
+  /**
+   * 是否允许 worker 启动时对 langgraph schema 执行 DDL（PostgresSaver.setup()）。
+   * 默认 false：checkpoint 4 表由 manual 迁移 0009 以表 owner 身份建立；运行时角色
+   * tradepilot_app 无数据库级 CREATE 权限，调用 setup() 会 42501（其首句即 CREATE SCHEMA）。
+   * 仅在 langgraph 依赖升级需要补列时临时置 true（需配合具备 DDL 权限的连接串）。
+   * 不可用 z.coerce.boolean：其实现为 Boolean(input)，字符串 'false' 同样为真。
+   */
+  LANGGRAPH_CHECKPOINT_SETUP: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
 });
 export type WorkerEnv = z.infer<typeof workerEnvSchema>;
 

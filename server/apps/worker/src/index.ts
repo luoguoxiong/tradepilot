@@ -57,8 +57,11 @@ async function bootstrap(): Promise<void> {
   const db = createDb(env.DATABASE_URL);
   const redis = new IORedis(env.REDIS_URL, { maxRetriesPerRequest: null });
   const publisher = new TaskEventPublisher(redis);
-  // checkpointer 独立连接（search_path=langgraph，setup 建表随 manual 迁移授权）
-  const checkpointer = await createCheckpointer(env.DATABASE_URL);
+  // checkpointer 独立连接（search_path=langgraph；建表 DDL 由 manual 迁移 0009 以表 owner 完成，
+  // 运行时角色默认不执行 setup → 见 LANGGRAPH_CHECKPOINT_SETUP）
+  const checkpointer = await createCheckpointer(env.DATABASE_URL, {
+    provisionSchema: env.LANGGRAPH_CHECKPOINT_SETUP,
+  });
 
   // ===== Runtime 装配 =====
   // M3 LLM 走 mock provider（Zod 驱动确定性产出，三工作流全链路可测）；真实 provider 随 M4

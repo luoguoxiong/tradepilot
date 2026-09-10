@@ -87,6 +87,27 @@ export interface CustomerDetailView extends CustomerListItem {
   };
 }
 
+/**
+ * 04 §3.1 lead 预览态（inCrm=false 的发现池 lead 作为 360° 数据源）。
+ * 字段与 mock 契约一致（web/src/mocks/data/customers360.ts build360Profile 的 lead 分支）：
+ * 仅公司信息 + 评分 + 标签 + Overview，不返回客户主数据子集（不可编辑/推进阶段/删除）。
+ * productMatches 为 04 §1.2 选填项：产品目录表未落地前不返回（前端 `?? []` 降级为空）。
+ */
+export interface LeadPreviewView {
+  customerId: string;
+  companyName: string;
+  score: number;
+  country: string;
+  website: string | null;
+  industry: string | null;
+  industryTags: string[];
+  inCrm: false;
+  overview: {
+    customerType?: string;
+    productMatches: unknown[];
+  };
+}
+
 export interface ActivityItem {
   activityId: string;
   customerId: string;
@@ -949,8 +970,90 @@ export class CustomersService {
 
   // ===== B3 04 客户360° =====
 
-  /** B3 §3.1 GET /customers/{id} 头部 + Overview（含 productMatches） */
-  async detail(ctx: OrgScopeContext, customerId: string): Promise<CustomerDetailView> {
+  /**
+   * B3 §3.1 GET /customers/{id} 头部 + Overview（含 productMatches）。
+   * 04 §3.1 双数据源：入参可传 customerId 或 leadId（获客发现列表「查看详情」直达 360°），
+   * 此前仅按 customer 表查询 → lead 入口恒 40401。
+   */
+  async detail(
+    ctx: OrgScopeContext,
+    entityId: string,
+  ): Promise<CustomerDetailView | LeadPreviewView> {
+    const ref = await this.resolve360Entity(ctx, entityId);
+    if (!ref) {
+      throw new BizException(ErrorCode.NOT_FOUND, '资源不存在');
+    }
+    return ref.kind === 'customer'
+      ? this.buildCustomerDetail(ctx, ref.key)
+      : this.buildLeadPreview(ctx, ref.key);
+  }
+
+  /**
+   * 04 §3.1 入口 id 解析（与 mock resolve360Entity 同口径）：
+   * customerId 命中 → 客户档案；否则按 leadId 查发现池，
+   * 已转化（inCrm）的 lead 归并到其归属客户，未转化则走预览态。
+   */
+  private async resolve360Entity(
+    ctx: OrgScopeContext,
+    raw: string,
+  ): Promise<{ kind: 'customer' | 'lead'; key: string } | null> {
+    return withOrg(this.db, ctx.orgId, async (tx) => {
+      const [customer] = await tx
+        .select({ id: schema.customer.id })
+        .from(schema.customer)
+        .where(and(eq(schema.customer.id, raw), notDeleted(schema.customer.deletedAt)))
+        .limit(1);
+      if (customer) {
+        return { kind: 'customer' as const, key: customer.id };
+      }
+
+      const [lead] = await tx
+        .select({
+          id: schema.aiLead.id,
+          inCrm: schema.aiLead.inCrm,
+          convertedCustomerId: schema.aiLead.convertedCustomerId,
+        })
+        .from(schema.aiLead)
+        .where(and(eq(schema.aiLead.id, raw), eq(schema.aiLead.orgId, ctx.orgId)))
+        .limit(1);
+      if (!lead) return null;
+      if (lead.inCrm && lead.convertedCustomerId) {
+        return { kind: 'customer' as const, key: lead.convertedCustomerId };
+      }
+      return { kind: 'lead' as const, key: lead.id };
+    });
+  }
+
+  /** 04 §3.1 lead 预览态：发现池 lead 的 360° 头部 / Overview 数据（只读，无客户主数据子集） */
+  private async buildLeadPreview(ctx: OrgScopeContext, leadId: string): Promise<LeadPreviewView> {
+    return withOrg(this.db, ctx.orgId, async (tx) => {
+      const [lead] = await tx
+        .select()
+        .from(schema.aiLead)
+        .where(and(eq(schema.aiLead.id, leadId), eq(schema.aiLead.orgId, ctx.orgId)))
+        .limit(1);
+      if (!lead) {
+        throw new BizException(ErrorCode.NOT_FOUND, '资源不存在');
+      }
+      return {
+        customerId: lead.id,
+        companyName: lead.companyName,
+        score: lead.matchPct,
+        country: lead.country,
+        website: lead.website,
+        industry: lead.industry ?? null,
+        industryTags: lead.industry ? [lead.industry] : [],
+        inCrm: false,
+        overview: { productMatches: [] },
+      };
+    });
+  }
+
+  /** B3 §3.1 客户档案详情（customerId 命中路径；sales 越权经 assertResourceAccess → 40301） */
+  private async buildCustomerDetail(
+    ctx: OrgScopeContext,
+    customerId: string,
+  ): Promise<CustomerDetailView> {
     return withOrg(this.db, ctx.orgId, async (tx) => {
       const [raw] = await tx
         .select()

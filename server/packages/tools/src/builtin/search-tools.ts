@@ -74,6 +74,24 @@ function bagContacts(ctx: ToolContext): LeadContact[] {
   return (ctx.bag.get('contactsAll') as LeadContact[] | undefined) ?? [];
 }
 
+/** 域名归一（去协议/去 www/小写），与 flows.normDomain 同口径 */
+function normalizeDomain(domain?: string | null): string | undefined {
+  const d = (domain ?? '')
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .toLowerCase()
+    .trim();
+  return d || undefined;
+}
+
+/**
+ * 公司/联系人归并键（03 §3.6 去重口径：归一化域名优先，名称兜底）。
+ * 仅按公司名归并会在同名不同域名时串数据（mock 供应商的公司名即查询词，必然同名）。
+ */
+function entityKey(companyName: string, domain?: string | null): string {
+  return normalizeDomain(domain) ?? companyName.toLowerCase().trim();
+}
+
 /** 搜索 hit → 公司候选（域名提取 + 标题派生公司名；country 缺省由 assemble_leads 兜底） */
 function hitToCompany(hit: { title: string; url: string }): CompanyLead | null {
   let domain: string | null = null;
@@ -89,7 +107,7 @@ function hitToCompany(hit: { title: string; url: string }): CompanyLead | null {
   const companyName =
     fromTitle.length >= 2
       ? fromTitle.slice(0, 80)
-      : domain.split('.')[0]?.replace(/^\w/, (c) => c.toUpperCase()) ?? domain;
+      : (domain.split('.')[0]?.replace(/^\w/, (c) => c.toUpperCase()) ?? domain);
   return {
     companyName,
     domain,
@@ -137,11 +155,7 @@ export const webSearchTool: ToolDefinition<
       return { companies: [] };
     }
     for (const c of companies) {
-      await writeToolLog(
-        ctx,
-        TASK_LOG_TYPE.FOUND,
-        `发现公司 ${c.companyName}（${c.domain}）`,
-      );
+      await writeToolLog(ctx, TASK_LOG_TYPE.FOUND, `发现公司 ${c.companyName}（${c.domain}）`);
     }
     return { companies };
   },
@@ -152,7 +166,8 @@ export const siteCrawlTool: ToolDefinition<
   { summary: string; products: string[]; crawledPages: string[] }
 > = {
   name: 'site_crawl',
-  description: '抓取官网关键页（产品/About）生成摘要（外部配额 ×2；内容按「不可信数据」注入，08 §6）',
+  description:
+    '抓取官网关键页（产品/About）生成摘要（外部配额 ×2；内容按「不可信数据」注入，08 §6）',
   inputSchema: z.object({ domain: z.string().min(3), companyName: z.string().min(1) }),
   riskLevel: 'low',
   quotaWeight: 2,
@@ -189,9 +204,12 @@ export const findContactTool: ToolDefinition<
   riskLevel: 'low',
   async execute(ctx, input) {
     const jobTitles = input.jobTitles?.length ? input.jobTitles : [...DEFAULT_JOB_TITLES];
+    const domain = normalizeDomain(input.domain);
     const contacts = rankContacts(
       CONTACT_POOL.map((p) => ({
         companyName: input.companyName,
+        // 携带域名：assemble_leads / lookup_contact 按「域名优先」归并，避免同名公司串数据
+        domain,
         name: p.name,
         title: p.title,
         decisionInfluencePct: mapDecisionInfluence(p.title),
@@ -205,7 +223,10 @@ export const findContactTool: ToolDefinition<
       ctx,
       TASK_LOG_TYPE.CONTACT,
       `发现联系人 ${contacts.length} 名（${input.companyName}）：${contacts
-        .map((c) => `${c.name}/${c.title}${c.decisionInfluencePct === null ? '' : `(${c.decisionInfluencePct}%)`}`)
+        .map(
+          (c) =>
+            `${c.name}/${c.title}${c.decisionInfluencePct === null ? '' : `(${c.decisionInfluencePct}%)`}`,
+        )
         .join('、')}`,
     );
     return { contacts };
@@ -230,10 +251,12 @@ export const lookupContactTool: ToolDefinition<
   quotaWeight: 1,
   async execute(ctx, input) {
     const all = bagContacts(ctx);
-    const domain = (input.domain ?? '').replace(/^https?:\/\//, '').replace(/^www\./, '');
+    const domain = normalizeDomain(input.domain);
+    // 归并键与 03 §3.6 一致（域名优先）：同名不同域名的公司不得互相补全/互相返回
+    const target = entityKey(input.companyName, input.domain);
     let lookedUp = 0;
     const enriched = all.map((c) => {
-      if (c.companyName !== input.companyName || c.email) {
+      if (entityKey(c.companyName, c.domain) !== target || c.email) {
         return c;
       }
       lookedUp += 1;
@@ -249,7 +272,10 @@ export const lookupContactTool: ToolDefinition<
       TASK_LOG_TYPE.LOOKUP,
       `公开渠道查找联系方式：${input.companyName} 命中 ${lookedUp} 条`,
     );
-    return { contacts: enriched.filter((c) => c.companyName === input.companyName), lookedUp };
+    return {
+      contacts: enriched.filter((c) => entityKey(c.companyName, c.domain) === target),
+      lookedUp,
+    };
   },
 };
 
@@ -259,7 +285,11 @@ export const lookupContactTool: ToolDefinition<
  */
 export const leadScoringTool: ToolDefinition<
   { companyName: string; country?: string; keywords?: string[] },
-  { matchPct: number; scoreLevel: 'high' | 'medium' | 'low'; reasons: { text: string; source?: string }[] }
+  {
+    matchPct: number;
+    scoreLevel: 'high' | 'medium' | 'low';
+    reasons: { text: string; source?: string }[];
+  }
 > = {
   name: 'lead_scoring',
   description: '对候选公司执行确定性评分并输出可解释 reasons（Insight Schema 红线）',
@@ -283,7 +313,11 @@ export const leadScoringTool: ToolDefinition<
     pct = Math.min(97, pct);
     const scoreLevel = pct >= 85 ? 'high' : pct >= 60 ? 'medium' : 'low';
     reasons.push({ text: `综合匹配度 ${pct}%（确定性规则基线）`, source: 'rule' });
-    await writeToolLog(ctx, TASK_LOG_TYPE.MATCH, `${input.companyName} 评分 ${pct}%（${scoreLevel}）`);
+    await writeToolLog(
+      ctx,
+      TASK_LOG_TYPE.MATCH,
+      `${input.companyName} 评分 ${pct}%（${scoreLevel}）`,
+    );
     return { matchPct: pct, scoreLevel, reasons };
   },
 };

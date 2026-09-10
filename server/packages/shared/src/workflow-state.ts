@@ -144,11 +144,19 @@ export const sopGraphDefinitionSchema = z
   .superRefine((sop, ctx) => {
     const ids = new Set(sop.nodes.map((n) => n.id));
     if (!ids.has(sop.entry)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['entry'], message: `入口节点 ${sop.entry} 不存在` });
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['entry'],
+        message: `入口节点 ${sop.entry} 不存在`,
+      });
     }
     sop.edges.forEach((e, i) => {
       if (!ids.has(e.from) || !ids.has(e.to)) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['edges', i], message: `边 ${e.from}→${e.to} 引用未知节点` });
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['edges', i],
+          message: `边 ${e.from}→${e.to} 引用未知节点`,
+        });
       }
     });
   });
@@ -202,6 +210,12 @@ export interface LeadScore {
 
 export interface LeadContact {
   companyName: string;
+  /**
+   * 归一化域名。联系人与公司的归并键须与 03 §3.6 去重口径一致（域名优先，名称兜底）：
+   * 不同公司可能同名（mock 供应商的公司名由查询词派生，必然同名），仅按名称归并会把
+   * 多家公司的联系人混到同一条 lead。
+   */
+  domain?: string;
   name?: string;
   title?: string;
   email?: string;

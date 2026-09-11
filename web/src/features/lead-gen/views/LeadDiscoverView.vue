@@ -3,12 +3,12 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 import ProTable from '@/components/business/ProTable.vue'
 import InsightCard from '@/components/business/InsightCard.vue'
 import type { ProColumn } from '@/components/business/pro-table'
-import { addLeadsToCrm, getLeads, getLeadsSummary } from '@/api/resources/leads'
+import { addLeadsToCrm, deleteLead, getLeads, getLeadsSummary } from '@/api/resources/leads'
 import type { ApiError } from '@/api/http'
 import { handleApiError } from '@/api/error-handler'
 import type { LeadItem, LeadListReq } from '@/api/types/leads'
@@ -53,7 +53,7 @@ const columns: ProColumn[] = [
   { prop: 'matchPct', labelKey: 'leadGen.matchPct', width: 120, sortable: 'custom' },
   { prop: 'scoreLevel', labelKey: 'leadGen.scoreLevel', width: 100, enumGroup: 'leadValue' },
   { prop: 'inCrm', labelKey: 'leadGen.crmState', width: 100 },
-  { prop: 'actions', labelKey: 'settings.actions', width: 150, fixed: 'right' },
+  { prop: 'actions', labelKey: 'settings.actions', width: 200, fixed: 'right' },
 ]
 
 /** ProTable 统一 query 形状 → LeadListReq（泛型推断 T = LeadItem） */
@@ -101,6 +101,36 @@ const addMutation = useMutation({
 function addToCrm(leadIds: string[]) {
   if (addMutation.isPending.value) return
   addMutation.mutate(leadIds)
+}
+
+// ===== 删除发现线索（03 §3.3：仅未加入 CRM 可删） =====
+const deleteMutation = useMutation({
+  mutationFn: (leadId: string) => deleteLead(leadId),
+  onError: (error: ApiError) => {
+    handleApiError(error)
+  },
+  onSuccess: () => {
+    ElMessage.success(t('leadGen.deleteLeadSuccess'))
+  },
+  onSettled: () => {
+    void queryClient.invalidateQueries({ queryKey: qk.leads.all })
+    void queryClient.invalidateQueries({ queryKey: qk.leads.summary() })
+    void queryClient.invalidateQueries({ queryKey: qk.leadHunterSummary })
+  },
+})
+
+async function onDelete(row: LeadItem) {
+  if (deleteMutation.isPending.value || row.inCrm) return
+  try {
+    await ElMessageBox.confirm(t('leadGen.deleteLeadConfirm', { name: row.companyName }), {
+      type: 'warning',
+      confirmButtonText: t('common.delete'),
+      cancelButtonText: t('common.cancel'),
+    })
+  } catch {
+    return
+  }
+  deleteMutation.mutate(row.leadId)
 }
 
 /** 查看 360°（lead 预览态 / 已入库 → 客户档案，04 §3.1 双源解析） */
@@ -182,7 +212,7 @@ function batchAddToCrm(rows: LeadItem[], clear: () => void) {
         <span v-else class="lead-discover__new">{{ t('leadGen.inCrmNo') }}</span>
       </template>
 
-      <!-- 行内操作：查看 360° + 加入 CRM -->
+      <!-- 行内操作：查看 360° + 加入 CRM + 删除 -->
       <template #col-actions="{ row }">
         <el-button link type="primary" size="small" @click.stop="viewLead(row)">
           {{ t('crm.viewDetail') }}
@@ -194,6 +224,15 @@ function batchAddToCrm(rows: LeadItem[], clear: () => void) {
           @click.stop="addToCrm([row.leadId])"
         >
           {{ t('leadGen.addToCrm') }}
+        </el-button>
+        <el-button
+          link
+          type="danger"
+          size="small"
+          :disabled="row.inCrm || deleteMutation.isPending.value"
+          @click.stop="onDelete(row)"
+        >
+          {{ t('common.delete') }}
         </el-button>
       </template>
 

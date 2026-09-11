@@ -110,7 +110,7 @@ export interface CustomerDetailView extends CustomerListItem {
 
 /**
  * 04 §3.1 lead 预览态（inCrm=false 的发现池 lead 作为 360° 数据源）。
- * 字段与 mock 契约一致（web/src/mocks/data/customers360.ts build360Profile 的 lead 分支）：
+ * 字段对齐 04 §3.1 lead 预览契约：
  * 仅公司信息 + 评分 + 标签 + Overview，不返回客户主数据子集（不可编辑/推进阶段/删除）。
  * productMatches 为 04 §1.2 选填项：产品目录表未落地前不返回（前端 `?? []` 降级为空）。
  */
@@ -1567,7 +1567,11 @@ export class CustomersService {
     });
   }
 
-  /** B3 §3.4 POST /contacts/{id}/generate-outreach AI 生成开发信（产出草稿） */
+  /**
+   * B3 §3.4 POST /contacts/{id}/generate-outreach AI 生成开发信（产出草稿）。
+   * 04 §3.1 双数据源：CRM 客户联系人走 contact 表（含自动建 outbound 会话）；
+   * 未入库 lead 预览态联系人走发现池 ai_lead_contact（此前仅查 contact 表 → lead 入口恒 40401）。
+   */
   async generateOutreach(
     ctx: OrgScopeContext,
     contactId: string,
@@ -1581,7 +1585,24 @@ export class CustomersService {
         .where(and(eq(schema.contact.id, contactId), eq(schema.contact.orgId, ctx.orgId)))
         .limit(1);
       if (!contact) {
-        throw new BizException(ErrorCode.NOT_FOUND, '联系人不存在');
+        // lead 预览态（inCrm=false）：联系人来自发现池，尚未入库 → 无 customer / conversation 可落
+        // （conversation.customer_id NOT NULL）→ 仅返回草稿内容供预览复制，conversationId 空串；
+        // 草稿落入 06 草稿区随 convert（§3.3）后可用。
+        const [leadContact] = await tx
+          .select()
+          .from(schema.aiLeadContact)
+          .where(
+            and(eq(schema.aiLeadContact.id, contactId), eq(schema.aiLeadContact.orgId, ctx.orgId)),
+          )
+          .limit(1);
+        if (!leadContact) {
+          throw new BizException(ErrorCode.NOT_FOUND, '联系人不存在');
+        }
+        return {
+          draftId: createId('msg'),
+          conversationId: '',
+          content: this.outreachContent(leadContact.name, dto, ctx.userId),
+        };
       }
 
       const [raw] = await tx
@@ -1630,10 +1651,7 @@ export class CustomersService {
 
       // 创建草稿消息
       const draftId = createId('msg');
-      const content =
-        dto.language === 'en'
-          ? `Dear ${contact.name},\n\nWe are pleased to reach out to you regarding potential business cooperation.\n\nBest regards,\n${ctx.userId}`
-          : `尊敬的 ${contact.name}，\n\n很高兴与您联系，期待探讨业务合作机会。\n\n此致\n敬礼`;
+      const content = this.outreachContent(contact.name, dto, ctx.userId);
 
       await tx.insert(schema.message).values({
         id: draftId,
@@ -1651,6 +1669,13 @@ export class CustomersService {
 
       return { draftId, conversationId, content };
     });
+  }
+
+  /** 开发信草稿正文（04 §3.4：AI 只起草，发送由人工确认） */
+  private outreachContent(name: string, dto: GenerateOutreachDto, userId: string): string {
+    return dto.language === 'en'
+      ? `Dear ${name},\n\nWe are pleased to reach out to you regarding potential business cooperation.\n\nBest regards,\n${userId}`
+      : `尊敬的 ${name}，\n\n很高兴与您联系，期待探讨业务合作机会。\n\n此致\n敬礼`;
   }
 
   // ===== helpers =====

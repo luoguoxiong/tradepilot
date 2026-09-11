@@ -22,12 +22,6 @@ import { setDayjsLocale } from './utils/date'
 import { initWebVitals } from './utils/web-vitals'
 
 async function bootstrap() {
-  // MSW Mock 先行：后端未就绪模块可独立开发（06 §5.3）
-  if (import.meta.env.DEV && import.meta.env.VITE_USE_MOCK === 'true') {
-    const { worker } = await import('@/mocks/browser')
-    await worker.start({ onUnhandledRequest: 'bypass' })
-  }
-
   const app = createApp(App)
 
   app.use(createPinia())

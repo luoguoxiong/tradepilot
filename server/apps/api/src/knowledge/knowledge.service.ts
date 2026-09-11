@@ -86,7 +86,7 @@ export class KnowledgeService {
 
   /**
    * 11 §2 文档列表（category/keyword；过滤已删）。
-   * 响应字段对齐接口 11 §1.1 与 MSW 契约：`size` 为可读字符串、`updatedBy` 为上传人姓名
+   * 响应字段对齐接口 11 §1.1：`size` 为可读字符串、`updatedBy` 为上传人姓名
    * （与 detail §3.5 一致，前端列 colUpdatedBy 直接渲染）。
    */
   async list(

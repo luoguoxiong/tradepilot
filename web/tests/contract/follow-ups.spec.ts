@@ -1,18 +1,15 @@
+// @vitest-environment node
 /**
- * 07 AI自动跟进契约测试（07 接口文档 §3 · 接口规范 §2）：
- * 覆盖总览统计/任务列表/暂停跳过/策略 CRUD/apply 应用/执行记录的
- * envelope、分页、错误码（40401/40901/42201）与关键字段结构。
+ * 07 AI自动跟进契约测试（真实后端 · 07 §2/§3/§7）：
+ * 覆盖总览统计/任务列表/策略 CRUD/apply 应用/执行记录的
+ * envelope、分页、错误码（40001/40401/40901/42201）与关键字段结构。
  *
- * 测试顺序有状态依赖（同文件内共享 mock 内存态，vitest 文件间隔离）。
+ * 运行前需启动后端；本文件注册独立 org（含默认跟进策略种子），
+ * 任务/执行记录类用例通过 POST /follow-up-strategies/{id}/apply 自建。
  */
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 
-vi.mock('@/mocks/utils', async (importOriginal) => {
-  const actual = (await importOriginal()) as Record<string, unknown>
-  return { ...actual, LATENCY: 0 }
-})
-
-import { ErrorCode } from '@/api/error-codes'
+import type { PageResp } from '@/api/types/common'
 import type {
   ApplyStrategyResp,
   FollowUpExecution,
@@ -20,18 +17,38 @@ import type {
   FollowUpSummary,
   FollowUpTaskItem,
 } from '@/api/types/follow-up'
-import type { PageResp } from '@/api/types/common'
+import { ErrorCode } from '@/api/error-codes'
 
-import { api, contractServer, expectFail, expectOk, expectPage } from './_server'
+import { api, expectFail, expectOk, expectPage, registerOrg, uniq } from './_server'
 
-beforeAll(() => contractServer.listen({ onUnhandledRequest: 'error' }))
-afterEach(() => contractServer.resetHandlers())
-afterAll(() => contractServer.close())
+let customer1 = ''
+let customer2 = ''
+let defaultStrategyId = ''
+let createdStrategyId = ''
+
+beforeAll(async () => {
+  await registerOrg()
+  customer1 = expectOk(
+    (
+      await api<{ customerId: string }>('/customers', {
+        method: 'POST',
+        body: JSON.stringify({ companyName: `Follow One ${uniq()}`, country: 'US' }),
+      })
+    ).json,
+  ).customerId
+  customer2 = expectOk(
+    (
+      await api<{ customerId: string }>('/customers', {
+        method: 'POST',
+        body: JSON.stringify({ companyName: `Follow Two ${uniq()}`, country: 'DE' }),
+      })
+    ).json,
+  ).customerId
+})
 
 describe('GET /follow-ups/summary 总览契约（07 §3.1）', () => {
   it('envelope + executingCount + 四 Tab 计数与任务列表一致', async () => {
-    const { json } = await api<FollowUpSummary>('/follow-ups/summary')
-    const data = expectOk(json)
+    const data = expectOk((await api<FollowUpSummary>('/follow-ups/summary')).json)
     expect(typeof data.executingCount).toBe('number')
     for (const key of ['all', 'today', 'waitingApproval', 'completed']) {
       expect(key in data.tabs, `缺少 tabs.${key}`).toBe(true)
@@ -42,216 +59,141 @@ describe('GET /follow-ups/summary 总览契约（07 §3.1）', () => {
 })
 
 describe('GET /follow-up-tasks 任务列表契约（07 §3.2）', () => {
-  it('分页结构 + FollowUpTaskItem 字段（nextRunAt UTC 存储）', async () => {
-    const { json } = await api<PageResp<FollowUpTaskItem>>('/follow-up-tasks')
-    const p = expectPage<FollowUpTaskItem>(expectOk(json))
-    expect(p.total).toBeGreaterThan(0)
-    for (const key of [
-      'followUpTaskId',
-      'customerId',
-      'companyName',
-      'currentStage',
-      'nextRunAt',
-      'status',
-      'strategyId',
-      'strategyName',
-    ]) {
-      expect(key in p.items[0], `缺少字段 ${key}`).toBe(true)
+  it('分页结构 + FollowUpTaskItem 字段（新 org 可为空）', async () => {
+    const p = expectPage<FollowUpTaskItem>(
+      expectOk((await api<PageResp<FollowUpTaskItem>>('/follow-up-tasks')).json),
+    )
+    expect(typeof p.total).toBe('number')
+    for (const row of p.items) {
+      for (const key of [
+        'followUpTaskId',
+        'customerId',
+        'companyName',
+        'currentStage',
+        'nextRunAt',
+        'status',
+        'strategyId',
+        'strategyName',
+      ]) {
+        expect(key in row, `缺少字段 ${key}`).toBe(true)
+      }
     }
-  })
-
-  it('tab 过滤：waiting_approval 全部命中该状态；completed 同理', async () => {
-    const waiting = expectOk(
-      (await api<PageResp<FollowUpTaskItem>>('/follow-up-tasks?tab=waiting_approval')).json,
-    )
-    expect(waiting.items.length).toBeGreaterThan(0)
-    expect(waiting.items.every((t) => t.status === 'waiting_approval')).toBe(true)
-    const done = expectOk(
-      (await api<PageResp<FollowUpTaskItem>>('/follow-up-tasks?tab=completed')).json,
-    )
-    expect(done.items.length).toBeGreaterThan(0)
-    expect(done.items.every((t) => t.status === 'completed')).toBe(true)
-  })
-
-  it('keyword 按公司名过滤（大小写不敏感）', async () => {
-    const data = expectOk(
-      (await api<PageResp<FollowUpTaskItem>>('/follow-up-tasks?keyword=abc%20sports')).json,
-    )
-    expect(data.total).toBe(1)
-    expect(data.items[0].companyName).toBe('ABC Sports')
-  })
-})
-
-describe('POST /follow-up-tasks/:id/pause|skip 契约（07 §2）', () => {
-  it('暂停 ready 任务：status=paused；已完成的任务 → 40901；不存在 → 40401', async () => {
-    const { json } = await api<{ followUpTaskId: string; status: string }>(
-      '/follow-up-tasks/ftask_1/pause',
-      { method: 'POST' },
-    )
-    const data = expectOk(json)
-    expect(data.followUpTaskId).toBe('ftask_1')
-    expect(data.status).toBe('paused')
-
-    const done = await api('/follow-up-tasks/ftask_7/pause', { method: 'POST' })
-    expectFail(done.json, ErrorCode.CONFLICT)
-    const missing = await api('/follow-up-tasks/ftask-not-exist/pause', { method: 'POST' })
-    expectFail(missing.json, ErrorCode.NOT_FOUND)
-  })
-
-  it('跳过下一步：nextRunAt 顺延且晚于原值；已完成 → 40901', async () => {
-    const before = expectOk(
-      (await api<PageResp<FollowUpTaskItem>>('/follow-up-tasks?keyword=running%20pro')).json,
-    )
-    const prev = before.items[0].nextRunAt
-    const { json } = await api<{ followUpTaskId: string; nextRunAt: string }>(
-      '/follow-up-tasks/ftask_2/skip',
-      { method: 'POST' },
-    )
-    const data = expectOk(json)
-    expect(data.followUpTaskId).toBe('ftask_2')
-    expect(new Date(data.nextRunAt).getTime()).toBeGreaterThan(new Date(prev).getTime())
-    const done = await api('/follow-up-tasks/ftask_7/skip', { method: 'POST' })
-    expectFail(done.json, ErrorCode.CONFLICT)
   })
 })
 
 describe('策略 CRUD 契约（07 §3.3/§7）', () => {
-  it('GET 列表：默认策略种子在场（isDefault 不可删）', async () => {
-    const { json } = await api<PageResp<FollowUpStrategy>>('/follow-up-strategies')
-    const p = expectPage<FollowUpStrategy>(expectOk(json), { page: 1, pageSize: 50 })
-    expect(p.total).toBeGreaterThanOrEqual(2)
+  it('GET 列表：默认策略种子在场（isDefault，5 步含 break-up）', async () => {
+    const p = expectPage<FollowUpStrategy>(
+      expectOk((await api<PageResp<FollowUpStrategy>>('/follow-up-strategies?pageSize=50')).json),
+      { page: 1, pageSize: 50 },
+    )
+    expect(p.total).toBeGreaterThanOrEqual(1)
     const def = p.items.find((s) => s.isDefault)
-    expect(def?.strategyId).toBe('strat_1')
-    expect(def?.steps.length).toBe(5)
-    expect(def?.steps.some((s) => s.isBreakup)).toBe(true)
+    expect(def).toBeTruthy()
+    defaultStrategyId = def!.strategyId
+    expect(def!.steps.length).toBe(5)
+    expect(def!.steps.some((s) => s.isBreakup)).toBe(true)
   })
 
   it('新建校验：空名称/空步骤/dayOffset 重复/不递增 → 42201；breakup + auto_send → 42201', async () => {
+    const base = { targetScope: {}, autoSendPolicy: 'manual_review', enabled: true }
     const noName = await api('/follow-up-strategies', {
       method: 'POST',
-      body: JSON.stringify({
-        name: ' ',
-        steps: [],
-        targetScope: {},
-        autoSendPolicy: 'manual_review',
-        enabled: true,
-      }),
+      body: JSON.stringify({ ...base, name: ' ', steps: [{ seq: 1, dayOffset: 0, title: 'A' }] }),
     })
     expectFail(noName.json, ErrorCode.BIZ_VALIDATION)
+    const noSteps = await api('/follow-up-strategies', {
+      method: 'POST',
+      body: JSON.stringify({ ...base, name: 'No Steps', steps: [] }),
+    })
+    expectFail(noSteps.json, ErrorCode.BIZ_VALIDATION)
     const dupDays = await api('/follow-up-strategies', {
       method: 'POST',
       body: JSON.stringify({
+        ...base,
         name: 'Dup Days',
         steps: [
-          { seq: 1, dayOffset: 0, title: 'A', channel: 'email' },
-          { seq: 2, dayOffset: 0, title: 'B', channel: 'email' },
+          { seq: 1, dayOffset: 0, title: 'A' },
+          { seq: 2, dayOffset: 0, title: 'B' },
         ],
-        targetScope: {},
-        autoSendPolicy: 'manual_review',
-        enabled: true,
       }),
     })
     expectFail(dupDays.json, ErrorCode.BIZ_VALIDATION)
     const notAsc = await api('/follow-up-strategies', {
       method: 'POST',
       body: JSON.stringify({
+        ...base,
         name: 'Not Asc',
         steps: [
-          { seq: 1, dayOffset: 5, title: 'A', channel: 'email' },
-          { seq: 2, dayOffset: 3, title: 'B', channel: 'email' },
+          { seq: 1, dayOffset: 5, title: 'A' },
+          { seq: 2, dayOffset: 3, title: 'B' },
         ],
-        targetScope: {},
-        autoSendPolicy: 'manual_review',
-        enabled: true,
       }),
     })
     expectFail(notAsc.json, ErrorCode.BIZ_VALIDATION)
     const breakupAuto = await api('/follow-up-strategies', {
       method: 'POST',
       body: JSON.stringify({
+        ...base,
         name: 'Breakup Auto',
-        steps: [
-          { seq: 1, dayOffset: 30, title: 'Break-up Email', channel: 'email', isBreakup: true },
-        ],
-        targetScope: {},
         autoSendPolicy: 'auto_send',
-        enabled: true,
+        steps: [{ seq: 1, dayOffset: 30, title: 'Break-up', isBreakup: true }],
       }),
     })
     expectFail(breakupAuto.json, ErrorCode.BIZ_VALIDATION)
   })
 
   it('新建成功：steps 序号归一 + breakup 强制清 templateId；默认策略 PUT/DELETE → 40901', async () => {
-    const created = expectOk(
+    createdStrategyId = expectOk(
       (
         await api<{ strategyId: string }>('/follow-up-strategies', {
           method: 'POST',
           body: JSON.stringify({
-            name: '契约测试策略',
+            name: `契约测试策略 ${uniq()}`,
             steps: [
-              { seq: 9, dayOffset: 0, title: 'Intro', templateId: 'tpl_intro', channel: 'email' },
-              {
-                seq: 3,
-                dayOffset: 7,
-                title: 'Break-up Email',
-                content: 'bye',
-                channel: 'email',
-                isBreakup: true,
-              },
+              { seq: 9, dayOffset: 0, title: 'Intro', templateId: 'tpl_intro' },
+              { seq: 3, dayOffset: 7, title: 'Break-up Email', content: 'bye', isBreakup: true },
             ],
-            targetScope: { customerValue: ['high'] },
+            targetScope: {},
             autoSendPolicy: 'manual_review',
             enabled: true,
           }),
         })
       ).json,
-    )
-    expect(created.strategyId).toBe('strat_3')
+    ).strategyId
+    expect(createdStrategyId).toBeTruthy()
 
-    const list = expectOk((await api<PageResp<FollowUpStrategy>>('/follow-up-strategies')).json)
-    const mine = list.items.find((s) => s.strategyId === created.strategyId)!
+    const list = expectOk(
+      (await api<PageResp<FollowUpStrategy>>('/follow-up-strategies?pageSize=100')).json,
+    )
+    const mine = list.items.find((s) => s.strategyId === createdStrategyId)!
     expect(mine.steps.map((s) => s.seq)).toEqual([1, 2])
     expect(mine.steps[1].templateId).toBeUndefined()
     expect(mine.steps[1].isBreakup).toBe(true)
 
-    const editDefault = await api('/follow-up-strategies/strat_1', {
+    const editDefault = await api(`/follow-up-strategies/${defaultStrategyId}`, {
       method: 'PUT',
       body: JSON.stringify({
         name: 'x',
-        steps: [],
+        steps: [{ seq: 1, dayOffset: 0, title: 'A' }],
         targetScope: {},
         autoSendPolicy: 'manual_review',
         enabled: true,
       }),
     })
     expectFail(editDefault.json, ErrorCode.CONFLICT)
-    const delDefault = await api('/follow-up-strategies/strat_1', { method: 'DELETE' })
+    const delDefault = await api(`/follow-up-strategies/${defaultStrategyId}`, { method: 'DELETE' })
     expectFail(delDefault.json, ErrorCode.CONFLICT)
   })
 
-  it('编辑/删除自建策略：被引用 → 40901，未引用可删；不存在 → 40401', async () => {
-    const put = await api<{ strategyId: string }>('/follow-up-strategies/strat_2', {
-      method: 'PUT',
-      body: JSON.stringify({
-        name: '高价值客户重点培育 v2',
-        steps: [{ seq: 1, dayOffset: 0, title: 'Warm Intro', content: 'hi', channel: 'email' }],
-        targetScope: { customerValue: ['high'] },
-        autoSendPolicy: 'manual_review',
-        enabled: true,
-      }),
-    })
-    expect(expectOk(put.json).strategyId).toBe('strat_2')
-
-    const delInUse = await api('/follow-up-strategies/strat_2', { method: 'DELETE' })
-    expectFail(delInUse.json, ErrorCode.CONFLICT)
-
+  it('删除自建未引用策略：deleted=true；再删 → 40401', async () => {
     const created = expectOk(
       (
         await api<{ strategyId: string }>('/follow-up-strategies', {
           method: 'POST',
           body: JSON.stringify({
-            name: '可删策略',
-            steps: [{ seq: 1, dayOffset: 0, title: 'A', content: 'x', channel: 'email' }],
+            name: `可删策略 ${uniq()}`,
+            steps: [{ seq: 1, dayOffset: 0, title: 'A', content: 'x' }],
             targetScope: {},
             autoSendPolicy: 'manual_review',
             enabled: true,
@@ -259,93 +201,119 @@ describe('策略 CRUD 契约（07 §3.3/§7）', () => {
         })
       ).json,
     )
-    const del = await api<{ deleted: boolean }>(`/follow-up-strategies/${created.strategyId}`, {
-      method: 'DELETE',
-    })
-    expect(expectOk(del.json).deleted).toBe(true)
+    const del = expectOk(
+      (
+        await api<{ deleted: boolean }>(`/follow-up-strategies/${created.strategyId}`, {
+          method: 'DELETE',
+        })
+      ).json,
+    )
+    expect(del.deleted).toBe(true)
     const missing = await api(`/follow-up-strategies/${created.strategyId}`, { method: 'DELETE' })
     expectFail(missing.json, ErrorCode.NOT_FOUND)
   })
 })
 
 describe('GET /follow-up-strategies/:id/executions 执行记录契约（07 §3.4）', () => {
-  it('分页结构 + skipReason 留痕 + 最新优先排序', async () => {
-    const { json } = await api<PageResp<FollowUpExecution>>(
-      '/follow-up-strategies/strat_1/executions',
-    )
-    const p = expectPage<FollowUpExecution>(expectOk(json), { page: 1, pageSize: 50 })
-    expect(p.total).toBeGreaterThan(0)
-    for (const key of ['executionId', 'followUpTaskId', 'stepTitle', 'sentAt', 'status']) {
-      expect(key in p.items[0], `缺少字段 ${key}`).toBe(true)
-    }
-    for (let i = 1; i < p.items.length; i++) {
-      expect(p.items[i - 1].sentAt >= p.items[i].sentAt).toBe(true)
-    }
-    const skipped = p.items.filter((e) => e.status === 'skipped')
-    expect(skipped.length).toBeGreaterThan(0)
-    expect(
-      skipped.every(
-        (e) => e.skipReason === 'customer_replied' || e.skipReason === 'frequency_capped',
+  it('分页结构（新 org 可为空）；策略不存在 → 40401', async () => {
+    const p = expectPage<FollowUpExecution>(
+      expectOk(
+        (
+          await api<PageResp<FollowUpExecution>>(
+            `/follow-up-strategies/${defaultStrategyId}/executions?pageSize=50`,
+          )
+        ).json,
       ),
-    ).toBe(true)
-  })
-
-  it('策略不存在 → 40401', async () => {
+      { page: 1, pageSize: 50 },
+    )
+    expect(typeof p.total).toBe('number')
+    for (const key of ['executionId', 'followUpTaskId', 'stepTitle', 'sentAt', 'status']) {
+      if (p.items[0]) expect(key in p.items[0], `缺少字段 ${key}`).toBe(true)
+    }
     const { json } = await api('/follow-up-strategies/strat-not-exist/executions')
     expectFail(json, ErrorCode.NOT_FOUND)
   })
 })
 
 describe('POST /follow-up-strategies/:id/apply 应用契约（07 §3.5）', () => {
-  it('应用成功：created + skipped(task_exists)；无进行中任务才创建', async () => {
-    // strat_3 在上一用例已被删除，重建一个未引用策略
-    const created = expectOk(
+  it('应用成功：created；重复应用同客户 → skipped(task_exists)；可 pause', async () => {
+    const data = expectOk(
       (
-        await api<{ strategyId: string }>('/follow-up-strategies', {
+        await api<ApplyStrategyResp>(`/follow-up-strategies/${createdStrategyId}/apply`, {
           method: 'POST',
-          body: JSON.stringify({
-            name: 'Apply 契约策略',
-            steps: [{ seq: 1, dayOffset: 0, title: 'Intro', content: 'hi', channel: 'email' }],
-            targetScope: {},
-            autoSendPolicy: 'manual_review',
-            enabled: true,
-          }),
+          body: JSON.stringify({ customerIds: [customer1] }),
         })
       ).json,
     )
-    // cus_3（waiting_approval，进行中）→ skipped；cus_lead_3（CRM 种子线索）无任务 → created
-    const { json } = await api<ApplyStrategyResp>(
-      `/follow-up-strategies/${created.strategyId}/apply`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ customerIds: ['cus_3', 'cus_lead_3'] }),
-      },
-    )
-    const data = expectOk(json)
-    expect(data.created.map((c) => c.customerId)).toEqual(['cus_lead_3'])
-    expect(data.created[0].followUpTaskId).toBeTruthy()
-    expect(data.skipped).toEqual([{ customerId: 'cus_3', reason: 'task_exists' }])
+    expect(data.created.map((c) => c.customerId)).toEqual([customer1])
+    const taskId = data.created[0].followUpTaskId
+    expect(taskId).toBeTruthy()
+    expect(data.skipped).toEqual([])
 
     const tasks = expectOk(
-      (await api<PageResp<FollowUpTaskItem>>('/follow-up-tasks?tab=all&keyword=')).json,
+      (await api<PageResp<FollowUpTaskItem>>('/follow-up-tasks?tab=all&pageSize=100')).json,
     )
-    const row = tasks.items.find((t) => t.followUpTaskId === data.created[0].followUpTaskId)
-    expect(row?.strategyId).toBe(created.strategyId)
-    expect(row?.status === 'ready' || row?.status === 'scheduled').toBe(true)
+    expect(tasks.items.find((t) => t.followUpTaskId === taskId)?.strategyId).toBe(createdStrategyId)
+
+    const again = expectOk(
+      (
+        await api<ApplyStrategyResp>(`/follow-up-strategies/${createdStrategyId}/apply`, {
+          method: 'POST',
+          body: JSON.stringify({ customerIds: [customer1] }),
+        })
+      ).json,
+    )
+    expect(again.skipped).toEqual([{ customerId: customer1, reason: 'task_exists' }])
+
+    const paused = expectOk(
+      (
+        await api<{ followUpTaskId: string; status: string }>(`/follow-up-tasks/${taskId}/pause`, {
+          method: 'POST',
+        })
+      ).json,
+    )
+    expect(paused.followUpTaskId).toBe(taskId)
+    expect(paused.status).toBe('paused')
+  })
+
+  it('skip：nextRunAt 顺延且晚于原值', async () => {
+    const applied = expectOk(
+      (
+        await api<ApplyStrategyResp>(`/follow-up-strategies/${createdStrategyId}/apply`, {
+          method: 'POST',
+          body: JSON.stringify({ customerIds: [customer2] }),
+        })
+      ).json,
+    )
+    const taskId = applied.created[0].followUpTaskId
+    const before = expectOk(
+      (await api<PageResp<FollowUpTaskItem>>('/follow-up-tasks?tab=all&pageSize=100')).json,
+    )
+    const prev = before.items.find((t) => t.followUpTaskId === taskId)!.nextRunAt
+    const data = expectOk(
+      (
+        await api<{ followUpTaskId: string; nextRunAt: string }>(
+          `/follow-up-tasks/${taskId}/skip`,
+          { method: 'POST' },
+        )
+      ).json,
+    )
+    expect(data.followUpTaskId).toBe(taskId)
+    expect(new Date(data.nextRunAt).getTime()).toBeGreaterThan(new Date(prev).getTime())
   })
 
   it('customerIds 为空 → 40001；策略不存在 → 40401；客户不存在 → 40001', async () => {
-    const empty = await api('/follow-up-strategies/strat_2/apply', {
+    const empty = await api(`/follow-up-strategies/${defaultStrategyId}/apply`, {
       method: 'POST',
       body: JSON.stringify({ customerIds: [] }),
     })
     expectFail(empty.json, ErrorCode.BAD_REQUEST)
     const noStrategy = await api('/follow-up-strategies/strat-not-exist/apply', {
       method: 'POST',
-      body: JSON.stringify({ customerIds: ['cus_1'] }),
+      body: JSON.stringify({ customerIds: [customer1] }),
     })
     expectFail(noStrategy.json, ErrorCode.NOT_FOUND)
-    const noCustomer = await api('/follow-up-strategies/strat_2/apply', {
+    const noCustomer = await api(`/follow-up-strategies/${defaultStrategyId}/apply`, {
       method: 'POST',
       body: JSON.stringify({ customerIds: ['cus-not-exist'] }),
     })

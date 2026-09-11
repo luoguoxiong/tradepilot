@@ -6,7 +6,7 @@
  * - GET /leads、/leads/summary、/leads/{id}
  * - POST /leads/add-to-crm、/leads/batch-analyze
  */
-import { Body, Controller, Get, Inject, Param, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Inject, Param, Post, Query, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { paginationQuerySchema } from '@tradepilot/shared';
 import { resolveScope, type OrgScopeContext } from '@tradepilot/db';
@@ -26,10 +26,7 @@ import {
   type ListLeadsQuery,
   type ParseLeadTaskDto,
 } from './leads.dto.js';
-import {
-  generateOutreachSchema,
-  type GenerateOutreachDto,
-} from '../customers/customers.dto.js';
+import { generateOutreachSchema, type GenerateOutreachDto } from '../customers/customers.dto.js';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import type { AccessTokenPayload } from '../auth/token.service.js';
 
@@ -105,6 +102,15 @@ export class LeadsController {
     @Req() req: Request & { authUser?: AccessTokenPayload },
   ) {
     return this.leads.batchAnalyze(this.ctx(req), dto);
+  }
+
+  /** B2 §4 删除发现线索（仅未加入 CRM 可删） */
+  @Delete('leads/:id')
+  async remove(
+    @Param('id') leadId: string,
+    @Req() req: Request & { authUser?: AccessTokenPayload },
+  ) {
+    return this.leads.remove(this.ctx(req), leadId);
   }
 
   // ===== B3 04 客户360° =====

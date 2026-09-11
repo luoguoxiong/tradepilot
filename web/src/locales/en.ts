@@ -260,6 +260,8 @@ export default {
     sourceSse: 'Live stream',
     sourcePolling: 'Polling (degraded)',
     sourceDone: 'Finished',
+    deleteLeadSuccess: 'Deleted',
+    deleteLeadConfirm: 'Delete discovered lead "{name}"? This action cannot be undone.',
   },
   crm: {
     title: 'Customers',

@@ -48,6 +48,11 @@ export function addLeadsToCrm(data: AddToCrmReq) {
   return request<AddToCrmResp>({ url: '/leads/add-to-crm', method: 'POST', data })
 }
 
+/** DELETE /leads/{id}：删除单条发现线索（03 §3.3；已加入 CRM 的线索不可删） */
+export function deleteLead(leadId: string) {
+  return request<{ leadId: string }>({ url: `/leads/${leadId}`, method: 'DELETE' })
+}
+
 /** POST /leads/{id}/convert：单条加入 CRM（04 §2：lead 预览态顶部动作） */
 export function convertLead(leadId: string) {
   return request<LeadConvertResp>({ url: `/leads/${leadId}/convert`, method: 'POST' })

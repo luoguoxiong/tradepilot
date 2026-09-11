@@ -10,7 +10,6 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild",
-      "msw",
       "vue-demi"
     ]
   },
@@ -77,7 +76,6 @@
     "husky": "^9",
     "jsdom": "^26.1.0",
     "lint-staged": "^15.5.2",
-    "msw": "^2.15.0",
     "postcss-html": "^2.0.0",
     "prettier": "^3.9.6",
     "sass-embedded": "^1.104.0",
@@ -90,10 +88,5 @@
     "vite": "^6.4.3",
     "vitest": "^3.2.7",
     "vue-tsc": "^2.2.12"
-  },
-  "msw": {
-    "workerDirectory": [
-      "public"
-    ]
   }
 }

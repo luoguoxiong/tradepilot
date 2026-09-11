@@ -47,6 +47,7 @@ let salesCtx: OrgScopeContext;
 let customerId = '';
 let contactId = '';
 let leadId = '';
+let leadContactId = '';
 
 const adminEmail = `it-m5b3-${createId('org')}@test.com`;
 const salesEmail = `it-m5b3-sales-${createId('org')}@test.com`;
@@ -146,10 +147,11 @@ beforeAll(async () => {
     inCrm: false,
   });
 
-  // 发现池联系人（lead 预览态 Contacts 页签数据源；转 CRM 迁移用例）
+  // 发现池联系人（lead 预览态 Contacts 页签数据源；转 CRM 迁移 + lead 开发信用例）
+  leadContactId = createId('con');
   await superDb.insert(schema.aiLeadContact).values([
     {
-      id: createId('con'),
+      id: leadContactId,
       orgId,
       leadId,
       name: 'Nina Patel',
@@ -467,6 +469,17 @@ describe('M5-B3-9 · POST /contacts/{id}/generate-outreach 生成开发信', () 
     expect(msg).toBeDefined();
     expect(msg!.status).toBe('draft');
     expect(msg!.direction).toBe('out');
+  });
+
+  it('lead 预览态联系人 → 产出草稿（尚未入库，conversationId 为空）', async () => {
+    const customers = (globalThis as Record<string, unknown>).__customers as CustomersService;
+    const result = await customers.generateOutreach(adminCtx, leadContactId, {
+      scenario: 'cold_outreach',
+      language: 'en',
+    });
+    expect(result.draftId).toBeDefined();
+    expect(result.conversationId).toBe('');
+    expect(result.content).toContain('Dear Nina Patel');
   });
 
   it('不存在的联系人 → 404', async () => {

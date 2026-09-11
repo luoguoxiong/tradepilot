@@ -253,6 +253,8 @@ export default {
     sourceSse: '实时流',
     sourcePolling: '轮询中（降级）',
     sourceDone: '已结束',
+    deleteLeadSuccess: '已删除',
+    deleteLeadConfirm: '确定删除发现客户「{name}」？删除后不可恢复。',
   },
   crm: {
     title: '客户中心',

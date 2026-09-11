@@ -568,6 +568,39 @@ export class LeadsService {
     });
   }
 
+  /**
+   * 03 §3.3 删除发现线索（物理删除，含联系人记录）。
+   * 仅未加入 CRM 的线索可删：已转化的线索是客户档案的来源（customer.source_lead_id），
+   * 删除会切断线索→客户的可追溯链路，故直接拒绝（前端同口径置灰按钮）。
+   */
+  async remove(ctx: OrgScopeContext, leadId: string): Promise<{ leadId: string }> {
+    return withOrg(this.db, ctx.orgId, async (tx) => {
+      const [lead] = await tx
+        .select({ id: schema.aiLead.id, inCrm: schema.aiLead.inCrm })
+        .from(schema.aiLead)
+        .where(and(eq(schema.aiLead.id, leadId), eq(schema.aiLead.orgId, ctx.orgId)))
+        .limit(1);
+      if (!lead) {
+        throw new BizException(ErrorCode.NOT_FOUND, '发现客户不存在');
+      }
+      if (lead.inCrm) {
+        throw new BizException(ErrorCode.CONFLICT, '该线索已加入 CRM，请先到客户中心处理');
+      }
+      // 兜底：in_crm 与实际引用不一致时，仍保护客户档案的来源链路
+      const [ref] = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.customer)
+        .where(eq(schema.customer.sourceLeadId, leadId));
+      if ((ref?.n ?? 0) > 0) {
+        throw new BizException(ErrorCode.CONFLICT, '该线索已关联客户档案，无法删除');
+      }
+
+      await tx.delete(schema.aiLeadContact).where(eq(schema.aiLeadContact.leadId, leadId));
+      await tx.delete(schema.aiLead).where(eq(schema.aiLead.id, leadId));
+      return { leadId };
+    });
+  }
+
   /** B2 §6 加入 CRM（三级去重） */
   async addToCrm(ctx: OrgScopeContext, dto: AddToCrmDto): Promise<AddToCrmResult> {
     // ownerId 校验：sales 不可指定他人

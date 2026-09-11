@@ -14,7 +14,6 @@ export default {
         'composables',
         'styles',
         'locales',
-        'msw',
         'dashboard',
         'employee-center',
         'lead-gen',

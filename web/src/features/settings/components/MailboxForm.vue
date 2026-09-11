@@ -140,6 +140,21 @@ function submit() {
     flex: 1;
     align-items: center;
     gap: 8px;
+
+    // 端口输入框固定宽度，避免被 flex 压缩到内部 input 宽度为 0 导致无法输入
+    :deep(.el-input) {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    :deep(.el-input-number) {
+      flex: 0 0 130px;
+      width: 130px;
+    }
+
+    :deep(.el-checkbox) {
+      flex: 0 0 auto;
+    }
   }
 
   &__scope {

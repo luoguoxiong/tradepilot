@@ -146,28 +146,26 @@ export class CustomersController {
     return this.customers.insights(this.ctx(req), customerId);
   }
 
-  /** B3 GET /customers/{id}/products 产品匹配列表（04 §1.5 Products 页签；产品目录未落地 → []） */
+  /**
+   * B3 GET /customers/{id}/products 产品匹配列表
+   * （04 §1.5 Products 页签 + §3.1 双数据源：id 可为 customerId 或 leadId；产品目录未落地 → []）
+   */
   @Get(':id/products')
   async listCustomerProducts(
-    @Param('id') customerId: string,
+    @Param('id') entityId: string,
     @Req() req: Request & { authUser?: AccessTokenPayload },
   ) {
-    return this.customers.listCustomerProducts(this.ctx(req), customerId);
+    return this.customers.listCustomerProducts(this.ctx(req), entityId);
   }
 
-  /** B3 GET /customers/{id}/contacts 联系人列表 */
+  /** B3 GET /customers/{id}/contacts 联系人列表（04 §3.1 双数据源：id 可为 customerId 或 leadId） */
   @Get(':id/contacts')
   async listCustomerContacts(
-    @Param('id') customerId: string,
+    @Param('id') entityId: string,
     @Query(new ZodValidationPipe(paginationQuerySchema)) query: { page: number; pageSize: number },
     @Req() req: Request & { authUser?: AccessTokenPayload },
   ): Promise<unknown> {
-    return this.customers.listCustomerContacts(
-      this.ctx(req),
-      customerId,
-      query.page,
-      query.pageSize,
-    );
+    return this.customers.listCustomerContacts(this.ctx(req), entityId, query.page, query.pageSize);
   }
 
   /** B3 GET /customers/{id}/conversations 会话列表 */

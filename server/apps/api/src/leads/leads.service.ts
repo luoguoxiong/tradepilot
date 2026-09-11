@@ -684,6 +684,8 @@ export class LeadsService {
             .update(schema.aiLead)
             .set({ inCrm: true, convertedCustomerId: matchedCustomerId, updatedAt: new Date() })
             .where(eq(schema.aiLead.id, lead.id));
+          // 转 CRM 补齐：发现池联系人并入归属客户（04 §3.6；邮箱唯一索引冲突自动跳过）
+          await this.migrateLeadContacts(tx, ctx.orgId, lead.id, matchedCustomerId);
         } else {
           // 新建 customer
           const customerId = createId('cus');
@@ -706,11 +708,74 @@ export class LeadsService {
             .where(eq(schema.aiLead.id, lead.id));
           result.created++;
           result.customers.push({ customerId, leadId: lead.id });
+          // 转 CRM 补齐：新建客户档案同步迁移发现池联系人（04 §3.6）
+          await this.migrateLeadContacts(tx, ctx.orgId, lead.id, customerId);
         }
       }
 
       return result;
     });
+  }
+
+  /**
+   * 转 CRM 时把发现池联系人（ai_lead_contact）迁移进 CRM contact（04 §1.3 / §3.6）：
+   * - `contact.title` 非空列：缺失回退空串；
+   * - 邮箱唯一约束（uq_contact_org_email）冲突行跳过（onConflictDoNothing）；
+   * - 目标客户尚无主联系人时，把决策影响力最高的一条标为主联系人。
+   * 幂等性：重复 convert 时 addToCrm 走 duplicated 分支提前返回，不会重复迁移。
+   */
+  private async migrateLeadContacts(
+    tx: Tx,
+    orgId: string,
+    leadId: string,
+    customerId: string,
+  ): Promise<void> {
+    const leadContacts = await tx
+      .select()
+      .from(schema.aiLeadContact)
+      .where(and(eq(schema.aiLeadContact.leadId, leadId), eq(schema.aiLeadContact.orgId, orgId)))
+      .orderBy(sql`${schema.aiLeadContact.decisionInfluencePct} desc nulls last`);
+    if (leadContacts.length === 0) {
+      return;
+    }
+
+    const [existingPrimary] = await tx
+      .select({ id: schema.contact.id })
+      .from(schema.contact)
+      .where(
+        and(
+          eq(schema.contact.customerId, customerId),
+          eq(schema.contact.orgId, orgId),
+          eq(schema.contact.isPrimary, true),
+        ),
+      )
+      .limit(1);
+    let primaryAssigned = Boolean(existingPrimary);
+
+    for (const c of leadContacts) {
+      const isPrimary = !primaryAssigned;
+      const inserted = await tx
+        .insert(schema.contact)
+        .values({
+          id: createId('con'),
+          orgId,
+          customerId,
+          name: c.name,
+          title: c.title ?? '',
+          email: c.email,
+          decisionInfluencePct: c.decisionInfluencePct,
+          decisionInfluenceReasons: [],
+          isPrimary,
+          createdAt: c.createdAt,
+          updatedAt: c.updatedAt,
+        })
+        .onConflictDoNothing()
+        .returning({ id: schema.contact.id });
+      // 仅在实际落库后占用主联系人标记（首条邮箱冲突时顺延给下一条）
+      if (inserted.length > 0 && isPrimary) {
+        primaryAssigned = true;
+      }
+    }
   }
 
   /** B2 §7 批量 AI 分析（异步 → product_analysis 任务） */

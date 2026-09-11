@@ -1249,9 +1249,19 @@ export class CustomersService {
 
   /**
    * B3 GET /customers/{id}/products 产品匹配列表（04 §1.5 Products 页签；D7 行内抽屉）。
+   * 04 §3.1 双数据源：入参可传 customerId 或 leadId（与 detail/contacts 同口径）；
+   * lead 预览态 Products 页签为开启状态（LEAD_TABS），此前仅查 customer 表 → lead 入口恒 40401。
    * 产品目录表未落地前（08 产品中心 P1）复用 detail.overview.productMatches 口径 → 返回 []。
    */
-  async listCustomerProducts(ctx: OrgScopeContext, customerId: string): Promise<unknown[]> {
+  async listCustomerProducts(ctx: OrgScopeContext, entityId: string): Promise<unknown[]> {
+    const ref = await this.resolve360Entity(ctx, entityId);
+    if (!ref) {
+      throw new BizException(ErrorCode.NOT_FOUND, '资源不存在');
+    }
+    // lead 预览态：无客户主数据子集，产品匹配同为未落地 → 直接空列表（不暴露客户侧越权判定）
+    if (ref.kind === 'lead') {
+      return [];
+    }
     return withOrg(this.db, ctx.orgId, async (tx) => {
       const [raw] = await tx
         .select({
@@ -1260,15 +1270,95 @@ export class CustomersService {
           deletedAt: schema.customer.deletedAt,
         })
         .from(schema.customer)
-        .where(and(eq(schema.customer.id, customerId), notDeleted(schema.customer.deletedAt)))
+        .where(and(eq(schema.customer.id, ref.key), notDeleted(schema.customer.deletedAt)))
         .limit(1);
       assertResourceAccess(raw, ctx);
       return [];
     });
   }
 
-  /** B3 GET /customers/{id}/contacts 联系人列表 */
+  /**
+   * B3 GET /customers/{id}/contacts 联系人列表。
+   * 04 §3.1 双数据源：入参可传 customerId 或 leadId（客户发现「查看详情」直达 360° 的 Contacts 页签）。
+   * lead 未转化 → 读发现池 `ai_lead_contact`（此前仅查 customer/contact 表，lead 入口恒 40401）；
+   * 已转化（inCrm）→ resolve360Entity 归并到归属客户，走 CRM contact 表（含转 CRM 时的迁移结果）。
+   */
   async listCustomerContacts(
+    ctx: OrgScopeContext,
+    entityId: string,
+    page: number,
+    pageSize: number,
+  ) {
+    const ref = await this.resolve360Entity(ctx, entityId);
+    if (!ref) {
+      throw new BizException(ErrorCode.NOT_FOUND, '资源不存在');
+    }
+    return ref.kind === 'lead'
+      ? this.listLeadContacts(ctx, ref.key, page, pageSize)
+      : this.listCrmContacts(ctx, ref.key, page, pageSize);
+  }
+
+  /** 发现池 lead 联系人（ai_lead_contact → ContactItem 口径，04 §1.4） */
+  private async listLeadContacts(
+    ctx: OrgScopeContext,
+    leadId: string,
+    page: number,
+    pageSize: number,
+  ) {
+    return withOrg(this.db, ctx.orgId, async (tx) => {
+      const [lead] = await tx
+        .select({ id: schema.aiLead.id, companyName: schema.aiLead.companyName })
+        .from(schema.aiLead)
+        .where(and(eq(schema.aiLead.id, leadId), eq(schema.aiLead.orgId, ctx.orgId)))
+        .limit(1);
+      if (!lead) {
+        throw new BizException(ErrorCode.NOT_FOUND, '资源不存在');
+      }
+
+      const where = and(
+        eq(schema.aiLeadContact.leadId, leadId),
+        eq(schema.aiLeadContact.orgId, ctx.orgId),
+      );
+      // 决策影响力降序（null 排最后）+ 创建时间兜底：与 Contacts 页签「决策影响力」展示口径一致
+      const rows = await tx
+        .select()
+        .from(schema.aiLeadContact)
+        .where(where)
+        .orderBy(
+          sql`${schema.aiLeadContact.decisionInfluencePct} desc nulls last`,
+          desc(schema.aiLeadContact.createdAt),
+        )
+        .limit(pageSize)
+        .offset((page - 1) * pageSize);
+
+      const [countRow] = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.aiLeadContact)
+        .where(where);
+
+      // ai_lead_contact 无 is_primary 列：以影响力最高者（首行）作主联系人标记，供前端高亮/默认动作目标
+      return {
+        items: rows.map((r, index) => ({
+          contactId: r.id,
+          customerId: lead.id,
+          companyName: lead.companyName,
+          name: r.name,
+          title: r.title,
+          email: r.email,
+          phone: null,
+          decisionInfluencePct: r.decisionInfluencePct,
+          decisionInfluenceReasons: null,
+          isPrimary: page === 1 && index === 0,
+        })),
+        total: countRow?.n ?? 0,
+        page,
+        pageSize,
+      };
+    });
+  }
+
+  /** CRM 客户联系人（contact 表；sales 越权经 assertResourceAccess → 40301） */
+  private async listCrmContacts(
     ctx: OrgScopeContext,
     customerId: string,
     page: number,

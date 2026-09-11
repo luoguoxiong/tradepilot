@@ -1,9 +1,9 @@
 /**
  * LLM Gateway（后端技术方案 05 §6）：
- * Provider 适配（openai/anthropic/deepseek/azure + mock）· org 级路由（ai_model_setting 场景命中→默认兜底）
+ * Provider 适配（openai/anthropic/deepseek/azure）· org 级路由（ai_model_setting 场景命中→默认兜底）
  * · Zod 结构化输出（失败重试 2 次）· llm_call 全量记账 + budgetLimit 跨阈值告警不熔断
  * （16 FR-10 MVP 增量口径：调用时当月累计，跨阈值首超上报一次；Cron 10min 汇总 + 80%/100% 两级随 M5 #9 复核）。
- * M3 mock provider：Zod schema 驱动的确定性产出，保证三工作流全链路可测（风险对策 §5.7）。
+ * 无 mock provider：未配置真实模型时 resolveTarget 明确报错（不产出假数据）。
  */
 import type { Logger } from 'pino';
 import { withOrg, type Db } from '@tradepilot/db';
@@ -13,17 +13,23 @@ import { and, eq, gte, sql } from 'drizzle-orm';
 import type { ZodType } from 'zod';
 import { resolveActiveModel } from './model-config.js';
 
-export type LlmProvider = 'mock' | 'openai' | 'anthropic' | 'deepseek' | 'azure';
+/** 运行时 provider 类型 */
+export type LlmProvider = 'openai' | 'anthropic' | 'deepseek' | 'azure';
 
-/** 合法 provider 白名单：台账存的是自由文本，运行时须收敛，未知值回落默认 provider */
-const LLM_PROVIDERS: readonly LlmProvider[] = ['mock', 'openai', 'anthropic', 'deepseek', 'azure'];
+/** 台账合法 provider 白名单：台账存的是自由文本，运行时须收敛，未知值回落默认 provider */
+const LLM_PROVIDERS: readonly LlmProvider[] = ['openai', 'anthropic', 'deepseek', 'azure'];
 
 export interface GatewayOptions {
-  provider: LlmProvider;
+  /**
+   * 默认 provider：仅用于「org 未配置台账 → 回落场景/默认模型」这条兜底路径（离线/测试显式指定）。
+   * 不传此项时——未配置真实模型 resolveTarget 直接明确报错（无 mock 兜底）。
+   */
+  provider?: LlmProvider;
   /** 服务端密钥库引用（08 §2：key 名存配置，真实 key 在 env/密管） */
   apiKey?: string;
   baseUrl?: string;
-  defaultModel: string;
+  /** 默认模型：与 provider 成对出现在兜底路径；两者缺省即视为「未配置模型」 */
+  defaultModel?: string;
   /**
    * 凭据加密主密钥（64 hex）：用于解密 ai_model.api_key_enc（16 FR-10 扩展的 org 级模型选用）。
    * 缺省则台账 apiKey 不可用，回落 opts.apiKey。
@@ -126,10 +132,17 @@ export class LlmGateway {
    * org 级路由（05 §6.2 / 16 FR-10 扩展）：优先级
    * ① 系统设置「AI 模型配置」该 org 选用的大语言模型（provider/凭据/模型/温度/maxTokens）；
    *    场景配置（ai_model_setting）仅保留温度/maxTokens 精调，模型以选用为准（全服务统一口径）。
-   * ② 场景配置（ai_model_setting）命中：沿用环境变量 provider + 场景模型；
-   * ③ 默认兜底：环境变量 defaultModel（degraded 标记）。
+   * ② 场景配置（ai_model_setting）命中：沿用 GatewayOptions.provider + 场景模型（测试/离线路径）；
+   * ③ 默认兜底：GatewayOptions.defaultModel（degraded 标记）。
+   *
+   * 生产装配不传 GatewayOptions.provider/defaultModel：当 org 未配置选用模型（且无兜底路径）时，
+   * 直接抛出明确错误（不再回落 mock 产出假数据），由调用方决定失败/降级语义。
    */
   async resolveTarget(orgId: string, scene: string): Promise<ModelTarget> {
+    // 兜底 provider/model：仅来自 GatewayOptions 显式指定；缺省即视为「未配置模型」
+    const effectiveProvider = this.opts.provider;
+    const effectiveModel = this.opts.defaultModel;
+
     // 台账选用独立事务读取：失败（未建表/权限异常）不得污染场景查询所在事务，仅降级告警
     const active = await resolveActiveModel(this.db, orgId, 'llm', this.opts.encryptionKey).catch(
       (err: unknown) => {
@@ -157,11 +170,17 @@ export class LlmGateway {
     if (active) {
       const provider = LLM_PROVIDERS.includes(active.provider as LlmProvider)
         ? (active.provider as LlmProvider)
-        : this.opts.provider;
+        : effectiveProvider;
+      if (provider === undefined) {
+        throw new Error(
+          `不支持的 LLM provider：${active.provider}（org=${orgId}），` +
+            '请在「系统设置 → AI 模型配置」中改用受支持的提供方',
+        );
+      }
       if (provider !== active.provider) {
         this.logger.warn(
           { orgId, configured: active.provider },
-          '未支持的 LLM provider，回落环境变量 provider',
+          '未支持的 LLM provider，回落备用 provider',
         );
       }
       return {
@@ -176,8 +195,14 @@ export class LlmGateway {
     }
 
     if (sceneRow) {
+      if (effectiveProvider === undefined) {
+        throw new Error(
+          `未配置 AI 模型：org=${orgId} scene=${scene} 仅有场景参数但未选用大语言模型，` +
+            '请在「系统设置 → AI 模型配置」中配置并选用模型',
+        );
+      }
       return {
-        provider: this.opts.provider,
+        provider: effectiveProvider,
         model: sceneRow.model,
         temperature: Number(sceneRow.temperature),
         maxTokens: sceneRow.maxTokens,
@@ -185,10 +210,16 @@ export class LlmGateway {
       };
     }
 
+    if (effectiveProvider === undefined || effectiveModel === undefined) {
+      throw new Error(
+        `未配置 AI 模型：org=${orgId} scene=${scene}，` +
+          '请在「系统设置 → AI 模型配置」中配置并选用大语言模型',
+      );
+    }
     this.logger.warn({ orgId, scene }, '未配置 AI 模型与场景模型，使用默认模型兜底（degraded）');
     return {
-      provider: this.opts.provider,
-      model: this.opts.defaultModel,
+      provider: effectiveProvider,
+      model: effectiveModel,
       temperature: 0.7,
       maxTokens: 4096,
       degraded: true,
@@ -203,19 +234,6 @@ export class LlmGateway {
   ): Promise<StructuredResult<T>> {
     const target = await this.resolveTarget(meta.orgId, meta.scene);
     const startedAt = Date.now();
-
-    if (target.provider === 'mock') {
-      const data = mockStructured(schemaOut, 'root') as T;
-      const usage: LlmUsage = {
-        promptTokens: 0,
-        completionTokens: 0,
-        latencyMs: Date.now() - startedAt,
-        degraded: target.degraded,
-        model: 'mock',
-      };
-      await this.record(meta, target, usage, 0);
-      return { data, usage };
-    }
 
     let lastError: unknown = null;
     // 自纠正重试（项目硬约束 / P1 教训，M3-07）：校验失败的具体原因回喂下一次请求，
@@ -396,132 +414,4 @@ export function extractJson(text: string): string {
   const closer = opener === '{' ? '}' : ']';
   const end = candidate.lastIndexOf(closer);
   return end > start ? candidate.slice(start, end + 1) : candidate;
-}
-
-// ===== mock provider：Zod schema 驱动的确定性产出 =====
-
-type ZodAny = ZodType<unknown> & {
-  _def?: {
-    typeName?: string;
-    innerType?: ZodAny;
-    value?: unknown;
-    values?: readonly string[];
-    shape?: () => Record<string, ZodAny>;
-    element?: ZodAny;
-    type?: ZodAny;
-    options?: ZodAny[];
-  };
-};
-
-function unwrap(schema: ZodAny): ZodAny {
-  let cur = schema;
-  const wrappers = new Set([
-    'ZodOptional',
-    'ZodNullable',
-    'ZodDefault',
-    'ZodEffects',
-    'ZodCatch',
-    'ZodBranded',
-  ]);
-  for (let i = 0; i < 10; i++) {
-    const typeName = cur._def?.typeName ?? '';
-    if (wrappers.has(typeName) && cur._def?.innerType) {
-      cur = cur._def.innerType;
-    } else {
-      break;
-    }
-  }
-  return cur;
-}
-
-function mockString(key: string, schema: ZodAny): string {
-  const enumValues = schema._def?.values as readonly string[] | undefined;
-  if (enumValues && enumValues.length > 0) {
-    return enumValues[0] as string;
-  }
-  const k = key.toLowerCase();
-  if (k.includes('language')) {
-    return 'en';
-  }
-  if (k.includes('email')) {
-    return 'contact@vendor1.example.com';
-  }
-  if (k.includes('subject')) {
-    return 'Mock 主题：合作意向确认';
-  }
-  if (k.includes('body') || k.includes('content')) {
-    return 'Dear partner,\n\nThis is a mock draft body generated by the M3 runtime pipeline (mock provider). Best regards, AI Sales.';
-  }
-  if (k.includes('query') || k.includes('queries')) {
-    return 'carbon fiber insoles manufacturer USA';
-  }
-  return `mock-${key || 'text'}`;
-}
-
-function mockNumber(key: string): number {
-  const k = key.toLowerCase();
-  if (k.includes('confidence') || k.includes('probability')) {
-    return 0.75;
-  }
-  if (k.includes('pct') || k.includes('percent')) {
-    return 82;
-  }
-  if (k.includes('count') || k.includes('target')) {
-    return 5;
-  }
-  return 50;
-}
-
-function mockBoolean(key: string): boolean {
-  // grounded=true 走发送主路径（happy path）；need_info 分支由测试显式构造
-  return key !== 'mustFallback';
-}
-
-/** schema 驱动 mock（mockStructured 入口） */
-export function mockStructured(schema: ZodType<unknown>, key = 'root'): unknown {
-  const inner = unwrap(schema as ZodAny);
-  const typeName = inner._def?.typeName ?? '';
-
-  if (typeName === 'ZodString') {
-    return mockString(key, inner);
-  }
-  if (typeName === 'ZodNumber') {
-    return mockNumber(key);
-  }
-  if (typeName === 'ZodBoolean') {
-    return mockBoolean(key);
-  }
-  if (typeName === 'ZodEnum' || typeName === 'ZodNativeEnum') {
-    const values = inner._def?.values;
-    if (Array.isArray(values) && values.length > 0) {
-      return values[0];
-    }
-    return '';
-  }
-  if (typeName === 'ZodLiteral') {
-    return inner._def?.value;
-  }
-  if (typeName === 'ZodArray') {
-    // zod3：ZodArray 的元素 schema 在 _def.type（element 是实例 getter，_def 上不存在）
-    const element = inner._def?.element ?? inner._def?.type;
-    return element ? [mockStructured(element as ZodType<unknown>, key)] : [];
-  }
-  if (typeName === 'ZodObject') {
-    const shape = inner._def?.shape?.() ?? {};
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(shape)) {
-      out[k] = mockStructured(v as ZodType<unknown>, k);
-    }
-    return out;
-  }
-  if (typeName === 'ZodUnion' || typeName === 'ZodDiscriminatedUnion') {
-    const options = inner._def?.options;
-    if (Array.isArray(options) && options.length > 0) {
-      return mockStructured(options[0] as ZodType<unknown>, key);
-    }
-  }
-  if (typeName === 'ZodRecord') {
-    return {};
-  }
-  return null;
 }

@@ -15,7 +15,7 @@ import {
 } from '@tradepilot/integrations';
 import type { Db } from '@tradepilot/db';
 import {
-  DEFAULT_EMBEDDING_FALLBACK,
+  EMBEDDING_FIELD_DEFAULTS,
   resolveActiveModel,
   toEmbeddingProviderConfig,
 } from '@tradepilot/runtime';
@@ -49,9 +49,8 @@ async function bootstrap(): Promise<void> {
 
   // M4 #7 + 16 FR-10 扩展：嵌入服务（检索 query 向量化）按 org 解析
   // 「系统设置 → AI 模型配置」选用的 embedding 模型（仅 admin 可维护，不再读环境变量）；
-  // 未配置台账时回落内置 mock 兜底。
+  // 未配置选用模型时明确报错（不再回落 mock）。
   const db = app.get<Db>(DB);
-  const embeddingFallback = DEFAULT_EMBEDDING_FALLBACK;
   setEmbeddingProviderFactory(async (orgId) => {
     const active =
       orgId === undefined
@@ -60,12 +59,17 @@ async function bootstrap(): Promise<void> {
             (err: unknown) => {
               root.warn(
                 { orgId, err: err instanceof Error ? err.message : String(err) },
-                '读取 embedding 模型配置失败，回落内置兜底',
+                '读取 embedding 模型配置失败，按未配置处理',
               );
               return null;
             },
           );
-    return createEmbeddingProvider(toEmbeddingProviderConfig(active, embeddingFallback));
+    if (!active) {
+      throw new Error(
+        `org=${orgId ?? '-'} 未配置向量模型：请在「系统设置 → AI 模型配置」中配置并选用 embedding 模型`,
+      );
+    }
+    return createEmbeddingProvider(toEmbeddingProviderConfig(active, EMBEDDING_FIELD_DEFAULTS));
   });
 
   // health/metrics 挂根路径（09 §2：K8s 探针与 Prometheus 抓取约定，不带 /api/v1 前缀）

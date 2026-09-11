@@ -19,16 +19,8 @@ export {
   writeCustomerActivity,
   type EmailSendInput,
 } from './builtin/crm-tools.js';
-export {
-  configureEmailSend,
-  isEmailSendConfigured,
-  getEmailSendConfig,
-} from './builtin/email-send-config.js';
-export {
-  getOrgTimezone,
-  assertOrgSearchQuota,
-  configureOrgSearchQuota,
-} from './builtin/quotas.js';
+export { configureEmailSend, getEmailSendConfig } from './builtin/email-send-config.js';
+export { getOrgTimezone, assertOrgSearchQuota, configureOrgSearchQuota } from './builtin/quotas.js';
 export {
   checkEmailContentCompliance,
   assertEmailContentCompliance,

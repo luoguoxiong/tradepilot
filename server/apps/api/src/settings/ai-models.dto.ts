@@ -4,7 +4,7 @@ import { z } from 'zod';
  * AI 模型配置契约（接口 16 FR-10 扩展）：
  * - type=llm：普通大模型，使用 provider/model/temperature/maxTokens；
  * - type=embedding：向量化模型，使用 provider/model/dimensions；
- * - type=search：搜索供应商，使用 provider（http=Serper 兼容 / mock）+ baseUrl + apiKey，
+ * - type=search：搜索供应商，使用 provider（http=Serper 兼容）+ baseUrl + apiKey，
  *   无「模型标识」概念（model 缺省以 provider 占位，06 §3）；
  * - apiKey 仅请求携带，AES-256-GCM 加密落库（08 §2），响应永不回显明文。
  * 字段必填性随 type 而异，统一由 service 按 type 校验（与 embedding 维度同口径）。
@@ -15,17 +15,10 @@ export const aiModelTypes = ['llm', 'embedding', 'search'] as const;
 
 /**
  * 与 runtime LlmGateway / integrations EmbeddingOptions / SearchOptions 的 provider 并集对齐。
- * 各 type 可用子集由 service 按 type 白名单收窄（llm：openai/anthropic/deepseek/azure/mock；
- * embedding：mock/openai；search：http/mock）。
+ * 各 type 可用子集由 service 按 type 白名单收窄（llm：openai/anthropic/deepseek/azure；
+ * embedding：openai；search：http）。mock 不再作为可选提供方（仅保留为测试设施）。
  */
-export const aiModelProviders = [
-  'mock',
-  'openai',
-  'anthropic',
-  'deepseek',
-  'azure',
-  'http',
-] as const;
+export const aiModelProviders = ['openai', 'anthropic', 'deepseek', 'azure', 'http'] as const;
 
 export const createAiModelSchema = z.object({
   type: z.enum(aiModelTypes),

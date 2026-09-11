@@ -24,6 +24,7 @@ import {
   searchPlanSchema,
   workflowSopProvider,
 } from '@tradepilot/workflows';
+import { testLlmOptions } from './setup/providers.js';
 
 /**
  * M5-C4 洞察写回专项（后端开发计划表 M5 #10 / C4）：
@@ -61,7 +62,7 @@ beforeAll(async () => {
   const checkpointer = await createCheckpointer(SUPER_URL);
   stopCheckpointer = checkpointer.close;
   const publisher = new TaskEventPublisher(redis);
-  const gateway = new LlmGateway(db, logger, { provider: 'mock', defaultModel: 'mock-1' });
+  const gateway = new LlmGateway(db, logger, { ...testLlmOptions });
   const gate = new ApprovalGate(db, redis, publisher, logger);
   const compiler = new GraphCompiler({
     db,
@@ -149,9 +150,9 @@ afterAll(async () => {
     await tx.delete(schema.aiTaskLog).where(eq(schema.aiTaskLog.orgId, ORG));
     await tx.delete(schema.aiTaskStep).where(eq(schema.aiTaskStep.orgId, ORG));
     await tx.delete(schema.aiTask).where(eq(schema.aiTask.orgId, ORG));
-    await tx.delete(schema.aiLead).where(
-      and(eq(schema.aiLead.orgId, ORG), inArray(schema.aiLead.id, [LEAD_A, LEAD_B])),
-    );
+    await tx
+      .delete(schema.aiLead)
+      .where(and(eq(schema.aiLead.orgId, ORG), inArray(schema.aiLead.id, [LEAD_A, LEAD_B])));
     await tx.delete(schema.customer).where(eq(schema.customer.orgId, ORG));
     await tx.delete(schema.aiEmployee).where(eq(schema.aiEmployee.orgId, ORG));
     await tx.delete(schema.userAccount).where(eq(schema.userAccount.orgId, ORG));
@@ -208,7 +209,9 @@ describe('M5-C4 洞察写回：product_analysis → customer_insight / outputs',
     >;
     expect(insight).toBeTruthy();
     expect(insight['customerId']).toBe(CUS);
-    expect((insight['copilot'] as Record<string, unknown>)['purchaseProbability']).toBeGreaterThanOrEqual(0);
+    expect(
+      (insight['copilot'] as Record<string, unknown>)['purchaseProbability'],
+    ).toBeGreaterThanOrEqual(0);
   });
 
   it('同客户重复分析：uq_customer_insight_type upsert 覆盖（不产生第二行）', async () => {

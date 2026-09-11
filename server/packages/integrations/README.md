@@ -91,7 +91,6 @@ test/
 | 导出                                       | 说明                                                                                    |
 | ------------------------------------------ | --------------------------------------------------------------------------------------- |
 | `createMailboxDriver(row, options)`        | 按 `row.provider` 分派到 gmail / outlook / smtp_imap 驱动；未知 provider 编译期穷尽校验 |
-| `setMailboxDriverFactory(factory)`         | 测试 / 扩展注入自定义工厂（传 `null` 还原默认）；集成测试以 mock 驱动保链路可测         |
 | `MailboxDriverFactory`                     | 工厂类型 `(row, options) => MailboxDriver`                                              |
 | `createSmtpImapDriver(row, encryptionKey)` | SMTP-IMAP 驱动直接构造（默认工厂亦经此）                                                |
 
@@ -154,10 +153,9 @@ Gmail 收信与 SMTP-IMAP 收信共用，保证解析口径一致。
 | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | `SearchProvider`                                                                   | 接口：`webSearch(query, page?)` → `WebSearchHit[]`；`crawlSite(domain)` → `SiteCrawlResult` |
 | `HttpSearchProvider`                                                               | Serper 兼容搜索 API + 轻量 HTML 抓取（非 Playwright 渲染，动态页列后续增强）                |
-| `MockSearchProvider`                                                               | 确定性产出（跨轮换词 / 翻页可复算），保三图 dry-run 与单测可测                              |
-| `createSearchProvider(options)`                                                    | 按 `provider: 'mock' \| 'http'` 构造                                                        |
-| `setSearchProviderFactory(factory)` / `configureSearchProvider(provider)`          | 进程级注入（按 org 解析 / 静态注册）                                                        |
-| `getSearchProvider(orgId?)`                                                        | 读取 provider；未注入回落 `MockSearchProvider`                                              |
+| `createSearchProvider(options)`                                                    | 按 `provider: 'http'` 构造（其他值编译期穷尽校验）                                          |
+| `setSearchProviderFactory(factory)`                                                | 进程级注入（按 org 解析）                                                                   |
+| `getSearchProvider(orgId?)`                                                        | 读取 provider；未注入明确报错（不再回落 mock）                                              |
 | `HttpSearchOptions` / `WebSearchHit` / `SiteCrawlResult` / `SearchProviderFactory` | 类型                                                                                        |
 
 **抓取合规内建**（08 §7，M4 C8）——以下基元在模块内实现，供 `HttpSearchProvider` 装配：
@@ -176,19 +174,17 @@ Gmail 收信与 SMTP-IMAP 收信共用，保证解析口径一致。
 
 知识索引与检索 query 的向量化适配（07 §2 ④ / 06 §4）。
 
-| 导出                                                                    | 说明                                                                   |
-| ----------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `EmbeddingProvider`                                                     | 接口：`dimensions` / `model` / `embed(texts)`（调用方保证 ≤100 条/批） |
-| `OpenAiEmbeddingProvider`                                               | OpenAI 兼容 `/embeddings`（默认 `text-embedding-3-small`，1536 维）    |
-| `MockEmbeddingProvider` / `mockEmbed`                                   | 文本 sha256 派生**确定性向量** + L2 归一（同文本恒同向量，跨进程一致） |
-| `MOCK_EMBEDDING_DIMENSIONS` / `KNOWLEDGE_EMBEDDING_DIMENSIONS`          | 均为 `1536`（对齐 `knowledge_chunk.embedding vector(1536)`）           |
-| `createEmbeddingProvider(options)`                                      | 按 `provider: 'mock' \| 'openai'` 构造                                 |
-| `setEmbeddingProviderFactory(factory)` / `configureEmbedding(provider)` | 进程级注入（按 org 解析 / 静态注册）                                   |
-| `getEmbeddingProvider(orgId?)`                                          | 读取 provider；未注入回落 `MockEmbeddingProvider`                      |
+| 导出                                                           | 说明                                                                   |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `EmbeddingProvider`                                            | 接口：`dimensions` / `model` / `embed(texts)`（调用方保证 ≤100 条/批） |
+| `OpenAiEmbeddingProvider`                                      | OpenAI 兼容 `/embeddings`（默认 `text-embedding-3-small`，1536 维）    |
+| `MOCK_EMBEDDING_DIMENSIONS` / `KNOWLEDGE_EMBEDDING_DIMENSIONS` | 均为 `1536`（对齐 `knowledge_chunk.embedding vector(1536)`）           |
+| `createEmbeddingProvider(options)`                             | 按 `provider: 'openai'` 构造（其他值编译期穷尽校验）                   |
+| `setEmbeddingProviderFactory(factory)`                         | 进程级注入（按 org 解析）                                              |
+| `getEmbeddingProvider(orgId?)`                                 | 读取 provider；未注入明确报错（不再回落 mock）                         |
 
 > **维度硬约束**：`knowledge_chunk.embedding` 为 `vector(1536)`，选用模型维度必须一致，
 > 否则入库报维度不匹配；**换维度 = 换模型**，需全量重建索引（07 §5）。
-> mock 确定性保证「API 侧 query 向量」与「worker 侧 chunk 向量」同源可复算。
 
 ### storage/ — 对象存储
 
@@ -215,12 +211,12 @@ path-style 寻址（MinIO 约定），**不引入 aws-sdk**。
 
 四类适配器均采用「**启动时注入一次，业务经 `get*` 读取**」模式（同 `email-send-config`）：
 
-| 能力     | 注入 API                                               | 读取 API                       | 未注入时行为                   |
-| -------- | ------------------------------------------------------ | ------------------------------ | ------------------------------ |
-| 邮箱驱动 | `setMailboxDriverFactory`                              | `createMailboxDriver`          | 走默认工厂（按 provider 分派） |
-| 搜索     | `setSearchProviderFactory` / `configureSearchProvider` | `getSearchProvider(orgId?)`    | 回落 `MockSearchProvider`      |
-| 嵌入     | `setEmbeddingProviderFactory` / `configureEmbedding`   | `getEmbeddingProvider(orgId?)` | 回落 `MockEmbeddingProvider`   |
-| 对象存储 | `configureObjectStorage`                               | `getObjectStorage()`           | **抛错**（未初始化）           |
+| 能力     | 注入 API                               | 读取 API                       | 未注入时行为                   |
+| -------- | -------------------------------------- | ------------------------------ | ------------------------------ |
+| 邮箱驱动 | 无注入 API（默认工厂按 provider 分派） | `createMailboxDriver`          | 走默认工厂（按 provider 分派） |
+| 搜索     | `setSearchProviderFactory`             | `getSearchProvider(orgId?)`    | 未注入明确报错                 |
+| 嵌入     | `setEmbeddingProviderFactory`          | `getEmbeddingProvider(orgId?)` | 未注入明确报错                 |
+| 对象存储 | `configureObjectStorage`               | `getObjectStorage()`           | **抛错**（未初始化）           |
 
 **装配现状**（16 FR-10 后为「按 org 解析」）：
 
@@ -242,7 +238,6 @@ path-style 寻址（MinIO 约定），**不引入 aws-sdk**。
 ```ts
 import {
   createMailboxDriver,
-  setMailboxDriverFactory,
   getSearchProvider,
   getEmbeddingProvider,
   getObjectStorage,
@@ -272,7 +267,7 @@ for await (const msg of driver.syncMessages({ since, folders: ['INBOX', 'Sent'] 
 }
 await driver.sendMessage({ from: row.account, to: ['buyer@acme.com'], subject, text });
 
-// 2) 搜索：web_search / site_crawl（worker 侧已按 org 注入；未注入回落 mock）
+// 2) 搜索：web_search / site_crawl（worker 侧已按 org 注入；未注入明确报错）
 const search = await getSearchProvider(orgId);
 const hits = await search.webSearch('steel fastener importer germany', 1);
 const site = await search.crawlSite('acme-industries.com');
@@ -284,9 +279,6 @@ const vectors = await embedding.embed(['...chunk text...']);
 // 4) 对象存储：知识原文存取
 const key = knowledgeDocKey(orgId, docId, 'pdf');
 await getObjectStorage().putObject(key, fileBuffer, 'application/pdf');
-
-// 5) 单测：注入 mock 工厂保链路可测
-setMailboxDriverFactory(() => mockDriver);
 ```
 
 ---

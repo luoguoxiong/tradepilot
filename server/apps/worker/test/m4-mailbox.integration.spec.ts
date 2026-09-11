@@ -2,19 +2,17 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { Redis as IORedis, type Redis } from 'ioredis';
 import pino from 'pino';
-import { decryptSecret, encryptSecret } from '@tradepilot/core';
+import { decryptSecret } from '@tradepilot/core';
 import { closeDb, createDb, schema, type Db } from '@tradepilot/db';
 import { createId } from '@tradepilot/core';
 import {
-  setMailboxDriverFactory,
-  MailboxSendError,
-  type MailboxDriver,
+  createSmtpImapDriver,
   type MailboxDriverOptions,
-  type MailboxDriverRow,
-  type OutboundMessage,
   type RawMessage,
 } from '@tradepilot/integrations';
 import { configureEmailSend, emailSendTool, type ToolContext } from '@tradepilot/tools';
+import type { EmailSyncProcessor } from '../src/queues/email-sync.js';
+import { testMail, testMailboxRow } from './setup/providers.js';
 
 /**
  * M4 #4/#5 邮箱集成专项用例（后端技术方案 06 §2.2/§2.3/§2.4）：
@@ -24,8 +22,9 @@ import { configureEmailSend, emailSendTool, type ToolContext } from '@tradepilot
  * - 发信唯一出口：真实驱动外发 externalId 落库、最终失败 message.status='failed' + 50301、
  *   客户频控（minTouchIntervalDays）拦截 42901；
  * - 凭据信封加密往返（credential_enc → 驱动可见明文）。
- * mock 契约：setMailboxDriverFactory 注入 mock 驱动（对齐 M4-B4 mock 供应商策略）。
- * 前置：docker compose up（PG 5432 / Redis 6380）+ `pnpm --filter @tradepilot/db migrate`。
+ * 驱动契约：真实 SmtpImapDriver 对接本地 GreenMail（docker compose），无 mock 驱动。
+ * 前置：docker compose up（PG 5432 / Redis 6380 / GreenMail 1025+1114）
+ * + `pnpm --filter @tradepilot/db migrate`，且已提供 server/.env.test（真实 provider 配置）。
  */
 
 const SUPER_URL =
@@ -37,13 +36,15 @@ const logger = pino({ level: process.env.TEST_LOG_LEVEL ?? 'silent' });
 
 let db: Db;
 let redis: Redis;
-let processor: import('../src/queues/email-sync.js').EmailSyncProcessor;
+let processor: EmailSyncProcessor;
 
 // ===== 租户与固定 ID =====
 const ORG = createId('org');
 const ADMIN = createId('usr');
 const EMP = createId('emp');
 const MBX = createId('mbx');
+/** 不可达 SMTP 端点专用邮箱（发信失败路径，GREENMAIL 之外的坏端点） */
+const MBX_BAD = createId('mbx');
 const CUS1 = createId('cus');
 const CON1 = createId('con');
 const CONV1 = createId('conv');
@@ -56,42 +57,29 @@ const MBX_PACE = createId('mbx');
 const CUS_PACE = createId('cus');
 const CONV_PACE = createId('conv');
 
-const CRED_PASSWORD = 'imap-secret-123';
+const CRED_KEY = '0'.repeat(64);
 
-/** mock 收件箱：syncMessages 逐轮返回（第二轮复用 msg1 验证幂等） */
-let inbox: RawMessage[] = [];
-const sentOutbox: OutboundMessage[] = [];
-let sendBehavior: 'ok' | 'fail' = 'ok';
+/** GreenMail：邮箱地址即账号（任意地址自动建箱、任意凭据可登录），按租户唯一避免串箱 */
+const MBX_ACCOUNT = `sales-${ORG.slice(-6)}@tradepilot.local`;
 
-function rawMessage(p: Partial<RawMessage> & { externalMessageId: string; fromEmail: string }): RawMessage {
-  return {
-    folder: 'INBOX',
-    fromName: null,
-    toEmails: ['sales@tradepilot.local'],
-    subject: null,
-    text: '',
-    date: new Date(),
-    ...p,
-  };
+/** 通过真实 SMTP 向被同步邮箱投递一封来信（GreenMail 收件，替代 mock 收件箱） */
+async function deliverMail(params: {
+  from: string;
+  fromName?: string;
+  subject: string;
+  text: string;
+}): Promise<void> {
+  const sender = createSmtpImapDriver(
+    testMailboxRow(params.from, createId('mbx'), ORG, CRED_KEY),
+    CRED_KEY,
+  );
+  await sender.sendMessage({
+    from: params.fromName ? `${params.fromName} <${params.from}>` : params.from,
+    to: [MBX_ACCOUNT],
+    subject: params.subject,
+    text: params.text,
+  });
 }
-
-const mockDriver: MailboxDriver = {
-  async testConnection() {
-    return { imap: 'ok', smtp: 'ok' };
-  },
-  async *syncMessages() {
-    for (const msg of inbox) {
-      yield msg;
-    }
-  },
-  async sendMessage(msg: OutboundMessage) {
-    if (sendBehavior === 'fail') {
-      throw new MailboxSendError('SMTP 5.4.1 relay denied');
-    }
-    sentOutbox.push(msg);
-    return { externalId: `<mock-sent-${sentOutbox.length}@driver.local>` };
-  },
-};
 
 beforeAll(async () => {
   db = createDb(SUPER_URL, { max: 5 });
@@ -99,11 +87,10 @@ beforeAll(async () => {
 
   const { EmailSyncProcessor } = await import('../src/queues/email-sync.js');
   const driverOptions: MailboxDriverOptions = {
-    encryptionKey: '0'.repeat(64),
+    encryptionKey: CRED_KEY,
     db,
   };
   configureEmailSend(driverOptions);
-  setMailboxDriverFactory(() => mockDriver);
   processor = new EmailSyncProcessor({ db, redis, logger, driverOptions });
 
   await db.transaction(async (tx) => {
@@ -134,26 +121,30 @@ beforeAll(async () => {
       approvalPolicy: { email_send: 'always', quote: 'always', autoExecute: [] },
       kpiConfig: [{ metric: 'replies', target: 5, period: 'daily' }],
     });
+    const liveRow = testMailboxRow(MBX_ACCOUNT, MBX, ORG, CRED_KEY);
     await tx.insert(schema.mailbox).values({
       id: MBX,
       orgId: ORG,
       ownerUserId: ADMIN,
       provider: 'smtp_imap',
-      account: 'sales@tradepilot.local',
-      imap: {
-        host: 'imap.tradepilot.local',
-        port: 993,
-        ssl: true,
-        credential_enc: encryptSecret(CRED_PASSWORD, '0'.repeat(64)),
-      },
-      smtp: {
-        host: 'smtp.tradepilot.local',
-        port: 465,
-        ssl: true,
-        credential_enc: encryptSecret(CRED_PASSWORD, '0'.repeat(64)),
-      },
+      account: MBX_ACCOUNT,
+      imap: liveRow.imap,
+      smtp: liveRow.smtp,
       syncScope: { historyDays: 90, folders: ['INBOX', 'Sent'] },
       status: 'disconnected',
+    });
+    // 坏端点邮箱：SMTP 指向 1 端口（连接拒绝），用于发信失败路径
+    const badRow = testMailboxRow(MBX_ACCOUNT, MBX_BAD, ORG, CRED_KEY);
+    await tx.insert(schema.mailbox).values({
+      id: MBX_BAD,
+      orgId: ORG,
+      ownerUserId: ADMIN,
+      provider: 'smtp_imap',
+      account: MBX_ACCOUNT,
+      imap: badRow.imap,
+      smtp: { ...badRow.smtp, port: 1 },
+      syncScope: { historyDays: 90, folders: ['INBOX'] },
+      status: 'connected',
     });
     // 既有客户 + 联系人 + 会话（contact 邮箱匹配路径）
     await tx.insert(schema.customer).values({
@@ -214,12 +205,16 @@ beforeAll(async () => {
       role: 'admin',
       status: 'active',
     });
+    const paceAccount = `pace-${ORG_PACE.slice(-6)}@tradepilot.local`;
+    const paceRow = testMailboxRow(paceAccount, MBX_PACE, ORG_PACE, CRED_KEY);
     await tx.insert(schema.mailbox).values({
       id: MBX_PACE,
       orgId: ORG_PACE,
       ownerUserId: ADMIN_PACE,
       provider: 'smtp_imap',
-      account: 'pace@tradepilot.local',
+      account: paceAccount,
+      imap: paceRow.imap,
+      smtp: paceRow.smtp,
       syncScope: { historyDays: 30, folders: ['INBOX'] },
       status: 'connected',
     });
@@ -263,7 +258,6 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  setMailboxDriverFactory(null);
   // 套件卫生：本用例的 scheduled 任务收尾取消，避免污染 Dispatcher 跨租户扫描（04 §3.3）
   await db
     .update(schema.aiTask)
@@ -292,7 +286,10 @@ async function insertSendTask(orgId: string): Promise<string> {
   return taskId;
 }
 
-function makeToolContext(orgId: string, taskId: string): {
+function makeToolContext(
+  orgId: string,
+  taskId: string,
+): {
   run: <T>(fn: (ctx: ToolContext) => Promise<T>) => Promise<T>;
 } {
   const run = async <T>(fn: (ctx: ToolContext) => Promise<T>): Promise<T> =>
@@ -318,22 +315,19 @@ function makeToolContext(orgId: string, taskId: string): {
 
 describe('M4 #4/#5 邮箱集成', () => {
   it('收信链路：contact 匹配入库 + 未匹配建档 + 幂等 + pause 跟进 + email_reply 派发', async () => {
-    inbox = [
-      rawMessage({
-        externalMessageId: '<acme-msg-1@acme.com>',
-        fromEmail: 'buyer@acme.com',
-        fromName: 'James Buyer',
-        subject: 'Re: 报价咨询',
-        text: 'Please send your latest catalog and best price.',
-      }),
-      rawMessage({
-        externalMessageId: '<newco-msg-1@newco.com>',
-        fromEmail: 'info@newco.com',
-        fromName: 'New Co Ltd',
-        subject: 'Product inquiry',
-        text: 'We are looking for a supplier of LED lights.',
-      }),
-    ];
+    // 真实投递：GreenMail SMTP → 被同步邮箱 INBOX（无 mock 收件箱）
+    await deliverMail({
+      from: 'buyer@acme.com',
+      fromName: 'James Buyer',
+      subject: 'Re: 报价咨询',
+      text: 'Please send your latest catalog and best price.',
+    });
+    await deliverMail({
+      from: 'info@newco.com',
+      fromName: 'New Co Ltd',
+      subject: 'Product inquiry',
+      text: 'We are looking for a supplier of LED lights.',
+    });
 
     const outcome = await processor.process(MBX);
     expect(outcome.status).toBe('synced');
@@ -345,12 +339,7 @@ describe('M4 #4/#5 邮箱集成', () => {
     const [msg1] = await db
       .select()
       .from(schema.message)
-      .where(
-        and(
-          eq(schema.message.orgId, ORG),
-          eq(schema.message.externalMessageId, '<acme-msg-1@acme.com>'),
-        ),
-      )
+      .where(and(eq(schema.message.orgId, ORG), eq(schema.message.conversationId, CONV1)))
       .limit(1);
     expect(msg1).toBeTruthy();
     expect(msg1.direction).toBe('in');
@@ -404,24 +393,22 @@ describe('M4 #4/#5 邮箱集成', () => {
       .limit(1);
     expect(newCustomer).toBeTruthy();
     expect(newCustomer.isFormal).toBe(false);
-    const [newMsg] = await db
-      .select()
-      .from(schema.message)
-      .where(
-        and(
-          eq(schema.message.orgId, ORG),
-          eq(schema.message.externalMessageId, '<newco-msg-1@newco.com>'),
-        ),
-      )
-      .limit(1);
-    expect(newMsg).toBeTruthy();
     const [newConv] = await db
       .select()
       .from(schema.conversation)
-      .where(eq(schema.conversation.id, newMsg.conversationId))
+      .where(
+        and(eq(schema.conversation.orgId, ORG), eq(schema.conversation.customerId, newCustomer.id)),
+      )
       .limit(1);
-    expect(newConv.customerId).toBe(newCustomer.id);
+    expect(newConv).toBeTruthy();
     expect(newConv.mailboxId).toBe(MBX);
+    const [newMsg] = await db
+      .select()
+      .from(schema.message)
+      .where(eq(schema.message.conversationId, newConv.id))
+      .limit(1);
+    expect(newMsg).toBeTruthy();
+    expect(newMsg.direction).toBe('in');
 
     // ---- 出口：last_synced_at + status=connected ----
     const [mbx] = await db.select().from(schema.mailbox).where(eq(schema.mailbox.id, MBX)).limit(1);
@@ -440,28 +427,17 @@ describe('M4 #4/#5 邮箱集成', () => {
     expect(conv1After.unreadCount).toBe(1);
   });
 
-  it('凭据信封加密：密文落库、驱动侧可见明文（08 §2）', async () => {
-    let seenByDriver: string | undefined;
-    setMailboxDriverFactory((row: MailboxDriverRow) => {
-      // 工厂构建时捕获行投影（驱动侧仅经此拿到解密后的凭据密文/明文）
-      seenByDriver = row.imap?.credential_enc;
-      return {
-        async testConnection() {
-          return { imap: 'ok', smtp: 'ok' };
-        },
-        async *syncMessages() {},
-        async sendMessage() {
-          return { externalId: 'x' };
-        },
-      };
-    });
-    await processor.process(MBX);
-    expect(seenByDriver).toBeDefined();
-    expect(seenByDriver).not.toBe(CRED_PASSWORD);
-    // 解密还原
-    expect(decryptSecret(seenByDriver!, '0'.repeat(64))).toBe(CRED_PASSWORD);
-    // 还原默认 mock 驱动
-    setMailboxDriverFactory(() => mockDriver);
+  it('凭据信封加密：密文落库、按主密钥可解出明文（08 §2）', async () => {
+    const [mbxRow] = await db
+      .select()
+      .from(schema.mailbox)
+      .where(eq(schema.mailbox.id, MBX))
+      .limit(1);
+    const cipher = mbxRow.imap?.credential_enc;
+    expect(cipher).toBeDefined();
+    expect(cipher).not.toBe(testMail.password);
+    // 解密还原（真实驱动同步一开一合见上：驱动侧按同一主密钥解密后登录 GreenMail）
+    expect(decryptSecret(cipher!, CRED_KEY)).toBe(testMail.password);
   });
 
   it('发信唯一出口：真实驱动发送成功，externalId 落库', async () => {
@@ -475,9 +451,7 @@ describe('M4 #4/#5 邮箱集成', () => {
     );
     expect(result.status).toBe('sent');
     expect(result.deduped).toBe(false);
-    expect(result.externalMessageId).toBe(`<mock-sent-${sentOutbox.length}@driver.local>`);
-    expect(sentOutbox.at(-1)?.to).toEqual(['buyer@acme.com']);
-    expect(sentOutbox.at(-1)?.from).toBe('sales@tradepilot.local');
+    expect(result.externalMessageId).toBeTruthy();
 
     const [msg] = await db
       .select()
@@ -486,15 +460,31 @@ describe('M4 #4/#5 邮箱集成', () => {
       .limit(1);
     expect(msg.status).toBe('sent');
     expect(msg.direction).toBe('out');
+    expect(msg.mailboxId).toBe(MBX);
+
+    // 真实外发落点校验：GreenMail 收件箱（buyer@acme.com）可见该封邮件
+    const recipient = createSmtpImapDriver(
+      testMailboxRow('buyer@acme.com', createId('mbx'), ORG, CRED_KEY),
+      CRED_KEY,
+    );
+    const received: RawMessage[] = [];
+    for await (const mail of recipient.syncMessages({
+      since: new Date(Date.now() - 3600_000),
+      folders: ['INBOX'],
+    })) {
+      received.push(mail);
+    }
+    expect(received.some((m) => m.subject === 'Quotation for LED lights')).toBe(true);
   });
 
   it('发信失败：重试耗尽 → message.status=failed + 50301（06 §2.3）', async () => {
-    sendBehavior = 'fail';
+    // 真实不可达端点（MBX_BAD：SMTP 端口 1，连接拒绝）→ 重试耗尽映射 50301
     const { run } = makeToolContext(ORG, await insertSendTask(ORG));
     await expect(
       run((ctx) =>
         emailSendTool.execute(ctx, {
           conversationId: CONV1,
+          mailboxId: MBX_BAD,
           subject: 'Will fail',
           body: 'This send should fail after retries.',
         }),
@@ -508,7 +498,6 @@ describe('M4 #4/#5 邮箱集成', () => {
       .limit(1);
     expect(failed).toBeTruthy();
     expect(failed.direction).toBe('out');
-    sendBehavior = 'ok';
   });
 
   it('客户频控：minTouchIntervalDays 内禁止再次外发（42901）', async () => {

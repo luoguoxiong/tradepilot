@@ -4,7 +4,7 @@
  * - 首建自动选中；selection 切换（每 type 至多一个 selected）；
  * - 删除生效模型自动回退；apiKey 加密落库（响应不回显，resolveActiveModel 可解密）；
  * - embedding 必须指定向量维度（且须与知识索引 vector(1536) 一致）；
- * - search（搜索供应商）provider 限 http/mock，http 必须有端点与凭据；
+ * - search（搜索供应商）provider 限 http，必须有端点与凭据；
  * - 运行时接入：选用模型驱动 LlmGateway.resolveTarget / Embedding Provider / Search Provider（全服务统一口径）。
  * 前置：docker compose up（PG 5432 / Redis 6379）+ 迁移已执行（含 manual 0011 的 ai_model_type='search'）。
  */
@@ -26,13 +26,12 @@ import {
   getEmbeddingProvider,
   getSearchProvider,
   HttpSearchProvider,
-  MockEmbeddingProvider,
-  MockSearchProvider,
   OpenAiEmbeddingProvider,
   setEmbeddingProviderFactory,
   setSearchProviderFactory,
 } from '@tradepilot/integrations';
 import { EnvService } from '../src/config/env.service.js';
+import { testEnv, testLlmOptions } from './setup/providers.js';
 import { AuthService } from '../src/auth/auth.service.js';
 import { TokenService } from '../src/auth/token.service.js';
 import { AiModelsService } from '../src/settings/ai-models.service.js';
@@ -56,6 +55,20 @@ let orgId = '';
 let userId = '';
 
 const adminEmail = `it-m5d3-aimodel-${createId('org')}@test.com`;
+
+/** 环境变量回落口径（.env.test 配置的真实 provider；无 mock 兜底） */
+const EMBEDDING_FALLBACK = {
+  provider: 'openai',
+  baseUrl: testEnv.TEST_EMBEDDING_BASE_URL,
+  apiKey: testEnv.TEST_EMBEDDING_API_KEY,
+  model: testEnv.TEST_EMBEDDING_MODEL,
+} as const;
+
+const SEARCH_FALLBACK = {
+  provider: 'http',
+  baseUrl: testEnv.TEST_SEARCH_BASE_URL,
+  apiKey: testEnv.TEST_SEARCH_API_KEY,
+} as const;
 
 beforeAll(async () => {
   superDb = createDb(SUPER_URL, { max: 2 });
@@ -226,8 +239,8 @@ describe('M5-D3 · ai_model 台账 + org 级全局选用（16 FR-10 扩展）', 
 describe('M5-D3 · 运行时接入：选用模型驱动 LlmGateway / Embedding（16 FR-10 扩展）', () => {
   it('LlmGateway 采用台账选用模型（provider/凭据/模型来自台账，场景仅保留温度与上限）', async () => {
     const gateway = new LlmGateway(appDb, logger, {
-      provider: 'mock',
-      defaultModel: 'env-default',
+      provider: testLlmOptions.provider,
+      defaultModel: testLlmOptions.defaultModel,
       encryptionKey: process.env.ENCRYPTION_KEY,
     });
 
@@ -258,25 +271,13 @@ describe('M5-D3 · 运行时接入：选用模型驱动 LlmGateway / Embedding�
     expect(active).not.toBeNull();
     expect(active?.dimensions).toBe(1536);
 
-    const config = toEmbeddingProviderConfig(active, {
-      provider: 'mock',
-      baseUrl: '',
-      apiKey: '',
-      model: 'env-embedding',
-    });
+    const config = toEmbeddingProviderConfig(active, EMBEDDING_FALLBACK);
     expect(config.provider).toBe('openai');
     expect(config.dimensions).toBe(1536);
     expect(config.model).toBe(active?.model);
 
     // 未配置台账（active=null）→ 原样回落环境变量
-    expect(
-      toEmbeddingProviderConfig(null, {
-        provider: 'mock',
-        baseUrl: '',
-        apiKey: '',
-        model: 'env-embedding',
-      }),
-    ).toEqual({ provider: 'mock', baseUrl: '', apiKey: '', model: 'env-embedding' });
+    expect(toEmbeddingProviderConfig(null, EMBEDDING_FALLBACK)).toEqual(EMBEDDING_FALLBACK);
   });
 
   it('setEmbeddingProviderFactory 后 getEmbeddingProvider(orgId) 按 org 解析，未命中回落环境变量', async () => {
@@ -296,19 +297,16 @@ describe('M5-D3 · 运行时接入：选用模型驱动 LlmGateway / Embedding�
         oid === undefined
           ? null
           : await resolveActiveModel(appDb, oid, 'embedding', process.env.ENCRYPTION_KEY);
-      return createEmbeddingProvider(
-        toEmbeddingProviderConfig(active, {
-          provider: 'mock',
-          baseUrl: '',
-          apiKey: '',
-          model: 'env-embedding',
-        }),
-      );
+      return createEmbeddingProvider(toEmbeddingProviderConfig(active, EMBEDDING_FALLBACK));
     });
 
-    expect(await getEmbeddingProvider(orgId)).toBeInstanceOf(OpenAiEmbeddingProvider);
-    // 未配置台账的 org → 回落环境变量（本例 mock）
-    expect(await getEmbeddingProvider('org-not-configured')).toBeInstanceOf(MockEmbeddingProvider);
+    const resolved = await getEmbeddingProvider(orgId);
+    expect(resolved).toBeInstanceOf(OpenAiEmbeddingProvider);
+    expect(resolved.model).toBe('text-embedding-3-small');
+    // 未配置台账的 org → 回落环境变量（.env.test 配置的真实模型）
+    const fallback = await getEmbeddingProvider('org-not-configured');
+    expect(fallback).toBeInstanceOf(OpenAiEmbeddingProvider);
+    expect(fallback.model).toBe(testEnv.TEST_EMBEDDING_MODEL);
   });
 });
 
@@ -371,7 +369,7 @@ describe('M5-D3 · 搜索供应商接入：选用驱动 web_search/site_crawl �
     expect(active?.provider).toBe('http');
     expect(active?.apiKey).toBe('sk-search-123');
 
-    const config = toSearchProviderConfig(active, { provider: 'mock', baseUrl: '', apiKey: '' });
+    const config = toSearchProviderConfig(active, SEARCH_FALLBACK);
     expect(config).toEqual({
       provider: 'http',
       baseUrl: 'https://google.serper.dev',
@@ -379,14 +377,10 @@ describe('M5-D3 · 搜索供应商接入：选用驱动 web_search/site_crawl �
     });
 
     // 未配置台账（active=null）→ 原样回落环境变量
-    expect(toSearchProviderConfig(null, { provider: 'mock', baseUrl: '', apiKey: '' })).toEqual({
-      provider: 'mock',
-      baseUrl: '',
-      apiKey: '',
-    });
+    expect(toSearchProviderConfig(null, SEARCH_FALLBACK)).toEqual(SEARCH_FALLBACK);
   });
 
-  it('setSearchProviderFactory 后 getSearchProvider(orgId) 按 org 解析，未命中回落 mock', async () => {
+  it('setSearchProviderFactory 后 getSearchProvider(orgId) 按 org 解析，未命中回落环境变量', async () => {
     setSearchProviderFactory(async (oid) => {
       const active =
         oid === undefined
@@ -394,22 +388,22 @@ describe('M5-D3 · 搜索供应商接入：选用驱动 web_search/site_crawl �
           : await resolveActiveModel(appDb, oid, 'search', process.env.ENCRYPTION_KEY).catch(
               () => null,
             );
-      return createSearchProvider(
-        toSearchProviderConfig(active, { provider: 'mock', baseUrl: '', apiKey: '' }),
-      );
+      return createSearchProvider(toSearchProviderConfig(active, SEARCH_FALLBACK));
     });
 
+    // 台账与回落均为 http 供应商（.env.test 提供端点/凭据，无 mock 兜底）
     expect(await getSearchProvider(orgId)).toBeInstanceOf(HttpSearchProvider);
-    expect(await getSearchProvider('org-not-configured')).toBeInstanceOf(MockSearchProvider);
+    expect(await getSearchProvider('org-not-configured')).toBeInstanceOf(HttpSearchProvider);
   });
 
-  it('search 编辑：provider 切 mock 可清空端点；切回 http 缺端点被拒', async () => {
-    const asMock = await aiModels.update(orgId, searchId, { provider: 'mock', baseUrl: null });
-    expect(asMock.provider).toBe('mock');
-    expect(asMock.baseUrl).toBeNull();
-
-    await expect(aiModels.update(orgId, searchId, { provider: 'http' })).rejects.toThrow(
-      '接口地址',
+  it('search 编辑：provider 越界被拒；http 缺端点被拒', async () => {
+    // 仅 http 为可选搜索供应商，越界 provider 被拒绝
+    await expect(aiModels.update(orgId, searchId, { provider: 'anthropic' })).rejects.toThrow(
+      '提供方',
     );
+
+    await expect(
+      aiModels.update(orgId, searchId, { provider: 'http', baseUrl: null }),
+    ).rejects.toThrow('接口地址');
   });
 });

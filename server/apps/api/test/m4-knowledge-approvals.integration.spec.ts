@@ -4,15 +4,11 @@ import { Redis } from 'ioredis';
 import pino from 'pino';
 import { BizException, createId } from '@tradepilot/core';
 import { closeDb, createDb, schema, type Db } from '@tradepilot/db';
-import {
-  configureEmbedding,
-  configureObjectStorage,
-  MockEmbeddingProvider,
-  type ObjectStorage,
-} from '@tradepilot/integrations';
+import { getEmbeddingProvider } from '@tradepilot/integrations';
 import { EnvService } from '../src/config/env.service.js';
 import { KnowledgeService } from '../src/knowledge/knowledge.service.js';
 import { ApprovalsService } from '../src/approvals/approvals.service.js';
+import { ensureTestBucket } from './setup/providers.js';
 
 /**
  * M4 #9/#10 11 知识中心 + 12 审核中心服务集成用例（后端开发计划表 M4，接口 11/12 契约）：
@@ -21,7 +17,8 @@ import { ApprovalsService } from '../src/approvals/approvals.service.js';
  * - 12 审核中心：summary/list/detail → approve（task 恢复 running + log 留痕）→
  *   edited_approved（字段级 editedDiff）→ reject（级联 failed(approval_rejected) + follow_up paused
  *   + 员工回 idle）→ expired 处置 42201 → 重复处置 40901 → logs。
- * 前置：docker compose up（PG 5432 / Redis 6380）+ `pnpm --filter @tradepilot/db migrate` + tradepilot_app 角色。
+ * 前置：docker compose up（PG 5432 / Redis 6380 / MinIO 9000）+ `pnpm --filter @tradepilot/db migrate`
+ * + tradepilot_app 角色，且已提供 server/.env.test（真实 provider 配置，无 mock 兜底）。
  */
 
 process.env.JWT_SECRET ||= 'it_only_test_secret_0123456789abcdef0123456789abcdef';
@@ -66,22 +63,6 @@ const DOC_TEXT = Buffer.from(
   'utf8',
 );
 
-/** 进程内对象存储 stub（M4 测试口径：不依赖 MinIO 状态） */
-const objects = new Map<string, Buffer>();
-const memoryStorage: ObjectStorage = {
-  async putObject(key, body) {
-    objects.set(key, body);
-  },
-  async getObject(key) {
-    const hit = objects.get(key);
-    if (!hit) {
-      throw new Error(`对象不存在: ${key}`);
-    }
-    return hit;
-  },
-  async ensureBucket() {},
-};
-
 async function expectBizError(p: Promise<unknown>, code: number): Promise<void> {
   try {
     await p;
@@ -96,8 +77,7 @@ beforeAll(async () => {
   superDb = createDb(SUPER_URL, { max: 2 });
   appDb = createDb(APP_URL, { max: 5 });
   redis = new Redis(process.env.REDIS_URL, { maxRetriesPerRequest: 2 });
-  configureObjectStorage(memoryStorage);
-  configureEmbedding(new MockEmbeddingProvider());
+  await ensureTestBucket();
   const env = new EnvService();
   knowledge = new KnowledgeService(appDb, env);
   approvals = new ApprovalsService(appDb, redis, logger, env);
@@ -211,7 +191,7 @@ beforeAll(async () => {
         bizType: 'ai_task',
         bizId: TASK_APPROVE,
         context: { conversationId: createId('conv') },
-        aiProposal: { nodeId: 'email_send', subject: 'Mock 主题', body: '原稿正文' },
+        aiProposal: { nodeId: 'email_send', subject: '合作意向确认', body: '原稿正文' },
         requestedByEmployeeId: EMP_1,
         linkedTaskId: TASK_APPROVE,
         expiresAt: new Date(Date.now() + 48 * 3600_000),
@@ -333,7 +313,7 @@ describe('M4 #9 · 11 知识中心', () => {
 
   it('列表 + 统计（含模拟索引产物 chunk）', async () => {
     // 模拟索引产物（流水线见 worker 侧 m4-knowledge-index 集成用例）
-    const embedding = new MockEmbeddingProvider();
+    const embedding = await getEmbeddingProvider(ORG_K);
     const [vector] = await embedding.embed([DOC_TEXT.toString('utf8')]);
     await superDb.transaction(async (tx) => {
       await tx.insert(schema.knowledgeChunk).values({

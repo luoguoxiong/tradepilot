@@ -3,7 +3,8 @@
  * 解析为运行时可直接消费的配置，供 LlmGateway（type=llm）、Embedding Provider（type=embedding）
  * 与 Search Provider（type=search）共用。
  *
- * 缺省链：台账选用（ai_model.is_selected）→ 调用方各自的缺省（场景配置 / 环境变量 / mock）。
+ * 缺省链：台账选用（ai_model.is_selected）→ 字段级缺省（baseUrl/apiKey/model）；
+ * 未选用模型时由启动装配明确报错（不再回落 mock）。
  * 凭据：ai_model.api_key_enc 为 AES-256-GCM 密文（08 §2），仅在此解密回填，永不出库明文。
  */
 import { and, eq } from 'drizzle-orm';
@@ -79,19 +80,20 @@ export async function resolveActiveModel(
 }
 
 /**
- * 未配置台账时的内置兜底（api/worker 启动时注入）。
- * 说明：模型/供应商配置统一由「系统设置 → AI 模型配置」维护（仅 admin），不再读环境变量。
+ * embedding 字段级缺省（baseUrl/apiKey/model 未显式给出时逐项回落）。
+ * 说明：模型/供应商配置统一由「系统设置 → AI 模型配置」维护（仅 admin），不再读环境变量；
+ * 未配置选用模型时由启动装配直接报错，不再提供 mock 兜底。
  */
 export interface EmbeddingFallbackOptions {
-  provider: 'mock' | 'openai';
+  provider: 'openai';
   baseUrl: string;
   apiKey: string;
   model: string;
 }
 
-/** 内置 embedding 兜底：未配置台账时走确定性 mock（离线 / 测试可用，07 §2） */
-export const DEFAULT_EMBEDDING_FALLBACK: EmbeddingFallbackOptions = {
-  provider: 'mock',
+/** embedding 字段级缺省（openai 兼容端点），仅用于补齐台账未显式给出的字段 */
+export const EMBEDDING_FIELD_DEFAULTS: EmbeddingFallbackOptions = {
+  provider: 'openai',
   baseUrl: 'https://api.openai.com/v1',
   apiKey: '',
   model: 'text-embedding-3-small',
@@ -99,17 +101,17 @@ export const DEFAULT_EMBEDDING_FALLBACK: EmbeddingFallbackOptions = {
 
 /** 与 integrations `EmbeddingOptions` 结构一致（此处不引包，避免 runtime → integrations 依赖） */
 export interface EmbeddingProviderConfig {
-  provider: 'mock' | 'openai';
+  provider: 'openai';
   baseUrl: string;
   apiKey: string;
   model: string;
   dimensions?: number;
-  mockDimensions?: number;
 }
 
 /**
- * 台账选用 → EmbeddingOptions：org 选用优先，字段缺省逐项回落内置兜底。
- * provider 口径：openai 走 OpenAI 兼容 /embeddings；其余（含 mock）走确定性 mock 向量。
+ * 台账选用 → EmbeddingOptions：org 选用优先，字段缺省逐项回落字段级缺省。
+ * provider 口径：仅 openai 走 OpenAI 兼容 /embeddings；其余值视为不支持的提供方（明确报错，不再回落 mock）。
+ * 注：active=null 时原样回落 fallback（供测试/离线显式注入），生产装配在调用前已对 null 明确报错。
  */
 export function toEmbeddingProviderConfig(
   active: ActiveModelConfig | null,
@@ -118,45 +120,47 @@ export function toEmbeddingProviderConfig(
   if (!active) {
     return { ...fallback };
   }
+  if (active.provider !== 'openai') {
+    throw new Error(`不支持的向量模型提供方：${active.provider}（仅支持 openai 兼容协议）`);
+  }
   return {
-    provider: active.provider === 'openai' ? 'openai' : 'mock',
+    provider: 'openai',
     baseUrl: active.baseUrl ?? fallback.baseUrl,
     apiKey: active.apiKey ?? fallback.apiKey,
     model: active.model || fallback.model,
-    ...(active.dimensions !== undefined && {
-      dimensions: active.dimensions,
-      mockDimensions: active.dimensions,
-    }),
+    ...(active.dimensions !== undefined && { dimensions: active.dimensions }),
   };
 }
 
 /**
- * 未配置台账时的内置兜底（api/worker 启动时注入）。
- * 说明：模型/供应商配置统一由「系统设置 → AI 模型配置」维护（仅 admin），不再读环境变量。
+ * search 字段级缺省（baseUrl/apiKey 未显式给出时逐项回落）。
+ * 说明：模型/供应商配置统一由「系统设置 → AI 模型配置」维护（仅 admin），不再读环境变量；
+ * 未配置选用供应商时由启动装配直接报错，不再提供 mock 兜底。
  */
 export interface SearchFallbackOptions {
-  provider: 'mock' | 'http';
+  provider: 'http';
   baseUrl: string;
   apiKey: string;
 }
 
-/** 内置搜索兜底：未配置台账时走确定性 mock（离线 / 测试可用，06 §3） */
-export const DEFAULT_SEARCH_FALLBACK: SearchFallbackOptions = {
-  provider: 'mock',
-  baseUrl: '',
+/** search 字段级缺省（Serper 兼容端点），仅用于补齐台账未显式给出的字段 */
+export const SEARCH_FIELD_DEFAULTS: SearchFallbackOptions = {
+  provider: 'http',
+  baseUrl: 'https://google.serper.dev',
   apiKey: '',
 };
 
 /** 与 integrations `createSearchProvider` 入参结构一致（此处不引包，避免 runtime → integrations 依赖） */
 export interface SearchProviderConfig {
-  provider: 'mock' | 'http';
+  provider: 'http';
   baseUrl: string;
   apiKey: string;
 }
 
 /**
- * 台账选用 → 搜索供应商配置：org 选用优先，字段缺省逐项回落内置兜底。
- * provider 口径：http 走 Serper 兼容搜索 API；其余（含 mock / 未识别值）走确定性 mock 供应商。
+ * 台账选用 → 搜索供应商配置：org 选用优先，字段缺省逐项回落字段级缺省。
+ * provider 口径：仅 http 走 Serper 兼容搜索 API；其余值视为不支持的供应商（明确报错，不再回落 mock）。
+ * 注：active=null 时原样回落 fallback（供测试/离线显式注入），生产装配在调用前已对 null 明确报错。
  *
  * 注：search 类型无「模型标识」，`model` 不参与供应商构造（仅作台账占位，06 §3）。
  */
@@ -167,8 +171,11 @@ export function toSearchProviderConfig(
   if (!active) {
     return { ...fallback };
   }
+  if (active.provider !== 'http') {
+    throw new Error(`不支持的搜索供应商：${active.provider}（仅支持 http 即 Serper 兼容 API）`);
+  }
   return {
-    provider: active.provider === 'http' ? 'http' : 'mock',
+    provider: 'http',
     baseUrl: active.baseUrl ?? fallback.baseUrl,
     apiKey: active.apiKey ?? fallback.apiKey,
   };

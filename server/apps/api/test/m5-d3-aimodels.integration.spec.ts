@@ -18,6 +18,7 @@ import { EnvService } from '../src/config/env.service.js';
 import { AuthService } from '../src/auth/auth.service.js';
 import { TokenService } from '../src/auth/token.service.js';
 import { SettingsService } from '../src/settings/settings.service.js';
+import { testLlmOptions } from './setup/providers.js';
 
 process.env.JWT_SECRET ||= 'it_only_test_secret_0123456789abcdef0123456789abcdef';
 process.env.ENCRYPTION_KEY ||= '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
@@ -56,7 +57,10 @@ beforeAll(async () => {
   orgId = session.user.orgId;
 
   settings = new SettingsService(appDb);
-  gateway = new LlmGateway(appDb, logger, { provider: 'mock', defaultModel: 'default-model' });
+  gateway = new LlmGateway(appDb, logger, {
+    provider: testLlmOptions.provider,
+    defaultModel: 'default-model',
+  });
 }, 30_000);
 
 afterAll(async () => {
@@ -65,11 +69,15 @@ afterAll(async () => {
     await superDb.transaction(async (tx) => {
       await tx.delete(schema.llmCall).where(eq(schema.llmCall.orgId, orgId));
       await tx.delete(schema.aiModelSetting).where(eq(schema.aiModelSetting.orgId, orgId));
-      await tx.delete(schema.notificationSetting).where(eq(schema.notificationSetting.orgId, orgId));
+      await tx
+        .delete(schema.notificationSetting)
+        .where(eq(schema.notificationSetting.orgId, orgId));
       await tx.delete(schema.aiTaskLog).where(eq(schema.aiTaskLog.orgId, orgId));
       await tx.delete(schema.aiTaskStep).where(eq(schema.aiTaskStep.orgId, orgId));
       await tx.delete(schema.aiTask).where(eq(schema.aiTask.orgId, orgId));
-      await tx.delete(schema.followUpStrategyStep).where(eq(schema.followUpStrategyStep.orgId, orgId));
+      await tx
+        .delete(schema.followUpStrategyStep)
+        .where(eq(schema.followUpStrategyStep.orgId, orgId));
       await tx.delete(schema.followUpStrategy).where(eq(schema.followUpStrategy.orgId, orgId));
       await tx.delete(schema.aiEmployee).where(eq(schema.aiEmployee.orgId, orgId));
       await tx.delete(schema.sopTemplate).where(eq(schema.sopTemplate.orgId, orgId));
@@ -87,7 +95,7 @@ describe('M5-D3 · ai_model_setting → LlmGateway org 级路由联动（05 §6.
   it('register 种子配置可解析：email_reply 命中 gpt-4o/0.7/2048，degraded=false', async () => {
     const target = await gateway.resolveTarget(orgId, 'email_reply');
     expect(target).toEqual({
-      provider: 'mock',
+      provider: testLlmOptions.provider,
       model: 'gpt-4o',
       temperature: 0.7,
       maxTokens: 2048,
@@ -98,7 +106,13 @@ describe('M5-D3 · ai_model_setting → LlmGateway org 级路由联动（05 §6.
   it('16 PUT 改写场景模型 → Gateway 立即联动（gpt-4o-mini/0.25/4096 + budget 落库）', async () => {
     const { scenes } = await settings.updateAiModels(orgId, {
       scenes: [
-        { scene: 'email_reply', model: 'gpt-4o-mini', temperature: 0.25, maxTokens: 4096, budgetLimit: 200 },
+        {
+          scene: 'email_reply',
+          model: 'gpt-4o-mini',
+          temperature: 0.25,
+          maxTokens: 4096,
+          budgetLimit: 200,
+        },
       ],
     });
     const view = scenes.find((s) => s.scene === 'email_reply')!;
@@ -109,7 +123,7 @@ describe('M5-D3 · ai_model_setting → LlmGateway org 级路由联动（05 §6.
 
     const target = await gateway.resolveTarget(orgId, 'email_reply');
     expect(target).toEqual({
-      provider: 'mock',
+      provider: testLlmOptions.provider,
       model: 'gpt-4o-mini',
       temperature: 0.25,
       maxTokens: 4096,
@@ -121,11 +135,13 @@ describe('M5-D3 · ai_model_setting → LlmGateway org 级路由联动（05 §6.
     // 删除 analysis 场景配置（superDb 直接删行，模拟无配置兜底路径）
     await superDb
       .delete(schema.aiModelSetting)
-      .where(and(eq(schema.aiModelSetting.orgId, orgId), eq(schema.aiModelSetting.scene, 'analysis')));
+      .where(
+        and(eq(schema.aiModelSetting.orgId, orgId), eq(schema.aiModelSetting.scene, 'analysis')),
+      );
 
     const degraded = await gateway.resolveTarget(orgId, 'analysis');
     expect(degraded).toEqual({
-      provider: 'mock',
+      provider: testLlmOptions.provider,
       model: 'default-model',
       temperature: 0.7,
       maxTokens: 4096,
@@ -134,6 +150,11 @@ describe('M5-D3 · ai_model_setting → LlmGateway org 级路由联动（05 §6.
 
     // email_reply 改写不影响 lead_hunting 种子（org 级场景隔离）
     const hunting = await gateway.resolveTarget(orgId, 'lead_hunting');
-    expect(hunting).toMatchObject({ model: 'gpt-4o', temperature: 0.3, maxTokens: 4096, degraded: false });
+    expect(hunting).toMatchObject({
+      model: 'gpt-4o',
+      temperature: 0.3,
+      maxTokens: 4096,
+      degraded: false,
+    });
   });
 });

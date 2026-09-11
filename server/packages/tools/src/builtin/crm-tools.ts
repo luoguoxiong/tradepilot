@@ -8,12 +8,18 @@ import { createHash } from 'node:crypto';
 import { and, desc, eq, gt, ilike, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema, withOrg, type Tx } from '@tradepilot/db';
-import { BizException, ErrorCode, createId, getZonedWallTime, type SearchScene } from '@tradepilot/core';
+import {
+  BizException,
+  ErrorCode,
+  createId,
+  getZonedWallTime,
+  type SearchScene,
+} from '@tradepilot/core';
 import { createMailboxDriver, isMailboxAuthError } from '@tradepilot/integrations';
 import { TASK_LOG_TYPE } from '@tradepilot/shared';
 import type { ToolContext, ToolDefinition } from '../registry.js';
 import { toolIdempotencyKey, withIdempotency, writeToolLog } from '../registry.js';
-import { getEmailSendConfig, isEmailSendConfigured } from './email-send-config.js';
+import { getEmailSendConfig } from './email-send-config.js';
 import { searchKnowledgeChunks } from './knowledge-search.js';
 import { assertEmailContentCompliance } from './content-compliance.js';
 
@@ -427,43 +433,6 @@ export const emailSendTool: ToolDefinition<
         throw new BizException(ErrorCode.NOT_FOUND, `会话不存在: ${input.conversationId}`);
       }
 
-      // mock 兜底（M3 语义）：配置未注入（测试/演练）→ 跳过窗口频控与驱动，直接 mock 外发
-      if (!isEmailSendConfigured()) {
-        const mockExternalId = `mock-${ctx.taskId}-${ctx.nodeId}-${messageHash}`;
-        const inserted = await ctx.tx
-          .insert(message)
-          .values({
-            id: createId('msg'),
-            orgId: ctx.orgId,
-            conversationId: input.conversationId,
-            direction: 'out',
-            senderType: 'ai',
-            senderName: 'AI 销售员工',
-            mailboxId: input.mailboxId ?? conv.mailboxId ?? null,
-            content: input.body,
-            language: input.language ?? null,
-            status: 'sent',
-            externalMessageId: mockExternalId,
-            sentAt: ctx.now,
-            updatedAt: ctx.now,
-          })
-          .returning({ id: message.id });
-        await ctx.tx
-          .update(conversation)
-          .set({
-            lastMessageAt: ctx.now,
-            lastMessagePreview: input.body.slice(0, 120),
-            updatedAt: ctx.now,
-          })
-          .where(eq(conversation.id, input.conversationId));
-        return {
-          messageId: inserted[0]?.id ?? '',
-          externalMessageId: mockExternalId,
-          status: 'sent' as const,
-          deduped: false,
-        };
-      }
-
       // 发信唯一出口统一校验：窗口 + 频控（06 §2.3，org.send_rules，04 §3.2）
       await assertSendWindowAndPacing(ctx, conv.customerId);
       // 外发内容合规钩子（08 §6 外发滥用防护：内置基线 + 注入扩展，违规 42201）
@@ -589,7 +558,8 @@ export const knowledgeSearchTool: ToolDefinition<
   }
 > = {
   name: 'knowledge_search',
-  description: '知识库混合检索（向量+全文+相似 RRF 融合，引用可溯源 docId/chunkId；业务参数唯一结构化来源，06 §4）',
+  description:
+    '知识库混合检索（向量+全文+相似 RRF 融合，引用可溯源 docId/chunkId；业务参数唯一结构化来源，06 §4）',
   inputSchema: z.object({
     query: z.string().min(1),
     scene: z.string().optional(),
@@ -663,7 +633,10 @@ async function recordFailedMessage(
  * 发信唯一出口校验（06 §2.3）：org.send_rules 窗口（org.timezone 墙钟）+ 客户维度最小触达间隔。
  * 违反 → RATE_LIMITED（42901，任务失败可重试；follow_up 主链路由 Scheduler 预检顺延，此处为兜底）。
  */
-async function assertSendWindowAndPacing(ctx: ToolContext, customerId: string | null): Promise<void> {
+async function assertSendWindowAndPacing(
+  ctx: ToolContext,
+  customerId: string | null,
+): Promise<void> {
   const [orgRow] = await ctx.tx.select().from(org).where(eq(org.id, ctx.orgId)).limit(1);
   if (!orgRow) {
     return; // org 行缺失极端场景：交由外层业务约束兜底

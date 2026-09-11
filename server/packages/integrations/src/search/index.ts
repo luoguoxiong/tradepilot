@@ -1,6 +1,5 @@
 /**
  * 搜索/抓取供应商适配（后端技术方案 06 §3，M4 #6）：
- * - mock：确定性产出（跨轮换词/翻页可复算），保三图 dry-run 与单测可测；
  * - http：Serper 兼容搜索 API（web_search）+ 轻量 HTML 抓取（site_crawl，非 Playwright 渲染，
  *   动态页渲染列后续增强）。
  * 抓取合规（08 §7 获客与数据合规，M4 C8）：robots.txt 尊重（解析失败视为允许，业界惯例）、
@@ -56,29 +55,6 @@ export interface SearchProvider {
   webSearch(query: string, page?: number): Promise<WebSearchHit[]>;
   /** 抓取官网关键页（/、/products、/about）产出摘要与产品线索 */
   crawlSite(domain: string): Promise<SiteCrawlResult>;
-}
-
-// ===== mock（确定性）=====
-
-export class MockSearchProvider implements SearchProvider {
-  async webSearch(query: string, page = 1): Promise<WebSearchHit[]> {
-    const slug = `p${page}-${query.length}`;
-    return [
-      {
-        title: `${query.slice(0, 40)} | vendor-${slug}.example.com`,
-        url: `https://vendor-${slug}.example.com`,
-        snippet: `mock 搜索结果：与「${query.slice(0, 24)}」相关的公司页（确定性 mock，M4 供应商适配）`,
-      },
-    ];
-  }
-
-  async crawlSite(domain: string): Promise<SiteCrawlResult> {
-    return {
-      summary: `[mock 抓取] ${domain}：主营产品与公司介绍摘要（mock 供应商，测试可断言）`,
-      products: ['mock product line A', 'mock product line B'],
-      crawledPages: ['/', '/products', '/about'],
-    };
-  }
 }
 
 // ===== http（Serper 兼容）=====
@@ -356,41 +332,36 @@ export class HttpSearchProvider implements SearchProvider {
 }
 
 export function createSearchProvider(options: {
-  provider: 'mock' | 'http';
+  provider: 'http';
   baseUrl: string;
   apiKey: string;
 }): SearchProvider {
-  if (options.provider === 'http') {
-    return new HttpSearchProvider({ baseUrl: options.baseUrl, apiKey: options.apiKey });
+  if (options.provider !== 'http') {
+    throw new Error(`不支持的搜索供应商：${options.provider}（仅支持 http 即 Serper 兼容 API）`);
   }
-  return new MockSearchProvider();
+  return new HttpSearchProvider({ baseUrl: options.baseUrl, apiKey: options.apiKey });
 }
 
-// ===== 进程级注入（未注入默认 mock）=====
+// ===== 进程级注入（未注入明确报错，无 mock 兜底）=====
 // 16 FR-10 扩展后为「按 org 解析」：工厂可读库拿到 org 在「系统设置 → AI 模型配置」选用的
-// 搜索供应商（worker 侧装配），未注册工厂时回落到 mock。configureSearchProvider 保留为
-// 静态注册（单测/离线演练），签名与旧版一致。
+// 搜索供应商（worker 侧装配）。
 
 /** org → provider 工厂（异步：需读该 org 的 AI 模型选用配置） */
 export type SearchProviderFactory = (orgId?: string) => SearchProvider | Promise<SearchProvider>;
 
 let factory: SearchProviderFactory | null = null;
-let defaultProvider: SearchProvider | null = null;
 
 /** 注册 org 级解析工厂（worker 启动时一次） */
 export function setSearchProviderFactory(next: SearchProviderFactory): void {
   factory = next;
 }
 
-/** 静态注册（忽略 orgId）：等价于固定 provider，单测与离线演练使用 */
-export function configureSearchProvider(provider: SearchProvider): void {
-  factory = () => provider;
-}
-
 export async function getSearchProvider(orgId?: string): Promise<SearchProvider> {
   if (factory) {
     return await factory(orgId);
   }
-  defaultProvider ??= new MockSearchProvider();
-  return defaultProvider;
+  throw new Error(
+    `Search provider 未配置（org=${orgId ?? '-'}）：` +
+      '请由 worker 启动装配注入（setSearchProviderFactory）；无 mock 兜底',
+  );
 }

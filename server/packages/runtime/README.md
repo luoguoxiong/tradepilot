@@ -180,8 +180,7 @@ Provider 适配 + org 级路由 + Zod 结构化输出 + 成本记账（05 §6）
 
 **结构化输出 `structured(meta, schemaOut, messages)`**：
 
-- `mock` provider → `mockStructured(schema, key)` 按 Zod schema 生成确定性产出入库记账；
-- 真实 provider → `createChatModel` → `invoke` → `extractJson` → `schemaOut.safeParse`；
+- `createChatModel` → `invoke` → `extractJson` → `schemaOut.safeParse`；
 - **自纠正重试**：失败原因回喂下一次请求（`RETRY_LIMIT=3`，即首次 + 重试 2 次），仍失败抛错（节点失败）。
 - 每次调用写 `llm_call`（`org/task/node/scene/model/tokens/cost/latency/degraded`）。
 
@@ -189,21 +188,21 @@ Provider 适配 + org 级路由 + Zod 结构化输出 + 成本记账（05 §6）
 `crossedBudget(prev, next, budget)`（仅「前值 ≤ 预算 < 后值」触发一次）→ 调 `opts.alert`（Worker 接 `q:notify`）。
 **仅告警不熔断**（16 FR-10 口径）。
 
-**关键导出**：`LlmGateway`、`mockStructured`、`extractJson`、`crossedBudget`、
+**关键导出**：`LlmGateway`、`extractJson`、`crossedBudget`、
 `GatewayOptions`、`ModelTarget`、`LlmInvokeMeta`、`LlmUsage`、`StructuredResult`、`BudgetAlertInfo`、`LlmProvider`
-（`'mock' | 'openai' | 'anthropic' | 'deepseek' | 'azure'`）。
+（`'openai' | 'anthropic' | 'deepseek' | 'azure'`）。
 
 ### model-config.ts — 模型配置解析
 
 「系统设置 → AI 模型配置」的 org 选用模型解析（16 FR-10），供 LLM / embedding / search **三类共用**。
 
-| 导出                                                     | 说明                                                                                                                                     |
-| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `resolveActiveModel(db, orgId, type, encryptionKey?)`    | 读 `ai_model.is_selected=true` 行；`type ∈ llm/embedding/search`；未配置返回 `null`；`apiKeyEnc` 在此解密回填（缺 `encryptionKey` 跳过） |
-| `ActiveModelConfig`                                      | 运行时可消费配置（`provider` / `model` / `baseUrl?` / `apiKey?` / `dimensions?` / `temperature` / `maxTokens?`）                         |
-| `DEFAULT_EMBEDDING_FALLBACK` / `DEFAULT_SEARCH_FALLBACK` | 未配置台账时的内置兜底（均 `provider: 'mock'`）                                                                                          |
-| `toEmbeddingProviderConfig(active, fallback)`            | 台账选用 → `EmbeddingProviderConfig`（字段逐项回落）                                                                                     |
-| `toSearchProviderConfig(active, fallback)`               | 台账选用 → `SearchProviderConfig`                                                                                                        |
+| 导出                                                  | 说明                                                                                                                                     |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `resolveActiveModel(db, orgId, type, encryptionKey?)` | 读 `ai_model.is_selected=true` 行；`type ∈ llm/embedding/search`；未配置返回 `null`；`apiKeyEnc` 在此解密回填（缺 `encryptionKey` 跳过） |
+| `ActiveModelConfig`                                   | 运行时可消费配置（`provider` / `model` / `baseUrl?` / `apiKey?` / `dimensions?` / `temperature` / `maxTokens?`）                         |
+| `EMBEDDING_FIELD_DEFAULTS` / `SEARCH_FIELD_DEFAULTS`  | 字段级缺省（baseUrl/apiKey/model）；未配置选用模型时启动装配明确报错，不再回落 mock                                                      |
+| `toEmbeddingProviderConfig(active, fallback)`         | 台账选用 → `EmbeddingProviderConfig`（字段逐项回落）                                                                                     |
+| `toSearchProviderConfig(active, fallback)`            | 台账选用 → `SearchProviderConfig`                                                                                                        |
 
 > 输出结构刻意与 `integrations` 的 `EmbeddingOptions` / `createSearchProvider` 入参**保持一致**，
 > 但**不引包**（避免 `runtime → integrations` 依赖），保证依赖方向不变。
@@ -347,7 +346,7 @@ Worker 是 runtime 的主要装配方（`apps/worker/src/index.ts`）：
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Checkpointer`       | `createCheckpointer(env.DATABASE_URL, { provisionSchema: env.LANGGRAPH_CHECKPOINT_SETUP })`                                                                                                       |
 | `TaskEventPublisher` | 复用 Worker 的 ioredis 连接                                                                                                                                                                       |
-| `LlmGateway`         | `provider: 'mock'`、`defaultModel: 'mock-1'`、`encryptionKey: env.ENCRYPTION_KEY`、`alert` → `enqueueNotify({ type: 'budget_limit' })`                                                            |
+| `LlmGateway`         | `encryptionKey: env.ENCRYPTION_KEY`、`alert` → `enqueueNotify({ type: 'budget_limit' })`；不传 `provider`/`defaultModel`（org 未配置选用模型时 `resolveTarget` 明确报错，不再回落 mock）          |
 | `ApprovalGate`       | `hooks.onPendingApproval` → `enqueueNotify({ type: 'approval_pending' })`                                                                                                                         |
 | `GraphCompiler`      | 注入 `gateway` / `gate` / `createToolRegistry()` / `createFlowRegistry()` / `createPromptRegistry()` / `createOutputSchemaRegistry()`（后三者来自 `@tradepilot/workflows`）/ `checkpointer.saver` |
 | `TaskRunner`         | 注入 `compiler` / `workflowSopProvider` / `onTaskFailed` → `enqueueNotify({ type: 'task_failed' })`                                                                                               |

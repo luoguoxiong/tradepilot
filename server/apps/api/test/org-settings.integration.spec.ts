@@ -1,13 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
-import * as net from 'node:net';
 import { BizException, createId, decryptSecret } from '@tradepilot/core';
 import { closeDb, createDb, schema, type Db } from '@tradepilot/db';
-import {
-  setMailboxDriverFactory,
-  type MailboxDriver,
-} from '@tradepilot/integrations';
 import { EnvService } from '../src/config/env.service.js';
 import { AuthService } from '../src/auth/auth.service.js';
 import { TokenService } from '../src/auth/token.service.js';
@@ -16,10 +11,12 @@ import { MailboxService } from '../src/settings/mailbox.service.js';
 import { SettingsService } from '../src/settings/settings.service.js';
 import { updateOrgSchema } from '../src/org/org.dto.js';
 import { rolePermissionsSchema } from '../src/settings/settings.dto.js';
+import { testMail } from './setup/providers.js';
 
 /**
  * M2 任务 8/9 集成测试（org onboarding / 成员邀请 / 16 设置 P0 接口）。
- * 前置：docker compose up（PG 5432 + Redis）+ 迁移已执行 + tradepilot_app 角色存在。
+ * 前置：docker compose up（PG 5432 / Redis / GreenMail 1025+1114）+ 迁移已执行 + tradepilot_app 角色存在，
+ * 且已提供 server/.env.test（真实 provider 配置，无 mock 兜底）。
  * - 引导/清理用超级用户（BYPASSRLS）
  * - 业务断言用 tradepilot_app 连接（FORCE RLS）
  */
@@ -39,8 +36,6 @@ let auth: AuthService;
 let orgService: OrgService;
 let mailboxService: MailboxService;
 let settings: SettingsService;
-/** 连接测试用临时监听（模拟可达主机） */
-let probeServer: net.Server;
 
 // 会话内共享状态（用例按序依赖）
 let orgId = '';
@@ -81,7 +76,6 @@ beforeAll(async () => {
 }, 30_000);
 
 afterAll(async () => {
-  probeServer?.close();
   if (orgId) {
     await superDb.transaction(async (tx) => {
       await tx.delete(schema.mailbox).where(eq(schema.mailbox.orgId, orgId));
@@ -225,27 +219,29 @@ describe('成员邀请与生命周期（16 §1.4 / 03 §6）', () => {
 
 describe('邮箱连接（16 §1.5/§3.3/§3.4）', () => {
   let mailboxId = '';
-  let probePort = 0;
   const account = `it-mbx-${adminEmail}`;
-
-  beforeAll(async () => {
-    // 临时 TCP 监听：模拟可达主机（保持监听至 afterAll）
-    probeServer = net.createServer();
-    await new Promise<void>((resolve) => probeServer.listen(0, '127.0.0.1', resolve));
-    probePort = (probeServer.address() as net.AddressInfo).port;
-  });
 
   it('创建：凭据 AES-256-GCM 加密落库，响应永不回显', async () => {
     const view = await mailboxService.create(orgId, adminId, {
       provider: 'smtp_imap',
       account,
-      imap: { host: '127.0.0.1', port: probePort, ssl: false, credential: 'imap-plain-secret' },
-      smtp: { host: '127.0.0.1', port: probePort, ssl: false, credential: 'smtp-plain-secret' },
+      imap: {
+        host: testMail.host,
+        port: testMail.imapPort,
+        ssl: false,
+        credential: 'imap-plain-secret',
+      },
+      smtp: {
+        host: testMail.host,
+        port: testMail.smtpPort,
+        ssl: false,
+        credential: 'smtp-plain-secret',
+      },
       syncScope: { historyDays: 90, folders: ['INBOX', 'Sent'] },
     });
     mailboxId = view.mailboxId;
     // 响应剥除凭据
-    expect(view.imap).toEqual({ host: '127.0.0.1', port: probePort, ssl: false });
+    expect(view.imap).toEqual({ host: testMail.host, port: testMail.imapPort, ssl: false });
     // 库内为密文且可解密回原文
     const [row] = await superDb
       .select()
@@ -264,8 +260,8 @@ describe('邮箱连接（16 §1.5/§3.3/§3.4）', () => {
       mailboxService.create(orgId, adminId, {
         provider: 'smtp_imap',
         account: account.toUpperCase(),
-        imap: { host: '127.0.0.1', port: probePort, ssl: false, credential: 'x' },
-        smtp: { host: '127.0.0.1', port: probePort, ssl: false, credential: 'x' },
+        imap: { host: testMail.host, port: testMail.imapPort, ssl: false, credential: 'x' },
+        smtp: { host: testMail.host, port: testMail.smtpPort, ssl: false, credential: 'x' },
         syncScope: { historyDays: 30, folders: ['INBOX'] },
       }),
       40901,
@@ -273,22 +269,25 @@ describe('邮箱连接（16 §1.5/§3.3/§3.4）', () => {
   });
 
   it('连接测试：协议级可达 → connected；不可达 → error + lastError（M4 #4）', async () => {
-    // 可达路径：注入 mock 驱动（真实 IMAP/SMTP 登录由驱动层负责；此处验证服务编排与状态机）
-    const okDriver: MailboxDriver = {
-      async testConnection() {
-        return { imap: 'ok', smtp: 'ok' };
+    // 可达路径：真实驱动连本地 GreenMail（任意凭据可登录）→ 协议级 IMAP/SMTP 双通
+    await mailboxService.update(orgId, mailboxId, {
+      imap: {
+        host: testMail.host,
+        port: testMail.imapPort,
+        ssl: false,
+        credential: testMail.password,
       },
-      async *syncMessages() {},
-      async sendMessage() {
-        return { externalId: 'x' };
+      smtp: {
+        host: testMail.host,
+        port: testMail.smtpPort,
+        ssl: false,
+        credential: testMail.password,
       },
-    };
-    setMailboxDriverFactory(() => okDriver);
+    });
     const okResult = await mailboxService.test(orgId, mailboxId);
     expect(okResult).toMatchObject({ ok: true, imap: 'ok', smtp: 'ok' });
-    setMailboxDriverFactory(null);
 
-    // 更新为不可达端口（保留原凭据）→ 驱动连接失败 → error + lastError
+    // 更新为不可达端口（真实连接拒绝）→ 驱动连接失败 → error + lastError
     await mailboxService.update(orgId, mailboxId, {
       imap: { host: '127.0.0.1', port: 1, ssl: false, credential: 'imap-plain-secret' },
       smtp: { host: '127.0.0.1', port: 1, ssl: false, credential: 'smtp-plain-secret' },
@@ -307,7 +306,12 @@ describe('邮箱连接（16 §1.5/§3.3/§3.4）', () => {
 
   it('凭据与配置可分开更新（不传 credential 保留密文）', async () => {
     await mailboxService.update(orgId, mailboxId, {
-      imap: { host: '127.0.0.1', port: probePort, ssl: true, credential: 'imap-plain-secret' },
+      imap: {
+        host: testMail.host,
+        port: testMail.imapPort,
+        ssl: true,
+        credential: 'imap-plain-secret',
+      },
     });
     const [row] = await superDb
       .select()

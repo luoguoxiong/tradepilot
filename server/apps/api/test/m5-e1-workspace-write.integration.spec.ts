@@ -1,6 +1,6 @@
 /**
  * M5-E1 06 AI 销售工作台 · 写侧集成测试（后端开发计划表 E1；接口 06 §3.2~§3.5，M5-C1/C2）：
- * - ai-draft 主路径：知识检索依据 → mock LLM 确定性产出 → 新草稿消息落库（citations/missingKnowledge）；
+ * - ai-draft 主路径：知识检索依据 → 真实 LLM 产出（结构断言）→ 新草稿消息落库（citations/missingKnowledge）；
  * - regenerate：新建草稿消息（新 message id，不改旧草稿）；
  * - PUT /messages：编辑差异 editedDiff 留痕 / 非 draft 40901 / 空内容 42201；
  * - send 双分支：分支 B（缺省无 autoApprove → approval_request 挂起 + waiting_approval）；
@@ -8,15 +8,16 @@
  * - ask-ai：RAG 检索问答 + 无依据兜底文案（D9）；
  * - copilot/suggestions/apply：insert_draft 要点合并（多次追加）/ create_tasks 仅建跟进任务（D8：不产「创建报价」）+ 每客户单进行中任务；
  * - 越权：sales(self) 对他人客户会话写操作全部 40301；sales 可写自己的会话（主路径）。
- * 前置：docker compose up（PG 5432 / Redis 6379）+ 迁移已执行。
+ * 前置：docker compose up（PG 5432 / Redis 6379）+ 迁移已执行，且已提供 server/.env.test
+ * （真实 provider 配置：org 级 AI 模型台账指向真实 LLM，无 mock 兜底）。
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { desc, eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
-import { pino } from 'pino';
-import { BizException, createId, ErrorCode } from '@tradepilot/core';
+import { BizException, createId, encryptSecret, ErrorCode } from '@tradepilot/core';
 import { closeDb, createDb, schema, type Db, type OrgScopeContext } from '@tradepilot/db';
 import { EnvService } from '../src/config/env.service.js';
+import { testEnv, testLlmOptions } from './setup/providers.js';
 import { AuthService } from '../src/auth/auth.service.js';
 import { TokenService } from '../src/auth/token.service.js';
 import { ConversationsService } from '../src/conversations/conversations.service.js';
@@ -98,6 +99,22 @@ beforeAll(async () => {
   adminCtx = { orgId, userId: adminId, role: 'admin', scope: 'all' };
   salesCtx = { orgId, userId: salesId, role: 'sales', scope: 'self' };
 
+  // org 级「AI 模型配置」选用真实 LLM（resolveTarget 台账路径；无 mock 兜底）
+  await superDb.insert(schema.aiModel).values({
+    id: createId('aim'),
+    orgId,
+    type: 'llm',
+    name: `e1-llm-${createId('aim')}`,
+    provider: testLlmOptions.provider,
+    model: testLlmOptions.defaultModel,
+    baseUrl: testLlmOptions.baseUrl ?? null,
+    apiKeyEnc: encryptSecret(testEnv.TEST_LLM_API_KEY, process.env.ENCRYPTION_KEY!),
+    temperature: '0.70',
+    maxTokens: 4096,
+    isSelected: true,
+    createdBy: adminId,
+  });
+
   await superDb.insert(schema.customer).values([
     { id: CUS_A, orgId, companyName: 'E1 会话客户 Alpha', country: 'UK', ownerId: adminId },
     { id: CUS_B, orgId, companyName: 'E1 会话客户 Beta', country: 'DE', ownerId: salesId },
@@ -171,14 +188,16 @@ beforeAll(async () => {
     generatedAt: new Date(),
   });
 
-  conversations = new ConversationsService(appDb);
+  conversations = new ConversationsService(appDb, env);
 }, 30_000);
 
 afterAll(async () => {
   if (orgId) {
     await superDb.transaction(async (tx) => {
       await tx.delete(schema.notification).where(eq(schema.notification.orgId, orgId));
-      await tx.delete(schema.notificationSetting).where(eq(schema.notificationSetting.orgId, orgId));
+      await tx
+        .delete(schema.notificationSetting)
+        .where(eq(schema.notificationSetting.orgId, orgId));
       await tx.delete(schema.llmCall).where(eq(schema.llmCall.orgId, orgId));
       await tx.delete(schema.aiTaskLog).where(eq(schema.aiTaskLog.orgId, orgId));
       await tx.delete(schema.aiTaskStep).where(eq(schema.aiTaskStep.orgId, orgId));
@@ -191,7 +210,9 @@ afterAll(async () => {
         .delete(schema.followUpStrategyStep)
         .where(eq(schema.followUpStrategyStep.orgId, orgId));
       await tx.delete(schema.followUpStrategy).where(eq(schema.followUpStrategy.orgId, orgId));
-      await tx.delete(schema.conversationInsight).where(eq(schema.conversationInsight.orgId, orgId));
+      await tx
+        .delete(schema.conversationInsight)
+        .where(eq(schema.conversationInsight.orgId, orgId));
       await tx.delete(schema.message).where(eq(schema.message.orgId, orgId));
       await tx.delete(schema.conversation).where(eq(schema.conversation.orgId, orgId));
       await tx.delete(schema.customerInsight).where(eq(schema.customerInsight.orgId, orgId));
@@ -202,6 +223,7 @@ afterAll(async () => {
       await tx.delete(schema.aiLead).where(eq(schema.aiLead.orgId, orgId));
       await tx.delete(schema.aiEmployee).where(eq(schema.aiEmployee.orgId, orgId));
       await tx.delete(schema.sopTemplate).where(eq(schema.sopTemplate.orgId, orgId));
+      await tx.delete(schema.aiModel).where(eq(schema.aiModel.orgId, orgId));
       await tx.delete(schema.aiModelSetting).where(eq(schema.aiModelSetting.orgId, orgId));
       await tx.delete(schema.rolePermission).where(eq(schema.rolePermission.orgId, orgId));
       await tx.delete(schema.userAccount).where(eq(schema.userAccount.orgId, orgId));
@@ -221,17 +243,15 @@ describe('M5-E1 · 06 写侧：ai-draft / regenerate / PUT messages（06 §3.2�
 
     expect(res.draftId).toBeTruthy();
     expect(res.basedOnMessageId).toBe(MSG_IN_A);
-    expect(res.content).toContain('Dear partner'); // mock provider 确定性产出
+    // 真实 LLM 产出：仅断言结构（正文非空），不再断言确定性文案
+    expect(res.content.length).toBeGreaterThan(0);
     expect(res.generatedAt).toBeTruthy();
     // org 无知识文档 → citations 空 + missingKnowledge 标记（D9 红线）
     expect(res.citations).toEqual([]);
     expect(res.missingKnowledge).toBe(true);
     draft1 = res.draftId;
 
-    const [row] = await superDb
-      .select()
-      .from(schema.message)
-      .where(eq(schema.message.id, draft1));
+    const [row] = await superDb.select().from(schema.message).where(eq(schema.message.id, draft1));
     expect(row).toMatchObject({
       orgId,
       conversationId: CONV_A,
@@ -247,19 +267,19 @@ describe('M5-E1 · 06 写侧：ai-draft / regenerate / PUT messages（06 §3.2�
     expect(res.draftId).not.toBe(draft1);
     draft2 = res.draftId;
 
-    const [old] = await superDb
-      .select()
-      .from(schema.message)
-      .where(eq(schema.message.id, draft1));
+    const [old] = await superDb.select().from(schema.message).where(eq(schema.message.id, draft1));
     expect(old?.status).toBe('draft'); // 旧草稿未被 regenerate 覆盖
-    const [neu] = await superDb
-      .select()
-      .from(schema.message)
-      .where(eq(schema.message.id, draft2));
+    const [neu] = await superDb.select().from(schema.message).where(eq(schema.message.id, draft2));
     expect(neu?.status).toBe('draft');
   });
 
   it('PUT /messages：编辑差异留痕；非 draft → 40901；空内容 → 42201', async () => {
+    const [beforeRow] = await superDb
+      .select({ content: schema.message.content })
+      .from(schema.message)
+      .where(eq(schema.message.id, draft1));
+    const originalContent = beforeRow?.content ?? '';
+
     const edited = await conversations.updateMessage(adminCtx, draft1, {
       content: '已编辑：确认 5000 件，交期 30 天。',
     });
@@ -271,11 +291,13 @@ describe('M5-E1 · 06 写侧：ai-draft / regenerate / PUT messages（06 §3.2�
       .where(eq(schema.message.id, draft1));
     expect(row?.content).toBe('已编辑：确认 5000 件，交期 30 天。');
     expect(row?.editedDiff).toEqual([
-      { field: 'content', before: expect.stringContaining('Dear partner'), after: '已编辑：确认 5000 件，交期 30 天。' },
+      { field: 'content', before: originalContent, after: '已编辑：确认 5000 件，交期 30 天。' },
     ]);
 
     // 未变化内容编辑 → 不产生 diff
-    const noop = await conversations.updateMessage(adminCtx, draft1, { content: '已编辑：确认 5000 件，交期 30 天。' });
+    const noop = await conversations.updateMessage(adminCtx, draft1, {
+      content: '已编辑：确认 5000 件，交期 30 天。',
+    });
     void noop;
     const [row2] = await superDb
       .select({ editedDiff: schema.message.editedDiff })
@@ -283,9 +305,15 @@ describe('M5-E1 · 06 写侧：ai-draft / regenerate / PUT messages（06 §3.2�
       .where(eq(schema.message.id, draft1));
     expect(row2?.editedDiff).toHaveLength(1); // 保持首次 diff，不追加
 
-    await expectBiz(conversations.updateMessage(adminCtx, draft1, { content: '   ' }), ErrorCode.BIZ_VALIDATION);
+    await expectBiz(
+      conversations.updateMessage(adminCtx, draft1, { content: '   ' }),
+      ErrorCode.BIZ_VALIDATION,
+    );
     // 对 in 消息（sent）编辑 → 40901
-    await expectBiz(conversations.updateMessage(adminCtx, MSG_IN_A, { content: '篡改来信' }), ErrorCode.CONFLICT);
+    await expectBiz(
+      conversations.updateMessage(adminCtx, MSG_IN_A, { content: '篡改来信' }),
+      ErrorCode.CONFLICT,
+    );
   });
 });
 
@@ -318,8 +346,14 @@ describe('M5-E1 · 06 写侧：send 分支 B（审批挂起，06 §3.3）', () =
     expect(appr[0]?.context).toMatchObject({ conversationId: CONV_A });
 
     // 已提交审批不可重复发送；waiting_approval 也不可再编辑
-    await expectBiz(conversations.send(adminCtx, CONV_A, { messageId: draft2 }), ErrorCode.CONFLICT);
-    await expectBiz(conversations.updateMessage(adminCtx, draft2, { content: 'x' }), ErrorCode.CONFLICT);
+    await expectBiz(
+      conversations.send(adminCtx, CONV_A, { messageId: draft2 }),
+      ErrorCode.CONFLICT,
+    );
+    await expectBiz(
+      conversations.updateMessage(adminCtx, draft2, { content: 'x' }),
+      ErrorCode.CONFLICT,
+    );
   });
 });
 
@@ -337,7 +371,11 @@ describe('M5-E1 · 06 写侧：send 分支 A（autoApprove 直发出口，06 §3
       .set({
         approvalRules: [
           ...(perm?.approvalRules ?? []),
-          { approvalType: 'email_send' as const, approverRoles: ['admin'] as string[], autoApprove: true },
+          {
+            approvalType: 'email_send' as const,
+            approverRoles: ['admin'] as string[],
+            autoApprove: true,
+          },
         ],
       })
       .where(eq(schema.rolePermission.orgId, orgId))
@@ -420,11 +458,17 @@ describe('M5-E1 · 06 写侧：ask-ai + suggestions/apply（06 §3.4~§3.5）', 
     const taskId = first.taskIds![0];
 
     const rows = await superDb
-      .select({ id: schema.followUpTask.id, status: schema.followUpTask.status, customerId: schema.followUpTask.customerId })
+      .select({
+        id: schema.followUpTask.id,
+        status: schema.followUpTask.status,
+        customerId: schema.followUpTask.customerId,
+      })
       .from(schema.followUpTask)
       .where(eq(schema.followUpTask.orgId, orgId))
       .where(eq(schema.followUpTask.customerId, CUS_A));
-    const active = rows.filter((r) => ['ready', 'scheduled', 'waiting_approval'].includes(r.status));
+    const active = rows.filter((r) =>
+      ['ready', 'scheduled', 'waiting_approval'].includes(r.status),
+    );
     expect(active).toHaveLength(1);
     expect(active[0]?.id).toBe(taskId);
 
@@ -442,16 +486,29 @@ describe('M5-E1 · 06 写侧：ask-ai + suggestions/apply（06 §3.4~§3.5）', 
 
 describe('M5-E1 · 越权与参数校验（40301 / 40001 / 40401）', () => {
   it('sales(self) 对他人客户会话全部写操作 → 40301', async () => {
-    await expectBiz(conversations.aiDraft(salesCtx, CONV_A, { basedOnMessageId: MSG_IN_A }), ErrorCode.FORBIDDEN);
+    await expectBiz(
+      conversations.aiDraft(salesCtx, CONV_A, { basedOnMessageId: MSG_IN_A }),
+      ErrorCode.FORBIDDEN,
+    );
     await expectBiz(
       conversations.regenerate(salesCtx, CONV_A, { basedOnMessageId: MSG_IN_A }),
       ErrorCode.FORBIDDEN,
     );
-    await expectBiz(conversations.send(salesCtx, CONV_A, { messageId: draft1 }), ErrorCode.FORBIDDEN);
-    await expectBiz(conversations.askAi(salesCtx, CONV_A, { question: 'hi' }), ErrorCode.FORBIDDEN);
-    await expectBiz(conversations.updateMessage(salesCtx, draft1, { content: '越权' }), ErrorCode.FORBIDDEN);
     await expectBiz(
-      conversations.applySuggestions(salesCtx, { conversationId: CONV_A, suggestionIds: ['sug_a'], mode: 'insert_draft' }),
+      conversations.send(salesCtx, CONV_A, { messageId: draft1 }),
+      ErrorCode.FORBIDDEN,
+    );
+    await expectBiz(conversations.askAi(salesCtx, CONV_A, { question: 'hi' }), ErrorCode.FORBIDDEN);
+    await expectBiz(
+      conversations.updateMessage(salesCtx, draft1, { content: '越权' }),
+      ErrorCode.FORBIDDEN,
+    );
+    await expectBiz(
+      conversations.applySuggestions(salesCtx, {
+        conversationId: CONV_A,
+        suggestionIds: ['sug_a'],
+        mode: 'insert_draft',
+      }),
       ErrorCode.FORBIDDEN,
     );
   });
@@ -459,7 +516,7 @@ describe('M5-E1 · 越权与参数校验（40301 / 40001 / 40401）', () => {
   it('sales 可写自己的会话（主路径：ai-draft 成功）', async () => {
     const res = await conversations.aiDraft(salesCtx, CONV_B, { basedOnMessageId: MSG_IN_B });
     expect(res.draftId).toBeTruthy();
-    expect(res.content).toContain('Dear partner');
+    expect(res.content.length).toBeGreaterThan(0);
   });
 
   it('basedOnMessageId 不存在 → 40401；不属于该会话 → 40001', async () => {

@@ -22,14 +22,14 @@ import type {
   VerifyAiModelDto,
 } from './ai-models.dto.js';
 
-/** embedding 支持的 provider（integrations 仅实现 mock / openai 兼容协议） */
-const EMBEDDING_PROVIDERS: readonly string[] = ['mock', 'openai'];
+/** embedding 支持的 provider（生产仅 openai 兼容协议；mock 不再可选，仅测试设施） */
+const EMBEDDING_PROVIDERS: readonly string[] = ['openai'];
 
-/** search 支持的 provider（integrations 仅实现 mock / http 即 Serper 兼容搜索 API，06 §3） */
-const SEARCH_PROVIDERS: readonly string[] = ['mock', 'http'];
+/** search 支持的 provider（生产仅 http 即 Serper 兼容搜索 API，06 §3；mock 不再可选） */
+const SEARCH_PROVIDERS: readonly string[] = ['http'];
 
-/** llm 支持的 provider（与 runtime LlmProvider 白名单对齐） */
-const LLM_PROVIDERS: readonly string[] = ['mock', 'openai', 'anthropic', 'deepseek', 'azure'];
+/** llm 支持的 provider（与 runtime LlmProvider 白名单对齐；mock 不再可选） */
+const LLM_PROVIDERS: readonly string[] = ['openai', 'anthropic', 'deepseek', 'azure'];
 
 /** 探活超时（ms）：外部服务无响应时避免保存请求长时间挂起 */
 const PROBE_TIMEOUT_MS = 15_000;
@@ -285,7 +285,6 @@ export class AiModelsService {
   /**
    * 保存前连通性验证（16 FR-10 扩展）：对目标配置做一次最小化真实调用，通过才允许落库。
    * - 编辑场景（传 id）未显式提供的字段/凭据回退库中现值（apiKey 解密后校验）；
-   * - mock provider 离线可用，直接通过；
    * - 探活失败返回 ok=false（不抛业务异常），由前端据此阻断保存。
    */
   async verify(orgId: string, dto: VerifyAiModelDto): Promise<AiModelVerifyResult> {
@@ -302,10 +301,6 @@ export class AiModelsService {
           : SEARCH_PROVIDERS;
     if (!allowed.includes(dto.provider)) {
       return { ok: false, message: `该类型不支持 ${dto.provider} 提供方`, latencyMs: 0 };
-    }
-    // mock 离线可用，无需真实调用
-    if (dto.provider === 'mock') {
-      return { ok: true, latencyMs: 0 };
     }
 
     const baseUrl = dto.baseUrl !== undefined ? dto.baseUrl : (current?.baseUrl ?? null);
@@ -420,7 +415,7 @@ async function probeEmbedding(input: {
   }
 }
 
-/** 搜索供应商探活：真实发起一次最小检索，验证端点与凭据可用（mock 已在调用方短路） */
+/** 搜索供应商探活：真实发起一次最小检索，验证端点与凭据可用 */
 async function probeSearch(input: {
   baseUrl: string | null;
   apiKey: string | undefined;

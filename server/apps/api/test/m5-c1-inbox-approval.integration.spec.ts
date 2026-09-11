@@ -4,12 +4,9 @@ import { Redis } from 'ioredis';
 import pino from 'pino';
 import { BizException, createId } from '@tradepilot/core';
 import { closeDb, createDb, schema, type Db } from '@tradepilot/db';
-import {
-  setMailboxDriverFactory,
-  type MailboxDriver,
-  type OutboundMessage,
-} from '@tradepilot/integrations';
+import { createSmtpImapDriver, type RawMessage } from '@tradepilot/integrations';
 import { EnvService } from '../src/config/env.service.js';
+import { testMailboxRow } from './setup/providers.js';
 import { ApprovalsService } from '../src/approvals/approvals.service.js';
 import { ConversationsService } from '../src/conversations/conversations.service.js';
 
@@ -22,7 +19,8 @@ import { ConversationsService } from '../src/conversations/conversations.service
  * - 12 §3.3 回调原业务动作：审核批准 → mailbox 真实外发（驱动被调用）+ message.status='sent'
  *   + resultRef={messageId,status:'sent'}；edited_approved → 以编辑稿外发 + editedDiff 留痕；
  *   拒绝 → message.status 回退 'draft' 可重编辑。
- * 前置：docker compose up（PG 5432 / Redis 6380）+ `pnpm --filter @tradepilot/db migrate`。
+ * 前置：docker compose up（PG 5432 / Redis 6380 / GreenMail 1025+1114）
+ * + `pnpm --filter @tradepilot/db migrate`，且已提供 server/.env.test（真实 provider 配置）。
  */
 
 process.env.JWT_SECRET ||= 'it_only_test_secret_0123456789abcdef0123456789abcdef';
@@ -46,6 +44,8 @@ const ADMIN = createId('usr');
 const CUS = createId('cus');
 const CONTACT = createId('con');
 const MBX = createId('mbx');
+/** GreenMail：邮箱地址即账号（按租户唯一避免串箱） */
+const MBX_ACCOUNT = `m5c1-${ORG.slice(-6)}@tradepilot.local`;
 const CONV = createId('conv');
 const MSG_SEND = createId('msg');
 const MSG_APPROVE = createId('msg');
@@ -57,20 +57,23 @@ const APR_REJECT = createId('apr');
 
 const ctx = { orgId: ORG, userId: ADMIN, role: 'admin' as const, scope: 'all' as const };
 
-/** 进程内邮箱驱动 stub（M5-C1 mock 策略：不发真实邮件，记录外发载荷） */
-const outbox: OutboundMessage[] = [];
-const mockDriver: MailboxDriver = {
-  async testConnection() {
-    return { imap: 'ok', smtp: 'ok' };
-  },
-  async *syncMessages() {
-    // 无来信
-  },
-  async sendMessage(msg) {
-    outbox.push(msg);
-    return { externalId: `mock-ext-${outbox.length}` };
-  },
-};
+const ENC_KEY = process.env.ENCRYPTION_KEY!;
+
+/** 读取某收件箱（GreenMail）指定 subject 的来信（真实外发落点校验） */
+async function receivedMails(address: string, subject: string): Promise<RawMessage[]> {
+  const driver = createSmtpImapDriver(
+    testMailboxRow(address, createId('mbx'), ORG, ENC_KEY),
+    ENC_KEY,
+  );
+  const mails: RawMessage[] = [];
+  for await (const mail of driver.syncMessages({
+    since: new Date(Date.now() - 3600_000),
+    folders: ['INBOX'],
+  })) {
+    if (mail.subject === subject) mails.push(mail);
+  }
+  return mails;
+}
 
 async function expectBizError(p: Promise<unknown>, code: number): Promise<void> {
   try {
@@ -129,7 +132,6 @@ beforeAll(async () => {
   superDb = createDb(SUPER_URL, { max: 2 });
   appDb = createDb(APP_URL, { max: 5 });
   redis = new Redis(process.env.REDIS_URL, { maxRetriesPerRequest: 2 });
-  setMailboxDriverFactory(() => mockDriver);
   const env = new EnvService();
   approvals = new ApprovalsService(appDb, redis, logger, env);
   conversations = new ConversationsService(appDb, env, logger);
@@ -163,14 +165,15 @@ beforeAll(async () => {
       email: 'tom@abc-sports.com',
       isPrimary: true,
     });
+    const mbx = testMailboxRow(MBX_ACCOUNT, MBX, ORG, ENC_KEY);
     await tx.insert(schema.mailbox).values({
       id: MBX,
       orgId: ORG,
       ownerUserId: ADMIN,
       provider: 'smtp_imap',
-      account: 'sales@tradepilot.test',
-      imap: { host: 'imap.test', port: 993, ssl: true },
-      smtp: { host: 'smtp.test', port: 465, ssl: true },
+      account: MBX_ACCOUNT,
+      imap: mbx.imap,
+      smtp: mbx.smtp,
       syncScope: { historyDays: 90, folders: ['INBOX'] },
       status: 'connected',
     });
@@ -216,7 +219,6 @@ beforeAll(async () => {
 }, 30_000);
 
 afterAll(async () => {
-  setMailboxDriverFactory(null);
   await superDb.transaction(async (tx) => {
     await tx.delete(schema.approvalLog).where(eq(schema.approvalLog.orgId, ORG));
     await tx.delete(schema.approvalRequest).where(eq(schema.approvalRequest.orgId, ORG));
@@ -314,15 +316,14 @@ describe('M5-C1 · 06 #11 ↔ 12 #12 联动', () => {
       .where(eq(schema.message.id, MSG_APPROVE));
     expect(msg?.status).toBe('sent');
     expect(msg?.content).toBe('原稿正文 A');
-    expect(msg?.externalMessageId).toBe('mock-ext-1');
+    expect(msg?.externalMessageId).toBeTruthy();
     expect(msg?.sentAt).toBeTruthy();
 
-    // 驱动收到真实外发载荷：发件人=邮箱账号，收件人=联系人邮箱，主题来自 context
-    const last = outbox[outbox.length - 1]!;
-    expect(last.from).toBe('sales@tradepilot.test');
-    expect(last.to).toEqual(['tom@abc-sports.com']);
-    expect(last.subject).toBe('Re: Carbon insoles inquiry');
-    expect(last.text).toBe('原稿正文 A');
+    // 真实外发落点：收件人（GreenMail tom@abc-sports.com）INBOX 可见该封邮件，
+    // 主题来自审批 context，正文为原稿
+    const mails = await receivedMails('tom@abc-sports.com', 'Re: Carbon insoles inquiry');
+    expect(mails.length).toBeGreaterThanOrEqual(1);
+    expect(mails.at(-1)?.text ?? '').toContain('原稿正文 A');
 
     // 会话摘要回写
     const [conv] = await superDb
@@ -345,7 +346,9 @@ describe('M5-C1 · 06 #11 ↔ 12 #12 联动', () => {
       .where(eq(schema.message.id, MSG_EDIT));
     expect(msg?.status).toBe('sent');
     expect(msg?.content).toBe('编辑后正文 B');
-    expect(outbox[outbox.length - 1]?.text).toBe('编辑后正文 B');
+    // 真实外发落点：以编辑稿正文投递
+    const mails = await receivedMails('tom@abc-sports.com', 'Re: Carbon insoles inquiry');
+    expect(mails.at(-1)?.text ?? '').toContain('编辑后正文 B');
 
     const logs = await approvals.logs(ORG, APR_EDIT);
     expect(logs[0]?.action).toBe('edited_approved');

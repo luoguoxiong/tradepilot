@@ -178,12 +178,10 @@ export class LeadsService {
   /**
    * LlmGateway（懒装配，与 06 会话服务同口径）：
    * 优先使用 org 在「系统设置 → AI 模型配置」选用的大语言模型（含凭据解密）；
-   * 未配置的 org 回落 mock provider（确定性占位产出，仅保证链路可测，不参与业务语义）。
+   * 未配置的 org 由 resolveTarget 明确报错——parse() 捕获后回落确定性规则解析。
    */
   private get llm(): LlmGateway {
     this.gateway ??= new LlmGateway(this.db, this.log, {
-      provider: 'mock',
-      defaultModel: 'mock-1',
       ...(this.env?.env.ENCRYPTION_KEY !== undefined && {
         encryptionKey: this.env.env.ENCRYPTION_KEY,
       }),
@@ -306,19 +304,14 @@ export class LeadsService {
    * 主路径：LlmGateway.structured（scene=lead_hunting，与工作流 parse_goal 同场景）
    * 产出结构化条件 + 优化目标 + 置信度/理由；
    * 规则解析（simpleParse）作为确定性兜底：LLM 字段缺失时逐项回落，并归一化市场码；
-   * mock provider（org 未配置真实模型）只产出确定性占位文案、无业务语义 → 直接走规则，
-   * 避免 `mock-*` 占位值外泄到前端表单；解析异常同样回落规则，接口不因 LLM 故障失败。
+   * 生产路径 org 未配置选用模型时 resolveTarget 明确报错 → 捕获后回落规则解析，
+   * 避免把 LLM 故障暴露为接口失败。
    */
   async parse(ctx: OrgScopeContext, dto: ParseLeadTaskDto): Promise<ParseResult> {
     const text = dto.goalText;
     const rule = this.simpleParse(text);
 
     try {
-      const target = await this.llm.resolveTarget(ctx.orgId, LEAD_PARSE_SCENE);
-      if (target.provider === 'mock') {
-        return this.buildRuleParseResult(rule);
-      }
-
       const { data } = await this.llm.structured(
         { orgId: ctx.orgId, node: LEAD_PARSE_NODE, scene: LEAD_PARSE_SCENE },
         leadParseOutputSchema,

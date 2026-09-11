@@ -1,7 +1,7 @@
 /**
  * LLM 连通性探活（16 FR-10 扩展）：保存「AI 模型配置」前的极小化真实调用校验。
  * provider 端点口径与 LlmGateway.createChatModel 保持一致（openai/azure/deepseek/anthropic），
- * 避免台账校验通过但运行时调用才失败。mock provider 离线可用，不发真实请求。
+ * 避免台账校验通过但运行时调用才失败。mock 不再作为可选 provider，不做离线短路。
  */
 import { ChatAnthropic } from '@langchain/anthropic';
 import { ChatOpenAI } from '@langchain/openai';
@@ -33,9 +33,6 @@ const PROBE_MAX_TOKENS = 16;
  * 任何异常都收敛为 `{ ok: false, message }`，由调用方决定是否阻断保存。
  */
 export async function probeLlmConnection(opts: LlmProbeOptions): Promise<LlmProbeResult> {
-  if (opts.provider === 'mock') {
-    return { ok: true, latencyMs: 0 };
-  }
   if (!opts.apiKey) {
     return { ok: false, message: '缺少 API Key，无法验证连通性', latencyMs: 0 };
   }

@@ -3,23 +3,19 @@ import { eq } from 'drizzle-orm';
 import pino from 'pino';
 import { closeDb, createDb, schema, type Db } from '@tradepilot/db';
 import { createId } from '@tradepilot/core';
-import {
-  configureEmbedding,
-  configureObjectStorage,
-  MockEmbeddingProvider,
-  type ObjectStorage,
-} from '@tradepilot/integrations';
 import { KnowledgeIndexProcessor } from '../src/queues/knowledge-index.js';
+import { ensureTestBucket, testEnv, testObjectStorage } from './setup/providers.js';
 
 /**
  * M4 #7 知识入库流水线集成用例（C3，后端技术方案 07 §2 / 11 §7.2）：
- * - 取原文 → parse（md 直读）→ clean → chunk → embed（MockEmbeddingProvider 确定性 1536 维）
+ * - 取原文 → parse（md 直读）→ clean → chunk → embed（真实向量模型，维度 1536）
  *   → 事务落库（旧 chunk 物理清除 + status='indexed'）；
  * - retry 重跑幂等（chunk 数一致）；
  * - 软删后迟到 job → skipped（引用实时失效语义）；
  * - 不存在文档 → skipped；
  * - 存储取文失败 → failed + error 留痕（11 retry 入口可见）。
- * 前置：docker compose up（PG 5432）+ `pnpm --filter @tradepilot/db migrate`。
+ * 前置：docker compose up（PG 5432 / MinIO 9000）+ `pnpm --filter @tradepilot/db migrate`，
+ * 且已提供 server/.env.test（真实 provider 配置，无 mock 兜底）。
  */
 
 const SUPER_URL =
@@ -53,23 +49,8 @@ ${DOC_SECTION(2, '防水等级 IP65，24V 输入，每米 120 灯珠，色温 40
 
 ${DOC_SECTION(3, '防水等级 IP20（室内款），12V/24V 可选，每米 96 灯珠，RGB 幻彩', '200 米')}`;
 
-/** 进程内对象存储 stub（M4 测试口径：不依赖 MinIO 状态） */
-const objects = new Map<string, Buffer>();
-const memoryStorage: ObjectStorage = {
-  async putObject(key, body) {
-    objects.set(key, body);
-  },
-  async getObject(key) {
-    const hit = objects.get(key);
-    if (!hit) {
-      throw new Error(`对象不存在: ${key}`);
-    }
-    return hit;
-  },
-  async ensureBucket() {},
-};
-
-async function insertDoc(id: string, fileName: string, deleted = false): Promise<void> {
+/** 文档入库（真实 MinIO；put=false 用于构造「存储缺对象 → failed」路径） */
+async function insertDoc(id: string, fileName: string, deleted = false, put = true): Promise<void> {
   await db.insert(schema.knowledgeDocument).values({
     id,
     orgId: ORG,
@@ -83,13 +64,14 @@ async function insertDoc(id: string, fileName: string, deleted = false): Promise
     uploadedBy: null,
     ...(deleted ? { deletedAt: new Date(), deletedBy: null } : {}),
   });
-  objects.set(`kdoc/${ORG}/${id}.md`, Buffer.from(DOC_TEXT, 'utf8'));
+  if (put) {
+    await testObjectStorage.putObject(`kdoc/${ORG}/${id}.md`, Buffer.from(DOC_TEXT, 'utf8'));
+  }
 }
 
 beforeAll(async () => {
   db = createDb(SUPER_URL, { max: 5 });
-  configureObjectStorage(memoryStorage);
-  configureEmbedding(new MockEmbeddingProvider());
+  await ensureTestBucket();
   processor = new KnowledgeIndexProcessor({ db, logger });
 
   await db.transaction(async (tx) => {
@@ -101,9 +83,8 @@ beforeAll(async () => {
   });
   await insertDoc(DOC_OK, 'led-knowledge.md');
   await insertDoc(DOC_DELETED, 'deleted-doc.md', true);
-  await insertDoc(DOC_BROKEN, 'broken-doc.md');
-  // BROKEN：存储缺对象 → getObject 抛错（failed 路径）
-  objects.delete(`kdoc/${ORG}/${DOC_BROKEN}.md`);
+  // BROKEN：不写入对象 → 存储取文失败（failed 路径）
+  await insertDoc(DOC_BROKEN, 'broken-doc.md', false, false);
 });
 
 afterAll(async () => {
@@ -135,7 +116,7 @@ describe('M4 #7 知识入库流水线（q:knowledge_index）', () => {
       .orderBy(schema.knowledgeChunk.chunkIndex);
     expect(chunks.length).toBe(outcome.chunks);
     expect(chunks[0]!.content).toContain('LED');
-    expect(chunks[0]!.embedding).toHaveLength(1536);
+    expect(chunks[0]!.embedding).toHaveLength(testEnv.TEST_EMBEDDING_DIMENSIONS);
     expect(chunks[0]!.tokenCount).toBeGreaterThan(0);
 
     const [doc] = await db

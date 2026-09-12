@@ -24,7 +24,7 @@ const executionsQuery = useQuery({
 })
 
 const statuses = computed<Record<string, StrategyStepRunStatus>>(() => {
-  const items = executionsQuery.data.value?.list ?? []
+  const items = executionsQuery.data.value?.items ?? []
   const map: Record<string, StrategyStepRunStatus> = {}
   for (const execution of items) {
     const current = map[execution.stepTitle]
@@ -49,7 +49,9 @@ function statusOf(title: string): StrategyStepRunStatus {
         :class="`timeline__mark--${statusOf(step.title)}`"
         :title="t(`followUp.stepStatus.${statusOf(step.title)}`)"
       >
-        {{ statusOf(step.title) === 'done' ? '✓' : statusOf(step.title) === 'running' ? '⏳' : '○' }}
+        {{
+          statusOf(step.title) === 'done' ? '✓' : statusOf(step.title) === 'running' ? '⏳' : '○'
+        }}
       </span>
       <span class="timeline__title">
         {{ step.title }}

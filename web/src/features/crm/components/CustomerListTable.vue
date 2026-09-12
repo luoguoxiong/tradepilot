@@ -17,6 +17,7 @@ import {
 import type { CustomerItem, CustomerListReq, CustomerTab } from '@/api/types/customers'
 import type { FilterField } from '@/components/business/FilterBar.vue'
 import type { ApiError } from '@/api/http'
+import { handleApiError } from '@/api/error-handler'
 import { qk } from '@/query/keys'
 import { usePermission } from '@/composables/usePermission'
 import { useNotifyStore } from '@/stores/notify'
@@ -87,9 +88,9 @@ function patchCustomers(apply: (row: CustomerItem) => void) {
   const snapshots = queryClient.getQueriesData<unknown>({ queryKey: qk.customers.all })
   for (const [key, data] of snapshots) {
     if (!data || typeof data !== 'object') continue
-    const page = data as { list?: CustomerItem[] }
-    if (!Array.isArray(page.list)) continue
-    for (const row of page.list) apply(row)
+    const page = data as { items?: CustomerItem[] }
+    if (!Array.isArray(page.items)) continue
+    for (const row of page.items) apply(row)
     queryClient.setQueryData(key, data)
   }
   return snapshots
@@ -116,8 +117,7 @@ const deleteOneMutation = useMutation({
   },
   onError: (error: ApiError, _customer, ctx) => {
     restoreSnapshots(ctx?.snapshots ?? [])
-    if (error.code === 40301) ElMessage.error(t('crm.deleteForbidden'))
-    else ElMessage.error(error.message || t('common.operationFailed'))
+    handleApiError(error, { forbiddenMessage: t('crm.deleteForbidden') })
   },
   onSuccess: () => {
     ElMessage.success(t('crm.deleteSubmitted'))
@@ -154,7 +154,7 @@ const batchDeleteMutation = useMutation({
   },
   onError: (error: ApiError, _ids, ctx) => {
     restoreSnapshots(ctx?.snapshots ?? [])
-    ElMessage.error(error.message || t('common.operationFailed'))
+    handleApiError(error)
   },
   onSuccess: (resp) => {
     if (resp.failed.length > 0) {
@@ -209,8 +209,7 @@ const reassignMutation = useMutation({
   },
   onError: (error: ApiError, _v, ctx) => {
     restoreSnapshots(ctx?.snapshots ?? [])
-    if (error.code === 40301) ElMessage.error(t('crm.reassignForbidden'))
-    else ElMessage.error(error.message || t('common.operationFailed'))
+    handleApiError(error, { forbiddenMessage: t('crm.reassignForbidden') })
   },
   onSuccess: (resp) => {
     ElMessage.success(t('crm.reassigned', { count: resp.updated }))

@@ -2,22 +2,27 @@ import { Redis as IORedis } from 'ioredis';
 import { ALL_QUEUES, QUEUE_CONCURRENCY } from '@tradepilot/shared';
 import {
   ApprovalGate,
+  EMBEDDING_FIELD_DEFAULTS,
+  SEARCH_FIELD_DEFAULTS,
   GraphCompiler,
   LlmGateway,
   TaskEnqueuer,
   TaskEventPublisher,
   TaskRunner,
   createCheckpointer,
+  resolveActiveModel,
+  toEmbeddingProviderConfig,
+  toSearchProviderConfig,
 } from '@tradepilot/runtime';
 import { createToolRegistry, configureEmailSend, configureOrgSearchQuota } from '@tradepilot/tools';
 import type { MailboxDriverOptions } from '@tradepilot/integrations';
 import {
-  configureEmbedding,
   configureObjectStorage,
-  configureSearchProvider,
   createEmbeddingProvider,
   createS3Storage,
   createSearchProvider,
+  setEmbeddingProviderFactory,
+  setSearchProviderFactory,
 } from '@tradepilot/integrations';
 import {
   createFlowRegistry,
@@ -27,6 +32,7 @@ import {
 } from '@tradepilot/workflows';
 import { createDb } from '@tradepilot/db';
 import { loadEnv } from './env.js';
+import { loadLocalDotEnv } from './local-env.js';
 import { createRootLogger } from './logger.js';
 import { createWorkers } from './queues/registry.js';
 import { createProcessor } from './queues/processor.js';
@@ -42,10 +48,13 @@ import { ZombieReaper, ZOMBIE_SCAN_INTERVAL_MS } from './scheduler/zombie-reaper
 import { QuotaResetScanner, QUOTA_RESET_INTERVAL_MS } from './scheduler/quota-reset.js';
 import { startLoop } from './scheduler/loop.js';
 
+// 入口先补齐本地 .env（仅补缺失键，不覆盖 k8s/CI/shell 已注入变量）
+loadLocalDotEnv();
+
 /**
  * Worker 启动入口（后端技术方案 04 §3 / 05 §2 / 09 §2）：
  * env fail-fast → DB 双连接（业务 + langgraph checkpointer）→ Runtime 装配
- * （ToolRegistry / LLM Gateway mock / Approval Gate / GraphCompiler / TaskRunner / workflows 三注册表）
+ * （ToolRegistry / LLM Gateway / Approval Gate / GraphCompiler / TaskRunner / workflows 三注册表）
  * → BullMQ Worker（真 processor）→ 扫描循环（Dispatcher/FollowUpScanner/审批超时/对账/僵尸/配额）
  * → SIGTERM 优雅停机（停扫描 → drain job → 关连接）。
  */
@@ -57,15 +66,18 @@ async function bootstrap(): Promise<void> {
   const db = createDb(env.DATABASE_URL);
   const redis = new IORedis(env.REDIS_URL, { maxRetriesPerRequest: null });
   const publisher = new TaskEventPublisher(redis);
-  // checkpointer 独立连接（search_path=langgraph，setup 建表随 manual 迁移授权）
-  const checkpointer = await createCheckpointer(env.DATABASE_URL);
+  // checkpointer 独立连接（search_path=langgraph；建表 DDL 由 manual 迁移 0009 以表 owner 完成，
+  // 运行时角色默认不执行 setup → 见 LANGGRAPH_CHECKPOINT_SETUP）
+  const checkpointer = await createCheckpointer(env.DATABASE_URL, {
+    provisionSchema: env.LANGGRAPH_CHECKPOINT_SETUP,
+  });
 
   // ===== Runtime 装配 =====
-  // M3 LLM 走 mock provider（Zod 驱动确定性产出，三工作流全链路可测）；真实 provider 随 M4
+  // LLM：org 在「系统设置 → AI 模型配置」选用的大语言模型优先（含凭据解密）；
+  // 未配置选用模型时 LlmGateway.resolveTarget 明确报错（不再回落 mock 假数据）。
   const enqueuer = new TaskEnqueuer(env.REDIS_URL);
   const gateway = new LlmGateway(db, logger, {
-    provider: 'mock',
-    defaultModel: 'mock-1',
+    encryptionKey: env.ENCRYPTION_KEY,
     // M3-15：预算跨阈值超限 → q:notify（budget_limit；通知真实分发随 M5 #11，先入队留痕防静默吞）
     alert: (info) => {
       void enqueuer
@@ -154,23 +166,52 @@ async function bootstrap(): Promise<void> {
   // （凭据解密 + OAuth 客户端 + 失败留痕独立事务连接）
   configureEmailSend({ ...mailboxDriverOptions, db });
   // M4 #6：搜索供应商适配 + org 级搜索日额度（06 §3）
-  configureSearchProvider(
-    createSearchProvider({
-      provider: env.SEARCH_PROVIDER,
-      baseUrl: env.SEARCH_BASE_URL,
-      apiKey: env.SEARCH_API_KEY,
-    }),
-  );
+  // 16 FR-10 扩展：按 org 解析「AI 模型配置」选用的搜索供应商（type=search，仅 admin 可维护，不再读环境变量）；
+  // 未配置选用供应商时明确报错（不再回落 mock）。
+  setSearchProviderFactory(async (orgId) => {
+    const active =
+      orgId === undefined
+        ? null
+        : await resolveActiveModel(db, orgId, 'search', env.ENCRYPTION_KEY).catch(
+            (err: unknown) => {
+              logger.warn(
+                { orgId, err: err instanceof Error ? err.message : String(err) },
+                '读取搜索供应商配置失败，按未配置处理',
+              );
+              return null;
+            },
+          );
+    if (!active) {
+      throw new Error(
+        `org=${orgId ?? '-'} 未配置搜索供应商：请在「系统设置 → AI 模型配置」中配置并选用搜索供应商`,
+      );
+    }
+    return createSearchProvider(toSearchProviderConfig(active, SEARCH_FIELD_DEFAULTS));
+  });
   configureOrgSearchQuota(Number(process.env['ORG_SEARCH_DAILY_LIMIT'] || 0) || 2000);
   // M4 #7：嵌入服务 + S3 对象存储进程级注入（知识入库流水线 07 §2）
-  configureEmbedding(
-    createEmbeddingProvider({
-      provider: env.EMBEDDING_PROVIDER,
-      baseUrl: env.EMBEDDING_BASE_URL,
-      apiKey: env.EMBEDDING_API_KEY,
-      model: env.EMBEDDING_MODEL,
-    }),
-  );
+  // 16 FR-10 扩展：按 org 解析「AI 模型配置」选用的 embedding 模型（仅 admin 可维护，不再读环境变量）；
+  // 未配置选用模型时明确报错（不再回落 mock）。
+  setEmbeddingProviderFactory(async (orgId) => {
+    const active =
+      orgId === undefined
+        ? null
+        : await resolveActiveModel(db, orgId, 'embedding', env.ENCRYPTION_KEY).catch(
+            (err: unknown) => {
+              logger.warn(
+                { orgId, err: err instanceof Error ? err.message : String(err) },
+                '读取 embedding 模型配置失败，按未配置处理',
+              );
+              return null;
+            },
+          );
+    if (!active) {
+      throw new Error(
+        `org=${orgId ?? '-'} 未配置向量模型：请在「系统设置 → AI 模型配置」中配置并选用 embedding 模型`,
+      );
+    }
+    return createEmbeddingProvider(toEmbeddingProviderConfig(active, EMBEDDING_FIELD_DEFAULTS));
+  });
   const storage = createS3Storage({
     endpoint: env.S3_ENDPOINT,
     bucket: env.S3_BUCKET,

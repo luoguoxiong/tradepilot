@@ -22,7 +22,6 @@ export {
 export { TaskEnqueuer, type EnqueueOptions } from './enqueue.js';
 export {
   LlmGateway,
-  mockStructured,
   extractJson,
   crossedBudget,
   type BudgetAlertInfo,
@@ -33,6 +32,20 @@ export {
   type ModelTarget,
   type StructuredResult,
 } from './llm-gateway.js';
+export { probeLlmConnection, type LlmProbeOptions, type LlmProbeResult } from './llm-probe.js';
+export {
+  EMBEDDING_FIELD_DEFAULTS,
+  SEARCH_FIELD_DEFAULTS,
+  resolveActiveModel,
+  toEmbeddingProviderConfig,
+  toSearchProviderConfig,
+  type ActiveModelConfig,
+  type AiModelKind,
+  type EmbeddingFallbackOptions,
+  type EmbeddingProviderConfig,
+  type SearchFallbackOptions,
+  type SearchProviderConfig,
+} from './model-config.js';
 export {
   APPROVAL_TTL_MS,
   ApprovalGate,

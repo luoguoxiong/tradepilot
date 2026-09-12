@@ -1,4 +1,15 @@
-import { Body, Controller, Delete, Get, Inject, Param, Post, Put, Query, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Inject,
+  Param,
+  Post,
+  Put,
+  Query,
+  Req,
+} from '@nestjs/common';
 import type { Request } from 'express';
 import { paginationQuerySchema } from '@tradepilot/shared';
 import { resolveScope, type OrgScopeContext } from '@tradepilot/db';
@@ -7,24 +18,16 @@ import {
   analyzeSchema,
   batchDeleteSchema,
   batchOwnerSchema,
-  createContactSchema,
   createCustomerSchema,
-  generateOutreachSchema,
-  listActivitiesQuerySchema,
   listCustomersQuerySchema,
   stageTransitionSchema,
-  updateContactSchema,
   updateCustomerSchema,
   type AnalyzeDto,
   type BatchDeleteDto,
   type BatchOwnerDto,
-  type CreateContactDto,
   type CreateCustomerDto,
-  type GenerateOutreachDto,
-  type ListActivitiesQuery,
   type ListCustomersQuery,
   type StageTransitionDto,
-  type UpdateContactDto,
   type UpdateCustomerDto,
 } from './customers.dto.js';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
@@ -34,8 +37,10 @@ import type { AccessTokenPayload } from '../auth/token.service.js';
  * 05 CRM 客户中心接口（接口 05 §2，P0，M5-A4/B1）：
  * - A4：GET/POST /customers、PUT /customers/{id}、POST /customers/{id}/stage
  * - B1：DELETE /customers/{id}、POST /customers/batch-delete、POST /customers/batch-owner
- * - B1：POST /customers/{id}/contacts、PUT /customers/{id}/contacts/{contactId}、DELETE /customers/{id}/contacts/{contactId}
- * - B1：GET /customers/activities
+ * - B3：GET /customers/{id}/contacts、/customers/{id}/activities 等 04 客户360° 子资源
+ *
+ * 注：05 §2 的 contacts CRUD（POST/PUT/DELETE /contacts）与活动全局列表（GET /activities）
+ * 为根级路由，由 ContactsController 提供（契约：05 接口文档 §2/§3.4）。
  */
 @Controller('customers')
 export class CustomersController {
@@ -111,51 +116,6 @@ export class CustomersController {
     return this.customers.batchOwner(this.ctx(req), dto);
   }
 
-  // ===== B1-3 contacts CRUD =====
-
-  /** B1 §3 创建联系人（单条） */
-  @Post(':customerId/contacts')
-  async createContact(
-    @Param('customerId') customerId: string,
-    @Body(new ZodValidationPipe(createContactSchema)) dto: CreateContactDto,
-    @Req() req: Request & { authUser?: AccessTokenPayload },
-  ) {
-    return this.customers.createContact(this.ctx(req), customerId, dto);
-  }
-
-  /** B1 §3 编辑联系人 */
-  @Put(':customerId/contacts/:contactId')
-  async updateContact(
-    @Param('customerId') customerId: string,
-    @Param('contactId') contactId: string,
-    @Body(new ZodValidationPipe(updateContactSchema)) dto: UpdateContactDto,
-    @Req() req: Request & { authUser?: AccessTokenPayload },
-  ) {
-    return this.customers.updateContact(this.ctx(req), customerId, contactId, dto);
-  }
-
-  /** B1 §3 删除单条联系人（不走审批） */
-  @Delete(':customerId/contacts/:contactId')
-  async deleteContact(
-    @Param('customerId') customerId: string,
-    @Param('contactId') contactId: string,
-    @Req() req: Request & { authUser?: AccessTokenPayload },
-  ) {
-    return this.customers.deleteContact(this.ctx(req), customerId, contactId);
-  }
-
-  // ===== B1-4 activities 全局列表 =====
-
-  /** B1 §4 活动全局列表（refType+refId 跳转 + type 筛选 + 分页） */
-  @Get('activities')
-  async listActivities(
-    @Query(new ZodValidationPipe(listActivitiesQuerySchema.merge(paginationQuerySchema)))
-    query: ListActivitiesQuery & { page: number; pageSize: number },
-    @Req() req: Request & { authUser?: AccessTokenPayload },
-  ) {
-    return this.customers.listActivities(this.ctx(req), query);
-  }
-
   // ===== B3 04 客户360° =====
 
   /** B3 §3.1 GET /customers/{id} 客户详情 + Overview */
@@ -186,14 +146,26 @@ export class CustomersController {
     return this.customers.insights(this.ctx(req), customerId);
   }
 
-  /** B3 GET /customers/{id}/contacts 联系人列表 */
+  /**
+   * B3 GET /customers/{id}/products 产品匹配列表
+   * （04 §1.5 Products 页签 + §3.1 双数据源：id 可为 customerId 或 leadId；产品目录未落地 → []）
+   */
+  @Get(':id/products')
+  async listCustomerProducts(
+    @Param('id') entityId: string,
+    @Req() req: Request & { authUser?: AccessTokenPayload },
+  ) {
+    return this.customers.listCustomerProducts(this.ctx(req), entityId);
+  }
+
+  /** B3 GET /customers/{id}/contacts 联系人列表（04 §3.1 双数据源：id 可为 customerId 或 leadId） */
   @Get(':id/contacts')
   async listCustomerContacts(
-    @Param('id') customerId: string,
+    @Param('id') entityId: string,
     @Query(new ZodValidationPipe(paginationQuerySchema)) query: { page: number; pageSize: number },
     @Req() req: Request & { authUser?: AccessTokenPayload },
   ): Promise<unknown> {
-    return this.customers.listCustomerContacts(this.ctx(req), customerId, query.page, query.pageSize);
+    return this.customers.listCustomerContacts(this.ctx(req), entityId, query.page, query.pageSize);
   }
 
   /** B3 GET /customers/{id}/conversations 会话列表 */
@@ -203,7 +175,12 @@ export class CustomersController {
     @Query(new ZodValidationPipe(paginationQuerySchema)) query: { page: number; pageSize: number },
     @Req() req: Request & { authUser?: AccessTokenPayload },
   ) {
-    return this.customers.listCustomerConversations(this.ctx(req), customerId, query.page, query.pageSize);
+    return this.customers.listCustomerConversations(
+      this.ctx(req),
+      customerId,
+      query.page,
+      query.pageSize,
+    );
   }
 
   /** B3 GET /customers/{id}/quotes 历史报价（D6 降级） */
@@ -233,7 +210,12 @@ export class CustomersController {
     @Query(new ZodValidationPipe(paginationQuerySchema)) query: { page: number; pageSize: number },
     @Req() req: Request & { authUser?: AccessTokenPayload },
   ) {
-    return this.customers.listCustomerActivities(this.ctx(req), customerId, query.page, query.pageSize);
+    return this.customers.listCustomerActivities(
+      this.ctx(req),
+      customerId,
+      query.page,
+      query.pageSize,
+    );
   }
 
   /** 资源级访问取角色上限（sales=self / manager=team / admin=all；query scope 显式传入时校验并收窄） */

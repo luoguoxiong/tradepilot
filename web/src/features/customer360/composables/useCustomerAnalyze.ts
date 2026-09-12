@@ -6,6 +6,7 @@ import { analyzeCustomer } from '@/api/resources/customers'
 import { getTask } from '@/api/resources/tasks'
 import type { TaskDetail } from '@/api/types/tasks'
 import type { ApiError } from '@/api/http'
+import { handleApiError } from '@/api/error-handler'
 import { qk } from '@/query/keys'
 import { isTerminalStatus, taskQueryOptions } from '@/query/options'
 
@@ -70,7 +71,7 @@ export function useCustomerAnalyze(entityId: MaybeRef<string | undefined>) {
       taskId.value = resp.taskId
     } catch (error) {
       running.value = false
-      ElMessage.error((error as ApiError).message || '分析任务创建失败')
+      handleApiError(error, { fallback: '分析任务创建失败' })
     }
   }
 

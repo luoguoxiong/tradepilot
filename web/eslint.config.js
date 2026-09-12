@@ -15,7 +15,6 @@ export default defineConfigWithVueTs(
       '**/coverage/**',
       'auto-imports.d.ts',
       'components.d.ts',
-      'public/mockServiceWorker.js',
     ],
   },
   pluginVue.configs['flat/essential'],

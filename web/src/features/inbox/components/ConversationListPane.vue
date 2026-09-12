@@ -48,7 +48,7 @@ const filters = computed<ConversationListReq>(() => ({
 const listQuery = useQuery({
   queryKey: computed(() => qk.conversations.list(filters.value)),
   queryFn: () => fetchConversations(filters.value),
-  select: (data) => data.list,
+  select: (data) => data.items,
 })
 
 const items = computed(() => listQuery.data.value ?? [])
@@ -146,7 +146,13 @@ function onSelect(row: ConversationListItem): void {
           <el-tag :type="priorityTagType[row.priority]" size="small" effect="light" round>
             {{ t(`inbox.priority.${row.priority}`) }}
           </el-tag>
-          <el-tag v-if="row.mailboxId" size="small" type="info" effect="plain" class="conv-list__mailbox">
+          <el-tag
+            v-if="row.mailboxId"
+            size="small"
+            type="info"
+            effect="plain"
+            class="conv-list__mailbox"
+          >
             {{ row.mailboxId }}
           </el-tag>
         </div>

@@ -56,11 +56,11 @@ function openApproval(approvalId: string): void {
   void router.push({ path: '/approvals', query: { approvalId, from: route.path } })
 }
 
-/** Copilot「插入草稿」转发（InboxView 调用） */
+/** Copilot「插入草稿」转发（InboxView 调用；draftId 用于回填服务端真实草稿 id） */
 const composerRef = ref<InstanceType<typeof DraftComposer> | null>(null)
 
-function insertIntoDraft(content: string): void {
-  composerRef.value?.insertContent(content)
+function insertIntoDraft(content: string, draftId?: string): void {
+  composerRef.value?.insertContent(content, draftId)
 }
 
 defineExpose({ insertIntoDraft })
@@ -71,7 +71,12 @@ defineExpose({ insertIntoDraft })
     <template v-if="detail">
       <header class="conv-pane__head">
         <div class="conv-pane__head-main">
-          <el-link type="primary" :underline="false" class="conv-pane__company" @click="openCustomer">
+          <el-link
+            type="primary"
+            :underline="false"
+            class="conv-pane__company"
+            @click="openCustomer"
+          >
             {{ detail.companyName }}
           </el-link>
           <span class="conv-pane__contact">{{ detail.contactName }}</span>
@@ -105,7 +110,12 @@ defineExpose({ insertIntoDraft })
               >
                 {{ t('inbox.status.waitingApproval') }}
               </el-tag>
-              <el-tag v-else-if="message.status === 'failed'" size="small" type="danger" effect="light">
+              <el-tag
+                v-else-if="message.status === 'failed'"
+                size="small"
+                type="danger"
+                effect="light"
+              >
                 {{ t('inbox.status.failed') }}
               </el-tag>
             </div>
@@ -139,7 +149,12 @@ defineExpose({ insertIntoDraft })
       <DraftComposer v-if="detail" ref="composerRef" :detail="detail" />
     </template>
 
-    <el-empty v-else :description="t('inbox.selectConversation')" :image-size="96" class="conv-pane__empty" />
+    <el-empty
+      v-else
+      :description="t('inbox.selectConversation')"
+      :image-size="96"
+      class="conv-pane__empty"
+    />
   </section>
 </template>
 

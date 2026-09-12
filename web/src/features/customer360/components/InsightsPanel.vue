@@ -64,7 +64,7 @@ const resolverQuery = useQuery<PageResp<ContactItem>>({
 const targetContact = computed<ContactItem | null>(() => {
   const targetId = visibleAction.value?.targetId
   if (!targetId) return null
-  return resolverQuery.data.value?.list.find((c) => c.contactId === targetId) ?? null
+  return resolverQuery.data.value?.items.find((c) => c.contactId === targetId) ?? null
 })
 
 // ===== 推荐动作执行（04 §1.3：点击触发，建议不自动执行） =====

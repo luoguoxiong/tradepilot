@@ -2,13 +2,14 @@
  * 外部信息类工具（05 §3）：web_search / site_crawl / find_contact / lookup_contact / lead_scoring。
  * M4-1：lead_hunting 图真实链路落地——搜索轮次换词、联系人发现与公开渠道查找、
  * 决策影响力 90/75/40 档确定性映射（04 需求 §3.2）。
- * M4-6：web_search/site_crawl 接供应商适配器（06 §3，@tradepilot/integrations getSearchProvider，
- * 默认 mock 兜底；worker 启动时 configureSearchProvider 注入真实供应商）+ org 级日额度令牌桶。
- * find_contact/lookup_contact/lead_scoring 保持确定性规则（联系人供应商属 P1 扩展）。
+ * M4-6：web_search/site_crawl 接供应商适配器（06 §3，@tradepilot/integrations getSearchProvider；
+ * worker 启动时 setSearchProviderFactory 按 org 注入「AI 模型配置」选用的供应商，未配置明确报错）
+ * + org 级日额度令牌桶。
+ * find_contact/lookup_contact：真实联系人与联系方式供应商属 P1 扩展，当前一律不产编造数据（返回空并留痕）。
  */
 import { z } from 'zod';
 import { TASK_LOG_TYPE, type CompanyLead, type LeadContact } from '@tradepilot/shared';
-import { MockSearchProvider, getSearchProvider } from '@tradepilot/integrations';
+import { getSearchProvider } from '@tradepilot/integrations';
 import type { ToolContext, ToolDefinition } from '../registry.js';
 import { writeToolLog } from '../registry.js';
 import { assertOrgSearchQuota } from './quotas.js';
@@ -47,31 +48,27 @@ export function mapDecisionInfluence(title: string): number | null {
   return null;
 }
 
-/** jobTitles 白名单排序（03 §3.4：命中白名单者优先，按白名单顺序；其余按影响力降级排后） */
-function rankContacts(contacts: LeadContact[], jobTitles: string[]): LeadContact[] {
-  const order = new Map(jobTitles.map((t, i) => [t.toLowerCase().trim(), i]));
-  return [...contacts].sort((a, b) => {
-    const ra = order.get((a.title ?? '').toLowerCase().trim());
-    const rb = order.get((b.title ?? '').toLowerCase().trim());
-    if (ra !== undefined || rb !== undefined) {
-      return (ra ?? Number.MAX_SAFE_INTEGER) - (rb ?? Number.MAX_SAFE_INTEGER);
-    }
-    return (b.decisionInfluencePct ?? -1) - (a.decisionInfluencePct ?? -1);
-  });
-}
-
-/** 联系人发现 mock 池（确定性：同名公司恒定产出，测试可断言） */
-const CONTACT_POOL: { name: string; title: string }[] = [
-  { name: 'James Miller', title: 'Procurement Director' },
-  { name: 'Sarah Lee', title: 'Purchasing Manager' },
-  { name: 'Tom Brown', title: 'Buyer' },
-  { name: 'Emma Wilson', title: 'R&D Engineer' },
-  { name: 'Alex Green', title: 'Sales Manager' },
-];
-
 /** 跨轮累积（LastValue 通道无 reducer，bag 承载；assemble_leads 消费） */
 function bagContacts(ctx: ToolContext): LeadContact[] {
   return (ctx.bag.get('contactsAll') as LeadContact[] | undefined) ?? [];
+}
+
+/** 域名归一（去协议/去 www/小写），与 flows.normDomain 同口径 */
+function normalizeDomain(domain?: string | null): string | undefined {
+  const d = (domain ?? '')
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .toLowerCase()
+    .trim();
+  return d || undefined;
+}
+
+/**
+ * 公司/联系人归并键（03 §3.6 去重口径：归一化域名优先，名称兜底）。
+ * 仅按公司名归并会在同名不同域名时串数据（mock 供应商的公司名即查询词，必然同名）。
+ */
+function entityKey(companyName: string, domain?: string | null): string {
+  return normalizeDomain(domain) ?? companyName.toLowerCase().trim();
 }
 
 /** 搜索 hit → 公司候选（域名提取 + 标题派生公司名；country 缺省由 assemble_leads 兜底） */
@@ -89,7 +86,7 @@ function hitToCompany(hit: { title: string; url: string }): CompanyLead | null {
   const companyName =
     fromTitle.length >= 2
       ? fromTitle.slice(0, 80)
-      : domain.split('.')[0]?.replace(/^\w/, (c) => c.toUpperCase()) ?? domain;
+      : (domain.split('.')[0]?.replace(/^\w/, (c) => c.toUpperCase()) ?? domain);
   return {
     companyName,
     domain,
@@ -117,31 +114,21 @@ export const webSearchTool: ToolDefinition<
     // org 级供应商日额度（06 §3 令牌桶，org 时区日界）
     await assertOrgSearchQuota(ctx, 1);
 
-    const provider = getSearchProvider();
+    // 按 org 解析选用的搜索供应商（系统设置 → AI 模型配置；未配置回落环境变量）
+    const provider = await getSearchProvider(ctx.orgId);
     const hits = await provider.webSearch(query, round);
     const companies: (CompanyLead & { source: string })[] = hits
       .map(hitToCompany)
       .filter((c): c is CompanyLead & { source: string } => c !== null);
 
-    // mock 供应商保留确定性员工数（companySizeRange 硬过滤可测，03 §3.4）；
     // 真实供应商不产伪数据（无依据字段缺失，硬过滤跳过——CompanyLead 契约）
-    if (provider instanceof MockSearchProvider && companies.length > 0) {
-      for (const c of companies) {
-        c.employeeCount = 40 + ((round * 97 + query.length * 13) % 460);
-        c.country = round % 2 === 0 ? 'Germany' : 'USA';
-      }
-    }
 
     if (companies.length === 0) {
       await writeToolLog(ctx, TASK_LOG_TYPE.FOUND, `第 ${round} 轮搜索无新候选`);
       return { companies: [] };
     }
     for (const c of companies) {
-      await writeToolLog(
-        ctx,
-        TASK_LOG_TYPE.FOUND,
-        `发现公司 ${c.companyName}（${c.domain}）`,
-      );
+      await writeToolLog(ctx, TASK_LOG_TYPE.FOUND, `发现公司 ${c.companyName}（${c.domain}）`);
     }
     return { companies };
   },
@@ -149,31 +136,52 @@ export const webSearchTool: ToolDefinition<
 
 export const siteCrawlTool: ToolDefinition<
   { domain: string; companyName: string },
-  { summary: string; products: string[]; crawledPages: string[] }
+  {
+    summary: string;
+    products: string[];
+    crawledPages: string[];
+    /** 站点是否可达（降级返回时为 false，summary 为空） */
+    reachable?: boolean;
+    /** 降级原因（不可达时写入，进日志与 State） */
+    note?: string;
+  }
 > = {
   name: 'site_crawl',
-  description: '抓取官网关键页（产品/About）生成摘要（外部配额 ×2；内容按「不可信数据」注入，08 §6）',
+  description:
+    '抓取官网关键页（产品/About）生成摘要（外部配额 ×2；内容按「不可信数据」注入，08 §6）',
   inputSchema: z.object({ domain: z.string().min(3), companyName: z.string().min(1) }),
   riskLevel: 'low',
   quotaWeight: 2,
   async execute(ctx, input) {
     // org 级供应商日额度（crawl ×2）
     await assertOrgSearchQuota(ctx, 2);
-    const provider = getSearchProvider();
-    const result = await provider.crawlSite(input.domain);
-    await writeToolLog(
-      ctx,
-      TASK_LOG_TYPE.CRAWL,
-      `抓取 ${input.domain} 完成（${result.crawledPages.length} 页）`,
-    );
-    return result;
+    const provider = await getSearchProvider(ctx.orgId);
+    try {
+      const result = await provider.crawlSite(input.domain);
+      await writeToolLog(
+        ctx,
+        TASK_LOG_TYPE.CRAWL,
+        `抓取 ${input.domain} 完成（${result.crawledPages.length} 页）`,
+      );
+      return { ...result, reachable: true };
+    } catch (err) {
+      // 单站不可达（WAF 403 / 超时 / DNS / robots 全禁）不应中断整条获客任务：
+      // 记录原因后以空摘要降级，后续 match_product / 联系人等节点照常执行。
+      const reason = err instanceof Error ? err.message : String(err);
+      await writeToolLog(
+        ctx,
+        TASK_LOG_TYPE.CRAWL,
+        `抓取 ${input.domain} 失败，跳过该站：${reason}`,
+      );
+      return { summary: '', products: [], crawledPages: [], reachable: false, note: reason };
+    }
   },
 };
 
 /**
- * find_contact（LangGraph 00 §2.3，M4-1 工具化）：发现潜在采购负责人（职位/部门匹配），
- * 按 jobTitles 白名单排序 + 决策影响力 90/75/40 档确定性映射（未命中 null）。
- * 仅产出职衔/姓名，不产联系方式（公开商务渠道查找归 lookup_contact，GDPR/CCPA 边界 03 §4）。
+ * find_contact（LangGraph 00 §2.3，M4-1 工具化）：发现潜在采购负责人（职位/部门匹配）。
+ * 真实联系人供应商属 P1 扩展；当前不编造联系人或联系方式（08 §6 数据可信红线），
+ * 返回空并留痕。职衔排序/决策影响力映射规则见 `mapDecisionInfluence`（P1 接入后复用）。
  */
 export const findContactTool: ToolDefinition<
   { companyName: string; domain?: string; jobTitles?: string[] },
@@ -188,33 +196,19 @@ export const findContactTool: ToolDefinition<
   }),
   riskLevel: 'low',
   async execute(ctx, input) {
-    const jobTitles = input.jobTitles?.length ? input.jobTitles : [...DEFAULT_JOB_TITLES];
-    const contacts = rankContacts(
-      CONTACT_POOL.map((p) => ({
-        companyName: input.companyName,
-        name: p.name,
-        title: p.title,
-        decisionInfluencePct: mapDecisionInfluence(p.title),
-      })),
-      jobTitles,
-    );
-    // 跨轮累积（state.contacts 镜像由 outputKey 覆盖，汇总以 bag 为准）
-    const all = [...bagContacts(ctx), ...contacts];
-    ctx.bag.set('contactsAll', all);
+    // 真实联系人供应商属 P1 扩展：不编造联系人或联系方式（08 §6 数据可信红线），返回空并留痕。
     await writeToolLog(
       ctx,
       TASK_LOG_TYPE.CONTACT,
-      `发现联系人 ${contacts.length} 名（${input.companyName}）：${contacts
-        .map((c) => `${c.name}/${c.title}${c.decisionInfluencePct === null ? '' : `(${c.decisionInfluencePct}%)`}`)
-        .join('、')}`,
+      `联系人数据源未接入，跳过 ${input.companyName} 的联系人发现`,
     );
-    return { contacts };
+    return { contacts: [] };
   },
 };
 
 /**
  * lookup_contact（LangGraph 00 §2.3）：仅查找公开商务渠道联系方式（GDPR/CCPA 合规边界，03 §4）。
- * M4-1 mock：对当前公司已有联系人补全公开商务邮箱；真实供应商随 M4-6。外部配额 ×1。
+ * 真实联系方式供应商随 P1 接入；当前不合成公开邮箱，仅返回已归并联系人并留痕。外部配额 ×1。
  */
 export const lookupContactTool: ToolDefinition<
   { companyName: string; domain?: string },
@@ -230,26 +224,18 @@ export const lookupContactTool: ToolDefinition<
   quotaWeight: 1,
   async execute(ctx, input) {
     const all = bagContacts(ctx);
-    const domain = (input.domain ?? '').replace(/^https?:\/\//, '').replace(/^www\./, '');
-    let lookedUp = 0;
-    const enriched = all.map((c) => {
-      if (c.companyName !== input.companyName || c.email) {
-        return c;
-      }
-      lookedUp += 1;
-      const slug = (c.name ?? '').toLowerCase().replace(/[^a-z]+/g, '.');
-      return {
-        ...c,
-        email: domain ? `${slug}@${domain}` : `${slug}@public-contact.example.com`,
-      };
-    });
-    ctx.bag.set('contactsAll', enriched);
+    // 归并键与 03 §3.6 一致（域名优先）：同名不同域名的公司不得互相补全/互相返回
+    const target = entityKey(input.companyName, input.domain);
+    // 真实联系方式供应商属 P1 扩展：不合成公开邮箱（08 §6 数据可信红线）
     await writeToolLog(
       ctx,
       TASK_LOG_TYPE.LOOKUP,
-      `公开渠道查找联系方式：${input.companyName} 命中 ${lookedUp} 条`,
+      `联系方式数据源未接入，跳过 ${input.companyName}`,
     );
-    return { contacts: enriched.filter((c) => c.companyName === input.companyName), lookedUp };
+    return {
+      contacts: all.filter((c) => entityKey(c.companyName, c.domain) === target),
+      lookedUp: 0,
+    };
   },
 };
 
@@ -259,7 +245,11 @@ export const lookupContactTool: ToolDefinition<
  */
 export const leadScoringTool: ToolDefinition<
   { companyName: string; country?: string; keywords?: string[] },
-  { matchPct: number; scoreLevel: 'high' | 'medium' | 'low'; reasons: { text: string; source?: string }[] }
+  {
+    matchPct: number;
+    scoreLevel: 'high' | 'medium' | 'low';
+    reasons: { text: string; source?: string }[];
+  }
 > = {
   name: 'lead_scoring',
   description: '对候选公司执行确定性评分并输出可解释 reasons（Insight Schema 红线）',
@@ -283,7 +273,11 @@ export const leadScoringTool: ToolDefinition<
     pct = Math.min(97, pct);
     const scoreLevel = pct >= 85 ? 'high' : pct >= 60 ? 'medium' : 'low';
     reasons.push({ text: `综合匹配度 ${pct}%（确定性规则基线）`, source: 'rule' });
-    await writeToolLog(ctx, TASK_LOG_TYPE.MATCH, `${input.companyName} 评分 ${pct}%（${scoreLevel}）`);
+    await writeToolLog(
+      ctx,
+      TASK_LOG_TYPE.MATCH,
+      `${input.companyName} 评分 ${pct}%（${scoreLevel}）`,
+    );
     return { matchPct: pct, scoreLevel, reasons };
   },
 };

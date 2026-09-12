@@ -26,7 +26,8 @@ import type { AccessTokenPayload } from '../auth/token.service.js';
  * - 邮箱连接 GET/POST/PUT/DELETE /settings/mailboxes + POST /{id}/test（P0）；
  * - 权限管理 GET/PUT /settings/roles/{role}/permissions；
  * - 通知设置 GET/PUT /settings/notifications；AI 模型 GET/PUT /settings/ai-models。
- * 变更仅 admin（03 §4）；读取 admin+manager（settings: view）。
+ * 变更仅 admin（03 §4）；读取 admin+manager（settings: view）；
+ * AI 模型配置属敏感配置，读写均仅 admin（不开放给 manager）。
  */
 @Controller('settings')
 export class SettingsController {
@@ -122,7 +123,7 @@ export class SettingsController {
 
   // ===== AI 模型配置（FR-10）=====
 
-  @Roles('admin', 'manager')
+  @Roles('admin')
   @Get('ai-models')
   async getAiModels(@Req() req: Request & { authUser?: AccessTokenPayload }) {
     return this.settings.getAiModels(this.requireUser(req).orgId);

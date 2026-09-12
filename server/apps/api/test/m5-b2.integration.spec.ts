@@ -6,10 +6,12 @@
  * - leads 列表/详情/summary
  * - add-to-crm 三级去重
  * - batch-analyze（异步 → product_analysis 任务）
+ * - convert 单条转化形状（04 §2）
+ * - 360° 双源入口（04 §3.1：GET /customers/{id} 支持 leadId）
  * 前置：docker compose up（PG 5432 / Redis 6380）+ 迁移已执行。
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import { createId, ErrorCode } from '@tradepilot/core';
 import { closeDb, createDb, schema, type Db, type OrgScopeContext } from '@tradepilot/db';
@@ -17,10 +19,10 @@ import { EnvService } from '../src/config/env.service.js';
 import { AuthService } from '../src/auth/auth.service.js';
 import { TokenService } from '../src/auth/token.service.js';
 import { LeadsService } from '../src/leads/leads.service.js';
+import { listLeadsQuerySchema } from '../src/leads/leads.dto.js';
 import { TasksService } from '../src/tasks/tasks.service.js';
 import { CustomersService } from '../src/customers/customers.service.js';
 import { TaskEnqueuer } from '@tradepilot/runtime';
-import { TASK_TYPE } from '@tradepilot/shared';
 
 process.env.JWT_SECRET ||= 'it_only_test_secret_0123456789abcdef0123456789abcdef';
 process.env.ENCRYPTION_KEY ||= '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
@@ -117,17 +119,27 @@ afterAll(async () => {
       await tx.delete(schema.aiTask).where(eq(schema.aiTask.orgId, orgId));
       await tx.delete(schema.followUpExecution).where(eq(schema.followUpExecution.orgId, orgId));
       await tx.delete(schema.followUpTask).where(eq(schema.followUpTask.orgId, orgId));
-      await tx.delete(schema.followUpStrategyStep).where(eq(schema.followUpStrategyStep.orgId, orgId));
+      await tx
+        .delete(schema.followUpStrategyStep)
+        .where(eq(schema.followUpStrategyStep.orgId, orgId));
       await tx.delete(schema.followUpStrategy).where(eq(schema.followUpStrategy.orgId, orgId));
-      await tx.delete(schema.conversationInsight).where(eq(schema.conversationInsight.orgId, orgId));
+      await tx
+        .delete(schema.conversationInsight)
+        .where(eq(schema.conversationInsight.orgId, orgId));
       await tx.delete(schema.message).where(eq(schema.message.orgId, orgId));
       await tx.delete(schema.conversation).where(eq(schema.conversation.orgId, orgId));
       await tx.delete(schema.customerInsight).where(eq(schema.customerInsight.orgId, orgId));
       await tx.delete(schema.customerActivity).where(eq(schema.customerActivity.orgId, orgId));
       await tx.delete(schema.contact).where(eq(schema.contact.orgId, orgId));
       // 解除 ai_lead ↔ customer 循环 FK 后删除
-      await tx.update(schema.customer).set({ sourceLeadId: null }).where(eq(schema.customer.orgId, orgId));
-      await tx.update(schema.aiLead).set({ convertedCustomerId: null }).where(eq(schema.aiLead.orgId, orgId));
+      await tx
+        .update(schema.customer)
+        .set({ sourceLeadId: null })
+        .where(eq(schema.customer.orgId, orgId));
+      await tx
+        .update(schema.aiLead)
+        .set({ convertedCustomerId: null })
+        .where(eq(schema.aiLead.orgId, orgId));
       await tx.delete(schema.aiLeadContact).where(eq(schema.aiLeadContact.orgId, orgId));
       await tx.delete(schema.aiLead).where(eq(schema.aiLead.orgId, orgId));
       await tx.delete(schema.customer).where(eq(schema.customer.orgId, orgId));
@@ -161,7 +173,9 @@ describe('M5-B2-1 · lead-hunter/summary', () => {
 
 describe('M5-B2-2 · lead-tasks/parse', () => {
   it('解析目标文本返回结构化字段', async () => {
-    const result = await leads.parse(adminCtx, { goalText: '帮我找美国做跑鞋的品牌，可能需要碳纤维鞋垫' });
+    const result = await leads.parse(adminCtx, {
+      goalText: '帮我找美国做跑鞋的品牌，可能需要碳纤维鞋垫',
+    });
     expect(result.parsed.targetMarket).toBe('USA');
     expect(result.parsed.customerType).toBeTruthy();
     expect(result.parsed.targetProduct).toBeTruthy();
@@ -192,6 +206,31 @@ describe('M5-B2-3 · lead-tasks 创建获客任务', () => {
     expect(task).toBeDefined();
     expect(task!.type).toBe('lead_hunting');
     expect(task!.employeeId).toBe(leadHunterEmpId);
+  });
+
+  it('不传 employeeId → 回退 org 的 lead_hunter（前端 §1.3 表单无此字段）', async () => {
+    const result = await leads.createTask(adminCtx, {
+      goalText: '寻找德国汽车零部件采购商',
+      parsed: { targetMarket: 'Germany', customerType: 'Distributor', targetProduct: 'Brake Pads' },
+    });
+    expect(result.taskId).toBeDefined();
+
+    const [task] = await superDb
+      .select()
+      .from(schema.aiTask)
+      .where(eq(schema.aiTask.id, result.taskId));
+    expect(task!.employeeId).toBe(leadHunterEmpId);
+  });
+
+  it('employeeId 不存在 → 40401', async () => {
+    await expectBiz(
+      leads.createTask(adminCtx, {
+        goalText: '寻找美国跑鞋品牌',
+        parsed: { targetMarket: 'USA', customerType: 'Shoe Brand', targetProduct: 'Insoles' },
+        employeeId: 'emp_not_exist',
+      }),
+      ErrorCode.NOT_FOUND,
+    );
   });
 });
 
@@ -230,7 +269,13 @@ describe('M5-B2-4 · leads 列表/详情/summary', () => {
         industry: 'Sports',
         matchPct: 92,
         scoreLevel: 'high',
-        insight: { value: 92, confidence: 0.92, reasons: [{ text: '产品高度匹配', evidence: '官网在售 Running Shoes', source: 'web_crawl' }] },
+        insight: {
+          value: 92,
+          confidence: 0.92,
+          reasons: [
+            { text: '产品高度匹配', evidence: '官网在售 Running Shoes', source: 'web_crawl' },
+          ],
+        },
         inCrm: false,
       },
       {
@@ -241,7 +286,11 @@ describe('M5-B2-4 · leads 列表/详情/summary', () => {
         industry: 'Automotive',
         matchPct: 65,
         scoreLevel: 'medium',
-        insight: { value: 65, confidence: 0.65, reasons: [{ text: '部分匹配', source: 'web_search' }] },
+        insight: {
+          value: 65,
+          confidence: 0.65,
+          reasons: [{ text: '部分匹配', source: 'web_search' }],
+        },
         inCrm: false,
       },
       {
@@ -252,7 +301,11 @@ describe('M5-B2-4 · leads 列表/详情/summary', () => {
         industry: 'Tech',
         matchPct: 35,
         scoreLevel: 'low',
-        insight: { value: 35, confidence: 0.35, reasons: [{ text: '低匹配度', source: 'web_search' }] },
+        insight: {
+          value: 35,
+          confidence: 0.35,
+          reasons: [{ text: '低匹配度', source: 'web_search' }],
+        },
         inCrm: true,
         convertedCustomerId: existingCustomerId,
       },
@@ -284,12 +337,13 @@ describe('M5-B2-4 · leads 列表/详情/summary', () => {
     expect(result.items.length).toBe(2);
   });
 
-  it('summary 各价值档数量', async () => {
+  it('summary 各价值档数量（含 all/inCrm 供 Tab 计数，03 §1.6）', async () => {
     const result = await leads.summaryCounts(adminCtx);
-    expect(result.total).toBeGreaterThanOrEqual(3);
+    expect(result.all).toBeGreaterThanOrEqual(3);
     expect(result.high).toBeGreaterThanOrEqual(1);
     expect(result.medium).toBeGreaterThanOrEqual(1);
     expect(result.low).toBeGreaterThanOrEqual(1);
+    expect(result.inCrm).toBeGreaterThanOrEqual(1);
   });
 
   it('详情：返回完整字段 + 联系人', async () => {
@@ -358,7 +412,10 @@ describe('M5-B2-5 · add-to-crm 加入 CRM', () => {
 
     // 验证 lead 已标记 inCrm
     const [lead] = await superDb
-      .select({ inCrm: schema.aiLead.inCrm, convertedCustomerId: schema.aiLead.convertedCustomerId })
+      .select({
+        inCrm: schema.aiLead.inCrm,
+        convertedCustomerId: schema.aiLead.convertedCustomerId,
+      })
       .from(schema.aiLead)
       .where(eq(schema.aiLead.id, leadToAdd1));
     expect(lead?.inCrm).toBe(true);
@@ -388,6 +445,13 @@ describe('M5-B2-5 · add-to-crm 加入 CRM', () => {
     await expectBiz(
       leads.addToCrm(salesCtx, { leadIds: [leadToAdd1], ownerId: adminId }),
       ErrorCode.FORBIDDEN,
+    );
+  });
+
+  it('manager/admin 指定不存在的 ownerId → 40401（不得静默落到幽灵用户）', async () => {
+    await expectBiz(
+      leads.addToCrm(adminCtx, { leadIds: [leadToAdd1], ownerId: 'usr_not_exist' }),
+      ErrorCode.NOT_FOUND,
     );
   });
 });
@@ -421,5 +485,159 @@ describe('M5-B2-6 · batch-analyze 批量分析', () => {
       .where(eq(schema.aiTask.id, result.taskId));
     expect(task).toBeDefined();
     expect(task!.type).toBe('product_analysis');
+  });
+});
+
+// ============================== B2-7 convert 单条转化 ==============================
+
+describe('M5-B2-7 · convert 单条转化形状（04 §2）', () => {
+  let leadNewId = '';
+  let leadDupId = '';
+
+  beforeAll(async () => {
+    leadNewId = createId('lead');
+    leadDupId = createId('lead');
+    await superDb.insert(schema.aiLead).values([
+      {
+        id: leadNewId,
+        orgId,
+        companyName: 'Convert New Inc',
+        country: 'US',
+        matchPct: 90,
+        scoreLevel: 'high',
+        insight: { value: 90, confidence: 0.9, reasons: [] },
+        inCrm: false,
+      },
+      {
+        id: leadDupId,
+        orgId,
+        companyName: 'Convert Dup Ltd',
+        country: 'UK',
+        matchPct: 70,
+        scoreLevel: 'medium',
+        insight: { value: 70, confidence: 0.7, reasons: [] },
+        inCrm: false,
+      },
+    ]);
+    await superDb.insert(schema.customer).values({
+      id: createId('cus'),
+      orgId,
+      companyName: 'Convert Dup Ltd',
+      country: 'UK',
+      stage: 'new_lead',
+      isFormal: false,
+      ownerId: adminId,
+      createdBy: adminId,
+    });
+  });
+
+  it('新建客户 → mapped=false 且返回 customerId/customerName（前端据此切换文案）', async () => {
+    const result = await leads.convert(adminCtx, leadNewId, {});
+    expect(result.leadId).toBe(leadNewId);
+    expect(result.mapped).toBe(false);
+    expect(result.customerId).toBeTruthy();
+    expect(result.customerName).toBe('Convert New Inc');
+  });
+
+  it('命中已有客户（二级去重）→ mapped=true', async () => {
+    const result = await leads.convert(adminCtx, leadDupId, {});
+    expect(result.mapped).toBe(true);
+    expect(result.customerName).toBe('Convert Dup Ltd');
+  });
+
+  it('已转化 lead 再次 convert → mapped=true 且回退原归属客户', async () => {
+    const again = await leads.convert(adminCtx, leadNewId, {});
+    expect(again.mapped).toBe(true);
+    expect(again.customerName).toBe('Convert New Inc');
+  });
+
+  it('不存在的 lead → 40401', async () => {
+    await expectBiz(leads.convert(adminCtx, 'lead_not_exist', {}), ErrorCode.NOT_FOUND);
+  });
+});
+
+// ============================== B2-8 360° 双源入口 ==============================
+
+describe('M5-B2-8 · 360° 双源入口（04 §3.1：customerId 或 leadId）', () => {
+  let previewLeadId = '';
+  let convertedLeadId = '';
+  let convertedCustomerId = '';
+
+  beforeAll(async () => {
+    previewLeadId = createId('lead');
+    convertedLeadId = createId('lead');
+    convertedCustomerId = createId('cus');
+
+    await superDb.insert(schema.customer).values({
+      id: convertedCustomerId,
+      orgId,
+      companyName: 'Converted Target LLC',
+      country: 'US',
+      stage: 'new_lead',
+      isFormal: false,
+      ownerId: adminId,
+      createdBy: adminId,
+    });
+    await superDb.insert(schema.aiLead).values([
+      {
+        id: previewLeadId,
+        orgId,
+        companyName: 'Preview Only Inc',
+        country: 'Germany',
+        industry: 'Sports',
+        website: 'https://preview.example.com',
+        matchPct: 78,
+        scoreLevel: 'medium',
+        insight: {
+          value: 78,
+          confidence: 0.78,
+          reasons: [{ text: '站点在售同类产品', source: 'web_crawl' }],
+        },
+        inCrm: false,
+      },
+      {
+        id: convertedLeadId,
+        orgId,
+        companyName: 'Converted Target LLC',
+        country: 'US',
+        matchPct: 85,
+        scoreLevel: 'high',
+        insight: { value: 85, confidence: 0.85, reasons: [] },
+        inCrm: true,
+        convertedCustomerId,
+      },
+    ]);
+  });
+
+  it('未转化 leadId → lead 预览态（inCrm=false，只读头部数据）', async () => {
+    const view = await customers.detail(adminCtx, previewLeadId);
+    expect(view.inCrm).toBe(false);
+    expect(view.customerId).toBe(previewLeadId);
+    expect(view.companyName).toBe('Preview Only Inc');
+    expect(view.score).toBe(78);
+    expect(view.country).toBe('Germany');
+    expect(view.industryTags).toEqual(['Sports']);
+  });
+
+  it('已转化 leadId → 归并到归属客户档案（inCrm=true）', async () => {
+    const view = await customers.detail(adminCtx, convertedLeadId);
+    expect(view.inCrm).toBe(true);
+    expect(view.customerId).toBe(convertedCustomerId);
+    expect(view.companyName).toBe('Converted Target LLC');
+  });
+
+  it('不存在的 id → 40401', async () => {
+    await expectBiz(customers.detail(adminCtx, 'lead_not_exist'), ErrorCode.NOT_FOUND);
+  });
+});
+
+// ============================== B2-9 查询参数解析 ==============================
+
+describe('M5-B2-9 · 列表查询参数解析（inCrm 布尔）', () => {
+  it('?inCrm=false 必须解析为 false（z.coerce.boolean 会把 "false" 误判为 true）', () => {
+    expect(listLeadsQuerySchema.parse({ inCrm: 'false' }).inCrm).toBe(false);
+    expect(listLeadsQuerySchema.parse({ inCrm: 'true' }).inCrm).toBe(true);
+    expect(listLeadsQuerySchema.parse({ inCrm: true }).inCrm).toBe(true);
+    expect(listLeadsQuerySchema.parse({}).inCrm).toBeUndefined();
   });
 });

@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 
 import RhythmEditor from './RhythmEditor.vue'
+import { handleApiError } from '@/api/error-handler'
 import { createFollowUpStrategy, updateFollowUpStrategy } from '@/api/resources/follow-ups'
 import type { AutoSendPolicy, FollowUpStrategy, StrategyStep } from '@/api/types/follow-up'
 
@@ -55,7 +56,9 @@ watch(
         ? t('followUp.copyNameSuffix', { name: source.name })
         : source.name
       : ''
-    customerValue.value = source ? [...source.targetScope.customerValue] : ['high', 'medium']
+    customerValue.value = source
+      ? [...(source.targetScope.customerValue ?? [])]
+      : ['high', 'medium']
     industries.value = source ? [...(source.targetScope.industry ?? [])] : []
     tags.value = source ? [...(source.targetScope.tags ?? [])] : []
     autoSendPolicy.value = source ? source.autoSendPolicy : 'manual_review'
@@ -112,7 +115,7 @@ async function onSubmit() {
     emit('saved')
     onVisibleChange(false)
   } catch (error) {
-    ElMessage.error((error as Error).message || t('common.operationFailed'))
+    handleApiError(error)
   } finally {
     submitting.value = false
   }

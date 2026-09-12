@@ -10,6 +10,7 @@ import { useDictStore } from '@/stores/dict'
 import { listQueryOptions } from '@/query/options'
 import type { ProColumn } from '@/components/business/pro-table'
 import type { DataScope, PageResp } from '@/api/types/common'
+import { usePermission } from '@/composables/usePermission'
 
 /** el-table sort-change 事件参数（本地结构化，避免依赖内部类型导出） */
 interface SortChangeParams {
@@ -65,7 +66,9 @@ const page = ref(1)
 const filterValues = ref<Record<string, unknown>>({ ...props.defaultQuery })
 const sortBy = ref<string | undefined>(undefined)
 const sortOrder = ref<'asc' | 'desc' | undefined>(undefined)
-const scope = ref<DataScope>('self')
+// scope 默认取角色上限（05 §2：admin→all、manager→team、sales→self）
+const { maxScope } = usePermission()
+const scope = ref<DataScope>(maxScope.value)
 const keyword = ref<string | undefined>(undefined)
 
 const query = computed<Record<string, unknown>>(() => ({
@@ -87,7 +90,7 @@ const { data, isFetching, isLoading } = useQuery({
   ...listQueryOptions(),
 })
 
-const rows = computed<T[]>(() => data.value?.list ?? [])
+const rows = computed<T[]>(() => data.value?.items ?? [])
 const total = computed(() => data.value?.total ?? 0)
 
 function onSortChange(sort: SortChangeParams) {

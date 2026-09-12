@@ -41,6 +41,14 @@ const TEMPLATES: Record<string, PromptTemplate> = {
       '会话上下文：\n{{thread}}\n检测语言：{{detectedLanguage}}\n意图：{{intent}}\n知识依据：{{knowledgeChunks}}\n\n请输出 JSON：{ subject, body, grounded: boolean, missingInfo?: string[] }。',
   },
 
+  // ===== product_analysis（M5-C4） =====
+  'sales.productAnalysis': {
+    system:
+      '你是客户研究分析师。基于客户画像评估其对目标产品的购买意向，输出采购概率、客户阶段判断与 3~5 条可执行推荐动作（供 CRM 洞察与人工跟进参考）。仅基于给定信息判断，不得编造客户背景。',
+    user:
+      '分析对象：{{analysisTargets}}\n\n请输出 JSON：{ purchaseProbability(0-100), stage, recommendedActions: string[] }。',
+  },
+
   // ===== follow_up =====
   'followUp.generate': {
     system:

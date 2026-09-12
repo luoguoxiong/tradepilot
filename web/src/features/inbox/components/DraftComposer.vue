@@ -17,6 +17,7 @@ import {
   updateMessage,
 } from '@/api/resources/conversations'
 import type { ApiError } from '@/api/http'
+import { handleApiError } from '@/api/error-handler'
 import { notifyWaitingApproval } from '@/features/approvals/composables/notifyWaitingApproval'
 import { qk } from '@/query/keys'
 
@@ -93,7 +94,9 @@ watch(existingDraft, (message, previous) => {
 })
 
 function invalidateConversation(): void {
-  void queryClient.invalidateQueries({ queryKey: qk.conversations.detail(props.detail?.conversationId ?? '') })
+  void queryClient.invalidateQueries({
+    queryKey: qk.conversations.detail(props.detail?.conversationId ?? ''),
+  })
   void queryClient.invalidateQueries({ queryKey: qk.conversations.all })
 }
 
@@ -114,7 +117,7 @@ async function generate(regenerate: boolean): Promise<void> {
     ElMessage.success(t('inbox.composer.generated'))
     invalidateConversation()
   } catch (error) {
-    ElMessage.error((error as ApiError).message || t('common.operationFailed'))
+    handleApiError(error)
   } finally {
     generating.value = false
   }
@@ -122,12 +125,13 @@ async function generate(regenerate: boolean): Promise<void> {
 
 // ===== 保存草稿 =====
 const saveMutation = useMutation({
-  mutationFn: (input: { messageId: string; content: string }) => updateMessage(input.messageId, { content: input.content }),
+  mutationFn: (input: { messageId: string; content: string }) =>
+    updateMessage(input.messageId, { content: input.content }),
   onSuccess: () => {
     ElMessage.success(t('inbox.composer.saved'))
     invalidateConversation()
   },
-  onError: (error: ApiError) => ElMessage.error(error.message || t('common.operationFailed')),
+  onError: (error: ApiError) => handleApiError(error),
 })
 
 // ===== 发送（双分支 06 §3.3） =====
@@ -157,7 +161,7 @@ async function onSend(): Promise<void> {
     }
     invalidateConversation()
   } catch (error) {
-    ElMessage.error((error as ApiError).message || t('common.operationFailed'))
+    handleApiError(error)
   } finally {
     sending.value = false
   }
@@ -168,10 +172,17 @@ function gotoApprovals(): void {
 }
 
 defineExpose({
-  /** Copilot「插入草稿」：合并要点到编辑器尾部 */
-  insertContent(content: string): void {
-    if (!draftId.value) draftId.value = 'inline-draft'
-    draftContent.value = draftContent.value ? `${draftContent.value}\n\n${content}` : content
+  /**
+   * Copilot「插入草稿」：insert_draft 返回「合并后全文」（服务端已把要点合并进草稿并落库），
+   * 因此整体回填而非尾部追加（追加会与已含原草稿的全文重复）；新建草稿时用服务端返回的
+   * 真实 draftId 回填，保证后续保存/发送定位到草稿消息而非占位 id。
+   */
+  insertContent(content: string, serverDraftId?: string): void {
+    if (serverDraftId) {
+      draftId.value = serverDraftId
+    }
+    draftContent.value = content
+    invalidateConversation()
   },
 })
 </script>
@@ -210,7 +221,12 @@ defineExpose({
           {{ t('inbox.composer.regenerate') }}
         </el-button>
         <span class="composer__spacer" />
-        <el-tag size="small" effect="plain" type="info" :title="t('inbox.composer.replyLanguageTip')">
+        <el-tag
+          size="small"
+          effect="plain"
+          type="info"
+          :title="t('inbox.composer.replyLanguageTip')"
+        >
           {{ t('inbox.composer.replyLanguage') }}: {{ replyLanguage.toUpperCase() }}
         </el-tag>
       </div>

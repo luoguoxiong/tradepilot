@@ -2,10 +2,9 @@
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 
-import { ApiError } from '@/api/http'
+import { handleApiError } from '@/api/error-handler'
 import { useAuthStore } from '@/stores/auth'
 
 /** 注册企业（16 v0.4）：成功后进入初始化向导（onboarding.currentStep = 1） */
@@ -38,7 +37,7 @@ async function submit() {
     await authStore.register(form)
     await router.replace('/onboarding')
   } catch (error) {
-    ElMessage.error(error instanceof ApiError ? error.message : t('common.operationFailed'))
+    handleApiError(error)
   } finally {
     loading.value = false
   }

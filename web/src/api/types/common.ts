@@ -12,9 +12,9 @@ export interface ApiResponse<T> {
   traceId?: string
 }
 
-/** 分页响应（接口规范 §2.3） */
+/** 分页响应（接口规范 §2.2：{ items, total, page, pageSize }） */
 export interface PageResp<T> {
-  list: T[]
+  items: T[]
   total: number
   page: number
   pageSize: number

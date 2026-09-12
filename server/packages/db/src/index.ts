@@ -32,6 +32,7 @@ export type {
   Org,
   UserAccount,
   Mailbox,
+  AiModel,
 } from './schema/index.js';
 export * from './scope.js';
 export { seedOrg } from './seed/register-seed.js';

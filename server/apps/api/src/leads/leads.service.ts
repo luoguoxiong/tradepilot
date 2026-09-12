@@ -10,8 +10,14 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, ilike, inArray, sql, type SQL } from 'drizzle-orm';
 import { BizException, ErrorCode, createId } from '@tradepilot/core';
-import { schema, withOrg, type Db } from '@tradepilot/db';
+import { schema, withOrg, type Db, type Tx } from '@tradepilot/db';
+import { LlmGateway } from '@tradepilot/runtime';
+import { z } from 'zod';
+import type { Logger } from 'pino';
+import pino from 'pino';
 import { DB } from '../db/db.module.js';
+import { EnvService } from '../config/env.service.js';
+import { PINO_ROOT } from '../common/logger/logger.factory.js';
 import { TasksService } from '../tasks/tasks.service.js';
 import { CustomersService } from '../customers/customers.service.js';
 import type {
@@ -38,22 +44,88 @@ export interface LeadHunterSummary {
   } | null;
 }
 
+/** 目标文本结构化解析结果（03 §1.3）：parse / lead-tasks 共用 4 字段口径 */
+export interface ParsedGoal {
+  targetMarket: string;
+  customerType: string;
+  targetProduct: string;
+  companySize?: string;
+}
+
 export interface ParseResult {
-  parsed: { targetMarket: string; customerType: string; targetProduct: string; companySize?: string };
+  parsed: ParsedGoal;
   optimizedGoal: string;
   confidence: number;
   reasons: { text: string }[];
 }
+
+/**
+ * lead-tasks/parse 的 LLM 场景/节点（05 §6.2：ai_model_setting.scene 命中→默认兜底）。
+ * 与工作流 `parse_goal` 节点同场景 `lead_hunting`，便于 org 级模型配置统一生效。
+ */
+const LEAD_PARSE_SCENE = 'lead_hunting';
+const LEAD_PARSE_NODE = 'lead_task_parse';
+
+/**
+ * 结构化输出契约（与 workflows `parsedGoalSchema` 同构扩展优化目标/置信度/理由；
+ * 项目硬约束：契约一律 .strict()，未知键触发重试回喂而非静默剥离）。
+ * parsed 四要素允许空串（缺失留空），由服务端逐项回落规则解析。
+ */
+const leadParseOutputSchema = z
+  .object({
+    targetMarket: z.string(),
+    customerType: z.string(),
+    targetProduct: z.string(),
+    companySize: z.string().optional(),
+    optimizedGoal: z.string().min(1),
+    confidence: z.number().min(0).max(1),
+    reasons: z.array(z.object({ text: z.string().min(1) })).min(1),
+  })
+  .strict();
+
+/**
+ * 国家/地区关键词 → 规范市场码（规则解析兜底 + LLM 结果归一化共用）。
+ * 下游 `plan_search` 直接消费 targetMarket，须保证同一文本得到确定性市场码。
+ */
+const COUNTRY_MAP: ReadonlyArray<{ pattern: string; value: string }> = [
+  { pattern: '美国|USA|US|America|北美', value: 'USA' },
+  { pattern: '德国|Germany|DE|欧洲', value: 'Germany' },
+  { pattern: '日本|Japan|JP', value: 'Japan' },
+  { pattern: '英国|UK|Britain|England', value: 'UK' },
+  { pattern: '法国|France|FR', value: 'France' },
+];
 
 export interface LeadItem {
   leadId: string;
   companyName: string;
   country: string;
   industry: string | null;
+  website: string | null;
   matchPct: number;
   scoreLevel: string;
   inCrm: boolean;
-  matchReasons: { value: number; confidence: number; reasons: { text: string; evidence?: string; source?: string }[] };
+  matchReasons: {
+    value: number;
+    confidence: number;
+    reasons: { text: string; evidence?: string; source?: string }[];
+  };
+}
+
+/** 03 §2 GET /leads/summary：各价值档数量（`all`/`inCrm` 供 Tab 计数，03 §1.6） */
+export interface LeadSummaryCounts {
+  all: number;
+  high: number;
+  medium: number;
+  low: number;
+  inCrm: number;
+}
+
+/** 04 §2 POST /leads/{id}/convert 响应（单条转化，与批量 add-to-crm 汇总形状不同） */
+export interface ConvertLeadResult {
+  leadId: string;
+  customerId: string;
+  customerName: string;
+  mapped: boolean;
 }
 
 export interface LeadDetail {
@@ -66,8 +138,17 @@ export interface LeadDetail {
   scoreLevel: string;
   inCrm: boolean;
   convertedCustomerId: string | null;
-  matchReasons: { value: number; confidence: number; reasons: { text: string; evidence?: string; source?: string }[] };
-  overview: { companySize?: string; foundedYear?: number; customerType?: string; mainProducts?: string[] } | null;
+  matchReasons: {
+    value: number;
+    confidence: number;
+    reasons: { text: string; evidence?: string; source?: string }[];
+  };
+  overview: {
+    companySize?: string;
+    foundedYear?: number;
+    customerType?: string;
+    mainProducts?: string[];
+  } | null;
   contacts: { name: string; title: string | null; email: string | null }[];
   createdAt: string;
 }
@@ -81,11 +162,32 @@ export interface AddToCrmResult {
 
 @Injectable()
 export class LeadsService {
+  private readonly log: Logger;
+  private gateway: LlmGateway | null = null;
+
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(TasksService) private readonly tasks: TasksService,
     @Inject(CustomersService) private readonly customers: CustomersService,
-  ) {}
+    @Inject(EnvService) private readonly env?: EnvService,
+    @Inject(PINO_ROOT) private readonly logger?: Logger,
+  ) {
+    this.log = this.logger ?? pino({ level: 'silent' });
+  }
+
+  /**
+   * LlmGateway（懒装配，与 06 会话服务同口径）：
+   * 优先使用 org 在「系统设置 → AI 模型配置」选用的大语言模型（含凭据解密）；
+   * 未配置的 org 由 resolveTarget 明确报错——parse() 捕获后回落确定性规则解析。
+   */
+  private get llm(): LlmGateway {
+    this.gateway ??= new LlmGateway(this.db, this.log, {
+      ...(this.env?.env.ENCRYPTION_KEY !== undefined && {
+        encryptionKey: this.env.env.ENCRYPTION_KEY,
+      }),
+    });
+    return this.gateway;
+  }
 
   /** B2 §1 工作台头部：员工状态 + 今日产出 + 当前任务 */
   async summary(ctx: OrgScopeContext): Promise<LeadHunterSummary> {
@@ -95,13 +197,14 @@ export class LeadsService {
     return withOrg(this.db, ctx.orgId, async (tx) => {
       // 查找 lead_hunter 角色的 AI 员工
       const [employee] = await tx
-        .select({ id: schema.aiEmployee.id, name: schema.aiEmployee.name, status: schema.aiEmployee.status })
+        .select({
+          id: schema.aiEmployee.id,
+          name: schema.aiEmployee.name,
+          status: schema.aiEmployee.status,
+        })
         .from(schema.aiEmployee)
         .where(
-          and(
-            eq(schema.aiEmployee.orgId, ctx.orgId),
-            eq(schema.aiEmployee.role, 'lead_hunter'),
-          ),
+          and(eq(schema.aiEmployee.orgId, ctx.orgId), eq(schema.aiEmployee.role, 'lead_hunter')),
         )
         .limit(1);
 
@@ -157,10 +260,7 @@ export class LeadsService {
           .select({ n: sql<number>`count(*)::int` })
           .from(schema.aiLead)
           .where(
-            and(
-              eq(schema.aiLead.orgId, ctx.orgId),
-              eq(schema.aiLead.taskId, currentTask.taskId),
-            ),
+            and(eq(schema.aiLead.orgId, ctx.orgId), eq(schema.aiLead.taskId, currentTask.taskId)),
           );
         foundCount = leadCount?.n ?? 0;
 
@@ -198,18 +298,76 @@ export class LeadsService {
     });
   }
 
-  /** B2 §2 AI 解析目标文本 → 结构化字段 */
+  /**
+   * B2 §2 AI 解析目标文本 → 结构化字段。
+   *
+   * 主路径：LlmGateway.structured（scene=lead_hunting，与工作流 parse_goal 同场景）
+   * 产出结构化条件 + 优化目标 + 置信度/理由；
+   * 规则解析（simpleParse）作为确定性兜底：LLM 字段缺失时逐项回落，并归一化市场码；
+   * 生产路径 org 未配置选用模型时 resolveTarget 明确报错 → 捕获后回落规则解析，
+   * 避免把 LLM 故障暴露为接口失败。
+   */
   async parse(ctx: OrgScopeContext, dto: ParseLeadTaskDto): Promise<ParseResult> {
-    // MVP: 基于规则简单解析，后续可接 LLM
     const text = dto.goalText;
-    const parsed = this.simpleParse(text);
-    const optimizedGoal = `寻找${parsed.targetMarket}的${parsed.customerType}，匹配${parsed.targetProduct}产品线`;
+    const rule = this.simpleParse(text);
+
+    try {
+      const { data } = await this.llm.structured(
+        { orgId: ctx.orgId, node: LEAD_PARSE_NODE, scene: LEAD_PARSE_SCENE },
+        leadParseOutputSchema,
+        {
+          system:
+            '你是外贸获客专员。把用户的一段自然语言获客目标解析为结构化条件，只提取明确给出的字段，缺失字段置空字符串；不得脑补未提及的信息。' +
+            '同时输出优化后的获客目标（中文，可直接作为搜索依据）与解析置信度。',
+          user:
+            `获客目标：\n${text}\n\n` +
+            '请输出 JSON：{ targetMarket, customerType, targetProduct, companySize?, optimizedGoal, confidence(0-1), reasons: [{ text }] }。' +
+            'targetMarket 使用规范国家/地区名（如 USA、Germany）。',
+        },
+      );
+
+      const companySize = data.companySize?.trim() || rule.companySize;
+      const parsed: ParsedGoal = {
+        // 市场码须确定性（下游 plan_search 直接消费），显式国家关键词优先于 LLM 表述
+        targetMarket: this.normalizeMarket(text, data.targetMarket.trim() || rule.targetMarket),
+        customerType: data.customerType.trim() || rule.customerType,
+        targetProduct: data.targetProduct.trim() || rule.targetProduct,
+        ...(companySize ? { companySize } : {}),
+      };
+      return {
+        parsed,
+        optimizedGoal: data.optimizedGoal.trim() || this.buildOptimizedGoal(parsed),
+        confidence: data.confidence,
+        reasons: data.reasons.map((r) => ({ text: r.text })),
+      };
+    } catch (err) {
+      this.log.warn(
+        { orgId: ctx.orgId, err: err instanceof Error ? err.message : String(err) },
+        'lead-tasks/parse LLM 解析失败，回落规则解析',
+      );
+      return this.buildRuleParseResult(rule);
+    }
+  }
+
+  /** 规则解析结果 → ParseResult（LLM 不可用/失败时的确定性输出） */
+  private buildRuleParseResult(rule: ParsedGoal): ParseResult {
     return {
-      parsed,
-      optimizedGoal,
+      parsed: rule,
+      optimizedGoal: this.buildOptimizedGoal(rule),
       confidence: 0.85,
       reasons: [{ text: '从目标文本中提取到市场/客户类型/产品三要素' }],
     };
+  }
+
+  private buildOptimizedGoal(parsed: ParsedGoal): string {
+    return `寻找${parsed.targetMarket}的${parsed.customerType}，匹配${parsed.targetProduct}产品线`;
+  }
+
+  /** 显式国家/地区关键词 → 规范市场码；未命中则回落到 LLM/规则给出的值 */
+  private normalizeMarket(text: string, fallback: string): string {
+    return (
+      COUNTRY_MAP.find((entry) => new RegExp(entry.pattern, 'i').test(text))?.value ?? fallback
+    );
   }
 
   /** B2 §3 创建获客任务（复用 tasks 模块 lead_hunting） */
@@ -223,12 +381,60 @@ export class LeadsService {
       advancedSettings: dto.advancedSettings ?? {},
       targetCount: dto.targetCount ?? 35,
     };
+    const employeeId = await withOrg(this.db, ctx.orgId, (tx) =>
+      this.resolveLeadHunterEmployee(tx, ctx.orgId, dto.employeeId),
+    );
     return this.tasks.create(ctx.orgId, ctx.userId, {
-      employeeId: dto.employeeId,
+      employeeId,
       type: 'lead_hunting',
       title: `获客：${dto.parsed.targetMarket} ${dto.parsed.customerType}`,
       input,
     });
+  }
+
+  /**
+   * 解析 lead_hunting 执行员工（03 §3.2）。
+   * 显式传入 → 必须属本 org 且角色为 lead_hunter（不存在/跨租户 → 40401）；
+   * 未传（§1.3 创建表单并无该字段，前端不传）→ 回退 org 内 lead_hunter，再退 customer_researcher。
+   * 不校验将导致任务落到他人/他租户员工，故与 batchAnalyze 同口径显式解析。
+   */
+  private async resolveLeadHunterEmployee(
+    tx: Tx,
+    orgId: string,
+    employeeId?: string,
+  ): Promise<string> {
+    if (employeeId) {
+      const [row] = await tx
+        .select({ id: schema.aiEmployee.id })
+        .from(schema.aiEmployee)
+        .where(
+          and(
+            eq(schema.aiEmployee.id, employeeId),
+            eq(schema.aiEmployee.orgId, orgId),
+            eq(schema.aiEmployee.role, 'lead_hunter'),
+          ),
+        )
+        .limit(1);
+      if (!row) {
+        throw new BizException(ErrorCode.NOT_FOUND, '获客员工不存在');
+      }
+      return row.id;
+    }
+
+    const [row] = await tx
+      .select({ id: schema.aiEmployee.id })
+      .from(schema.aiEmployee)
+      .where(
+        and(
+          eq(schema.aiEmployee.orgId, orgId),
+          inArray(schema.aiEmployee.role, ['lead_hunter', 'customer_researcher']),
+        ),
+      )
+      .limit(1);
+    if (!row) {
+      throw new BizException(ErrorCode.NOT_FOUND, '未找到可用 AI 员工');
+    }
+    return row.id;
   }
 
   /** B2 §4 客户发现列表 */
@@ -282,6 +488,7 @@ export class LeadsService {
           companyName: r.companyName,
           country: r.country,
           industry: r.industry,
+          website: r.website,
           matchPct: r.matchPct,
           scoreLevel: r.scoreLevel,
           inCrm: r.inCrm,
@@ -294,21 +501,24 @@ export class LeadsService {
     });
   }
 
-  /** B2 §4 各价值档数量 */
-  async summaryCounts(
-    ctx: OrgScopeContext,
-  ): Promise<{ total: number; high: number; medium: number; low: number }> {
+  /**
+   * B2 §4 各价值档数量。
+   * 03 §1.6 Tab 计数需要：`all`（全部）+ 三档 + `inCrm`（已加入 CRM），
+   * 字段名与前端 `LeadSummaryResp` 一致（`all` 而非 `total`，前端取 `summary.all`）。
+   */
+  async summaryCounts(ctx: OrgScopeContext): Promise<LeadSummaryCounts> {
     return withOrg(this.db, ctx.orgId, async (tx) => {
       const [row] = await tx
         .select({
-          total: sql<number>`count(*)::int`,
+          all: sql<number>`count(*)::int`,
           high: sql<number>`count(*) filter (where ${schema.aiLead.scoreLevel} = 'high')::int`,
           medium: sql<number>`count(*) filter (where ${schema.aiLead.scoreLevel} = 'medium')::int`,
           low: sql<number>`count(*) filter (where ${schema.aiLead.scoreLevel} = 'low')::int`,
+          inCrm: sql<number>`count(*) filter (where ${schema.aiLead.inCrm})::int`,
         })
         .from(schema.aiLead)
         .where(eq(schema.aiLead.orgId, ctx.orgId));
-      return row ?? { total: 0, high: 0, medium: 0, low: 0 };
+      return row ?? { all: 0, high: 0, medium: 0, low: 0, inCrm: 0 };
     });
   }
 
@@ -325,7 +535,11 @@ export class LeadsService {
       }
 
       const contacts = await tx
-        .select({ name: schema.aiLeadContact.name, title: schema.aiLeadContact.title, email: schema.aiLeadContact.email })
+        .select({
+          name: schema.aiLeadContact.name,
+          title: schema.aiLeadContact.title,
+          email: schema.aiLeadContact.email,
+        })
         .from(schema.aiLeadContact)
         .where(eq(schema.aiLeadContact.leadId, leadId));
 
@@ -347,6 +561,39 @@ export class LeadsService {
     });
   }
 
+  /**
+   * 03 §3.3 删除发现线索（物理删除，含联系人记录）。
+   * 仅未加入 CRM 的线索可删：已转化的线索是客户档案的来源（customer.source_lead_id），
+   * 删除会切断线索→客户的可追溯链路，故直接拒绝（前端同口径置灰按钮）。
+   */
+  async remove(ctx: OrgScopeContext, leadId: string): Promise<{ leadId: string }> {
+    return withOrg(this.db, ctx.orgId, async (tx) => {
+      const [lead] = await tx
+        .select({ id: schema.aiLead.id, inCrm: schema.aiLead.inCrm })
+        .from(schema.aiLead)
+        .where(and(eq(schema.aiLead.id, leadId), eq(schema.aiLead.orgId, ctx.orgId)))
+        .limit(1);
+      if (!lead) {
+        throw new BizException(ErrorCode.NOT_FOUND, '发现客户不存在');
+      }
+      if (lead.inCrm) {
+        throw new BizException(ErrorCode.CONFLICT, '该线索已加入 CRM，请先到客户中心处理');
+      }
+      // 兜底：in_crm 与实际引用不一致时，仍保护客户档案的来源链路
+      const [ref] = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.customer)
+        .where(eq(schema.customer.sourceLeadId, leadId));
+      if ((ref?.n ?? 0) > 0) {
+        throw new BizException(ErrorCode.CONFLICT, '该线索已关联客户档案，无法删除');
+      }
+
+      await tx.delete(schema.aiLeadContact).where(eq(schema.aiLeadContact.leadId, leadId));
+      await tx.delete(schema.aiLead).where(eq(schema.aiLead.id, leadId));
+      return { leadId };
+    });
+  }
+
   /** B2 §6 加入 CRM（三级去重） */
   async addToCrm(ctx: OrgScopeContext, dto: AddToCrmDto): Promise<AddToCrmResult> {
     // ownerId 校验：sales 不可指定他人
@@ -356,15 +603,23 @@ export class LeadsService {
     }
 
     return withOrg(this.db, ctx.orgId, async (tx) => {
+      // 归属校验：显式指定的负责人必须属本租户（与 05 §1.2 创建客户 assertOwnerExists 同口径），
+      // 否则会把客户落到不存在/他租户用户下（此前静默创建，列表 ownerName 兜底为 raw id）。
+      if (ownerId !== ctx.userId) {
+        const [owner] = await tx
+          .select({ id: schema.userAccount.id })
+          .from(schema.userAccount)
+          .where(and(eq(schema.userAccount.id, ownerId), eq(schema.userAccount.orgId, ctx.orgId)))
+          .limit(1);
+        if (!owner) {
+          throw new BizException(ErrorCode.NOT_FOUND, `负责人不存在: ${ownerId}`);
+        }
+      }
+
       const leads = await tx
         .select()
         .from(schema.aiLead)
-        .where(
-          and(
-            eq(schema.aiLead.orgId, ctx.orgId),
-            inArray(schema.aiLead.id, dto.leadIds),
-          ),
-        );
+        .where(and(eq(schema.aiLead.orgId, ctx.orgId), inArray(schema.aiLead.id, dto.leadIds)));
 
       const result: AddToCrmResult = { created: 0, duplicated: 0, customers: [], mapped: [] };
 
@@ -455,6 +710,8 @@ export class LeadsService {
             .update(schema.aiLead)
             .set({ inCrm: true, convertedCustomerId: matchedCustomerId, updatedAt: new Date() })
             .where(eq(schema.aiLead.id, lead.id));
+          // 转 CRM 补齐：发现池联系人并入归属客户（04 §3.6；邮箱唯一索引冲突自动跳过）
+          await this.migrateLeadContacts(tx, ctx.orgId, lead.id, matchedCustomerId);
         } else {
           // 新建 customer
           const customerId = createId('cus');
@@ -477,11 +734,74 @@ export class LeadsService {
             .where(eq(schema.aiLead.id, lead.id));
           result.created++;
           result.customers.push({ customerId, leadId: lead.id });
+          // 转 CRM 补齐：新建客户档案同步迁移发现池联系人（04 §3.6）
+          await this.migrateLeadContacts(tx, ctx.orgId, lead.id, customerId);
         }
       }
 
       return result;
     });
+  }
+
+  /**
+   * 转 CRM 时把发现池联系人（ai_lead_contact）迁移进 CRM contact（04 §1.3 / §3.6）：
+   * - `contact.title` 非空列：缺失回退空串；
+   * - 邮箱唯一约束（uq_contact_org_email）冲突行跳过（onConflictDoNothing）；
+   * - 目标客户尚无主联系人时，把决策影响力最高的一条标为主联系人。
+   * 幂等性：重复 convert 时 addToCrm 走 duplicated 分支提前返回，不会重复迁移。
+   */
+  private async migrateLeadContacts(
+    tx: Tx,
+    orgId: string,
+    leadId: string,
+    customerId: string,
+  ): Promise<void> {
+    const leadContacts = await tx
+      .select()
+      .from(schema.aiLeadContact)
+      .where(and(eq(schema.aiLeadContact.leadId, leadId), eq(schema.aiLeadContact.orgId, orgId)))
+      .orderBy(sql`${schema.aiLeadContact.decisionInfluencePct} desc nulls last`);
+    if (leadContacts.length === 0) {
+      return;
+    }
+
+    const [existingPrimary] = await tx
+      .select({ id: schema.contact.id })
+      .from(schema.contact)
+      .where(
+        and(
+          eq(schema.contact.customerId, customerId),
+          eq(schema.contact.orgId, orgId),
+          eq(schema.contact.isPrimary, true),
+        ),
+      )
+      .limit(1);
+    let primaryAssigned = Boolean(existingPrimary);
+
+    for (const c of leadContacts) {
+      const isPrimary = !primaryAssigned;
+      const inserted = await tx
+        .insert(schema.contact)
+        .values({
+          id: createId('con'),
+          orgId,
+          customerId,
+          name: c.name,
+          title: c.title ?? '',
+          email: c.email,
+          decisionInfluencePct: c.decisionInfluencePct,
+          decisionInfluenceReasons: [],
+          isPrimary,
+          createdAt: c.createdAt,
+          updatedAt: c.updatedAt,
+        })
+        .onConflictDoNothing()
+        .returning({ id: schema.contact.id });
+      // 仅在实际落库后占用主联系人标记（首条邮箱冲突时顺延给下一条）
+      if (inserted.length > 0 && isPrimary) {
+        primaryAssigned = true;
+      }
+    }
   }
 
   /** B2 §7 批量 AI 分析（异步 → product_analysis 任务） */
@@ -512,27 +832,61 @@ export class LeadsService {
     });
   }
 
-  /** B3 POST /leads/{id}/convert 单条 lead 转 CRM */
-  async convert(ctx: OrgScopeContext, leadId: string, dto: ConvertLeadDto): Promise<AddToCrmResult> {
-    return this.addToCrm(ctx, { leadIds: [leadId], ownerId: dto.ownerId });
+  /**
+   * 04 §2 POST /leads/{id}/convert 单条 lead 转 CRM。
+   * 出参是单条结果 + `mapped` 布尔（前端据此区分「新建客户档案 / 归并已有客户」文案），
+   * 与批量 add-to-crm 的 `{created,duplicated,customers,mapped[]}` 汇总形状不同，故此处做映射。
+   */
+  async convert(
+    ctx: OrgScopeContext,
+    leadId: string,
+    dto: ConvertLeadDto,
+  ): Promise<ConvertLeadResult> {
+    const lead = await withOrg(this.db, ctx.orgId, async (tx) => {
+      const [row] = await tx
+        .select({
+          companyName: schema.aiLead.companyName,
+          convertedCustomerId: schema.aiLead.convertedCustomerId,
+        })
+        .from(schema.aiLead)
+        .where(and(eq(schema.aiLead.id, leadId), eq(schema.aiLead.orgId, ctx.orgId)))
+        .limit(1);
+      return row;
+    });
+    if (!lead) {
+      throw new BizException(ErrorCode.NOT_FOUND, '发现客户不存在');
+    }
+
+    const result = await this.addToCrm(ctx, { leadIds: [leadId], ownerId: dto.ownerId });
+    const created = result.customers[0];
+    // 已转化 lead 重复 convert 时 customers/mapped 皆空 → 回退 lead 上记录的归属客户
+    const customerId =
+      created?.customerId ?? result.mapped[0]?.mappedCustomerId ?? lead.convertedCustomerId;
+    if (!customerId) {
+      throw new BizException(ErrorCode.NOT_FOUND, '发现客户不存在');
+    }
+
+    const customerName = await withOrg(this.db, ctx.orgId, async (tx) => {
+      const [row] = await tx
+        .select({ companyName: schema.customer.companyName })
+        .from(schema.customer)
+        .where(and(eq(schema.customer.id, customerId), eq(schema.customer.orgId, ctx.orgId)))
+        .limit(1);
+      return row?.companyName ?? lead.companyName;
+    });
+
+    return { leadId, customerId, customerName, mapped: !created };
   }
 
-  /** 简单规则解析（MVP 暂替 LLM） */
-  private simpleParse(text: string): { targetMarket: string; customerType: string; targetProduct: string; companySize?: string } {
+  /** 规则解析：LLM 不可用时的确定性兜底（含中文模式抽取，缺失字段给保守默认值） */
+  private simpleParse(text: string): ParsedGoal {
     let targetMarket = 'Global';
     let customerType = 'Company';
     let targetProduct = text;
     let companySize: string | undefined;
 
     // 国家关键词
-    const countryMap: Array<{ pattern: string; value: string }> = [
-      { pattern: '美国|USA|US|America|北美', value: 'USA' },
-      { pattern: '德国|Germany|DE|欧洲', value: 'Germany' },
-      { pattern: '日本|Japan|JP', value: 'Japan' },
-      { pattern: '英国|UK|Britain|England', value: 'UK' },
-      { pattern: '法国|France|FR', value: 'France' },
-    ];
-    for (const entry of countryMap) {
+    for (const entry of COUNTRY_MAP) {
       if (new RegExp(entry.pattern, 'i').test(text)) {
         targetMarket = entry.value;
         break;

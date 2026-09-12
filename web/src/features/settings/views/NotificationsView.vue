@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 
 import { fetchNotificationSettings, updateNotificationSettings } from '@/api/resources/settings'
+import { handleApiError } from '@/api/error-handler'
 import type { NotificationSettings } from '@/api/types/settings'
 import { useFormLeaveGuard } from '@/composables/useFormLeaveGuard'
 
@@ -44,6 +45,8 @@ onMounted(async () => {
     const settings = await fetchNotificationSettings()
     Object.assign(form.events, settings.events)
     loaded.value = true
+  } catch (error) {
+    handleApiError(error)
   } finally {
     loading.value = false
   }
@@ -55,6 +58,8 @@ async function save() {
     await updateNotificationSettings({ events: form.events })
     dirty.value = false
     ElMessage.success(t('settings.savedNow'))
+  } catch (error) {
+    handleApiError(error)
   } finally {
     saving.value = false
   }

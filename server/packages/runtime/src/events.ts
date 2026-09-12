@@ -25,11 +25,20 @@ export function buildLogEvent(payload: {
   type: string;
   content: string;
   leadId?: string;
+  /** 事件时间（ISO8601）；缺省以当前时刻兜底，保证 SSE 实时与 /logs 回放同构 */
+  time?: string;
 }): TaskEvent {
-  return { type: SSE_EVENT_TYPE.LOG, seq: nextSeq(), payload } as unknown as TaskEvent;
+  return {
+    type: SSE_EVENT_TYPE.LOG,
+    seq: nextSeq(),
+    payload: { ...payload, time: payload.time ?? new Date().toISOString() },
+  } as unknown as TaskEvent;
 }
 
-export function buildProgressEvent(payload: { progressPct: number; currentStep: string }): TaskEvent {
+export function buildProgressEvent(payload: {
+  progressPct: number;
+  currentStep: string;
+}): TaskEvent {
   return { type: SSE_EVENT_TYPE.PROGRESS, seq: nextSeq(), payload } as unknown as TaskEvent;
 }
 
@@ -56,7 +65,9 @@ export class TaskEventPublisher {
   async publish(taskId: string, event: TaskEvent): Promise<void> {
     const parsed = taskEventSchema.safeParse(event);
     if (!parsed.success) {
-      const detail = parsed.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ');
+      const detail = parsed.error.issues
+        .map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
+        .join('; ');
       throw new Error(`SSE 事件不符合契约: ${detail}；event=${JSON.stringify(event)}`);
     }
     await this.redis.publish(taskEventChannel(taskId), JSON.stringify(parsed.data));
@@ -81,15 +92,27 @@ export async function flushBufferedEvents(
   }
   const events: TaskEvent[] = buffered.map((e) => {
     if (e.type === 'log') {
-      return buildLogEvent(e.payload as { logId: string; type: string; content: string; leadId?: string });
+      return buildLogEvent(
+        e.payload as {
+          logId: string;
+          type: string;
+          content: string;
+          leadId?: string;
+          time?: string;
+        },
+      );
     }
     if (e.type === 'progress') {
       return buildProgressEvent(e.payload as { progressPct: number; currentStep: string });
     }
     if (e.type === 'status') {
-      return buildStatusEvent(e.payload as { status: string; linkedApprovalId?: string; error?: string });
+      return buildStatusEvent(
+        e.payload as { status: string; linkedApprovalId?: string; error?: string },
+      );
     }
-    return buildDoneEvent(e.payload as { status: string; outputs: Record<string, unknown>[]; error?: string });
+    return buildDoneEvent(
+      e.payload as { status: string; outputs: Record<string, unknown>[]; error?: string },
+    );
   });
   buffered.length = 0;
   await publisher.publishAll(taskId, events);

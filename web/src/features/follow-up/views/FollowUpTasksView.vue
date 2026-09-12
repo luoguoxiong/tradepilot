@@ -7,8 +7,14 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 
 import ProTable from '@/components/business/ProTable.vue'
 import type { ProColumn } from '@/components/business/pro-table'
-import { getFollowUpSummary, getFollowUpTasks, pauseFollowUpTask, skipFollowUpTask } from '@/api/resources/follow-ups'
+import {
+  getFollowUpSummary,
+  getFollowUpTasks,
+  pauseFollowUpTask,
+  skipFollowUpTask,
+} from '@/api/resources/follow-ups'
 import type { FollowUpTaskItem, FollowUpTaskQuery } from '@/api/types/follow-up'
+import { handleApiError } from '@/api/error-handler'
 import { qk } from '@/query/keys'
 import { staleTime } from '@/query/options'
 import { useAuthStore } from '@/stores/auth'
@@ -29,7 +35,12 @@ const auth = useAuthStore()
 
 const columns: ProColumn[] = [
   { prop: 'companyName', labelKey: 'followUp.company', minWidth: 160 },
-  { prop: 'currentStage', labelKey: 'followUp.currentStage', minWidth: 120, enumGroup: 'followUpStage' },
+  {
+    prop: 'currentStage',
+    labelKey: 'followUp.currentStage',
+    minWidth: 120,
+    enumGroup: 'followUpStage',
+  },
   { prop: 'nextRunAt', labelKey: 'followUp.nextRunAt', minWidth: 140 },
   { prop: 'status', labelKey: 'followUp.status', width: 120, enumGroup: 'followUpTaskStatus' },
   { prop: 'strategyName', labelKey: 'followUp.strategyName', minWidth: 150 },
@@ -62,7 +73,8 @@ const tabs = computed(() => [
   },
 ])
 
-const fetchTasks = (params: Record<string, unknown>) => getFollowUpTasks(params as FollowUpTaskQuery)
+const fetchTasks = (params: Record<string, unknown>) =>
+  getFollowUpTasks(params as FollowUpTaskQuery)
 
 /** 企业时区（next_run_at 存 UTC，展示/触发按企业时区换算，07 §4） */
 const timezone = computed(() => auth.org?.timezone ?? DEFAULT_TIMEZONE)
@@ -85,7 +97,7 @@ async function onPause(task: FollowUpTaskItem) {
     ElMessage.success(t('followUp.paused'))
     void queryClient.invalidateQueries({ queryKey: qk.followUps.all })
   } catch (error) {
-    ElMessage.error((error as Error).message || t('common.operationFailed'))
+    handleApiError(error)
   }
 }
 
@@ -95,7 +107,7 @@ async function onSkip(task: FollowUpTaskItem) {
     ElMessage.success(t('followUp.skipped'))
     void queryClient.invalidateQueries({ queryKey: qk.followUps.all })
   } catch (error) {
-    ElMessage.error((error as Error).message || t('common.operationFailed'))
+    handleApiError(error)
   }
 }
 

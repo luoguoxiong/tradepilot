@@ -7,7 +7,7 @@ import { TaskEnqueuer } from '@tradepilot/runtime';
 import { EMPLOYEE_OCCUPYING_TASK_STATUSES, type TaskType } from '@tradepilot/shared';
 import { DB } from '../db/db.module.js';
 import { REDIS } from '../redis/redis.module.js';
-import type { EnvService } from '../config/env.service.js';
+import { EnvService } from '../config/env.service.js';
 import type { CreateTaskDto, ListTasksQuery } from './tasks.dto.js';
 
 /**
@@ -48,7 +48,8 @@ export class TasksService implements OnModuleDestroy {
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(REDIS) private readonly redis: Redis,
-    env: EnvService,
+    // 无装饰参数依赖 design:paramtypes 元数据：import type 会擦除类引用导致 Nest 无法解析
+    @Inject(EnvService) env: EnvService,
   ) {
     this.enqueuer = new TaskEnqueuer(env.env.REDIS_URL);
   }

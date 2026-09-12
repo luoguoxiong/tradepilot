@@ -5,6 +5,7 @@ import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules, UploadFile } from 'element-plus'
 
 import { fetchOrg, updateOrg } from '@/api/resources/org'
+import { handleApiError } from '@/api/error-handler'
 import type { OrgProfile } from '@/api/types/org'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
@@ -106,6 +107,8 @@ onMounted(async () => {
     const org = await fetchOrg()
     Object.assign(form, org, { sendRules: org.sendRules ?? form.sendRules })
     loaded.value = true
+  } catch (error) {
+    handleApiError(error)
   } finally {
     loading.value = false
   }
@@ -146,6 +149,8 @@ async function save() {
       appStore.setLocale(org.defaultLanguage)
     }
     ElMessage.success(t('settings.saved'))
+  } catch (error) {
+    handleApiError(error)
   } finally {
     saving.value = false
   }

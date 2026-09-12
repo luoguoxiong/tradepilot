@@ -4,10 +4,8 @@ import { ElMessage, ElNotification } from 'element-plus'
 
 import type { ApproveReq } from '@/api/types/approvals'
 import type { ApiError } from '@/api/http'
-import {
-  approveApproval,
-  rejectApproval,
-} from '@/api/resources/approvals'
+import { approveApproval, rejectApproval } from '@/api/resources/approvals'
+import { handleApiError } from '@/api/error-handler'
 import { qk } from '@/query/keys'
 import { useNotifyStore } from '@/stores/notify'
 
@@ -32,14 +30,17 @@ export function useApprovalDispose() {
   }
 
   function onError(error: ApiError): void {
-    ElMessage.error(error.message || t('common.operationFailed'))
+    // 统一错误码管道：expired → 42201、重复处置 → 40901 等由管道映射（03 §4）
+    handleApiError(error)
   }
 
   async function approve(approvalId: string, data: ApproveReq): Promise<boolean> {
     try {
       const result = await approveApproval(approvalId, data)
       ElMessage.success(
-        result.status === 'edited_approved' ? t('approvals.done.editedApproved') : t('approvals.done.approved'),
+        result.status === 'edited_approved'
+          ? t('approvals.done.editedApproved')
+          : t('approvals.done.approved'),
       )
       invalidateAll()
       return true

@@ -45,24 +45,42 @@ export class S3Storage implements ObjectStorage {
   }
 
   async putObject(key: string, body: Buffer, contentType: string): Promise<void> {
-    await this.request('PUT', key, body, { 'content-type': contentType });
+    const res = await this.request('PUT', key, body, { 'content-type': contentType });
+    if (!res.ok) {
+      // 关键：不校验会静默吞掉 NoSuchBucket 等失败，导致 upload 的自举重试分支永不触发
+      await this.throwS3Error(res, '写入', key);
+    }
   }
 
   async getObject(key: string): Promise<Buffer> {
     const res = await this.request('GET', key, undefined);
     if (!res.ok) {
-      throw new Error(`对象读取失败（${res.status}）: s3://${this.bucket}/${key}`);
+      await this.throwS3Error(res, '读取', key);
     }
     return Buffer.from(await res.arrayBuffer());
   }
 
   async ensureBucket(): Promise<void> {
-    // HEAD bucket 404 → PUT 创建（幂等）
+    // HEAD bucket：200 已存在 → no-op；404 → PUT 创建（幂等）
     const head = await this.request('HEAD', '', undefined);
     if (head.status === 200) {
       return;
     }
-    await this.request('PUT', '', undefined);
+    if (head.status !== 404) {
+      await this.throwS3Error(head, '存储检查', '');
+    }
+    const res = await this.request('PUT', '', undefined);
+    if (!res.ok) {
+      await this.throwS3Error(res, '存储创建', '');
+    }
+  }
+
+  /** 统一错误抛出：带 HTTP 状态与 MinIO 返回体摘要，便于定位（如 NoSuchBucket / 签名错） */
+  private async throwS3Error(res: Response, action: string, key: string): Promise<never> {
+    const detail = (await res.text().catch(() => '')).slice(0, 200);
+    throw new Error(
+      `对象${action}失败（${res.status}）: s3://${this.bucket}/${key}${detail ? ` — ${detail}` : ''}`,
+    );
   }
 
   /** SigV4 签名请求（path-style：/{bucket}/{key}；返回原始 Response） */
@@ -102,12 +120,9 @@ export class S3Storage implements ObjectStorage {
     ].join('\n');
 
     const scope = `${dateStamp}/${this.region}/s3/aws4_request`;
-    const stringToSign = [
-      'AWS4-HMAC-SHA256',
-      amzDate,
-      scope,
-      sha256Hex(canonicalRequest),
-    ].join('\n');
+    const stringToSign = ['AWS4-HMAC-SHA256', amzDate, scope, sha256Hex(canonicalRequest)].join(
+      '\n',
+    );
 
     const kDate = hmac(`AWS4${this.secretAccessKey}`, dateStamp);
     const kRegion = hmac(kDate, this.region);

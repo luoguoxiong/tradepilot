@@ -6,8 +6,12 @@ import { TaskEnqueuer } from '@tradepilot/runtime';
 import { getObjectStorage, knowledgeDocKey } from '@tradepilot/integrations';
 import { searchKnowledgeChunks } from '@tradepilot/tools';
 import { DB } from '../db/db.module.js';
-import type { EnvService } from '../config/env.service.js';
-import type { KnowledgeSearchDto, ListKnowledgeQuery, UploadKnowledgeDto } from './knowledge.dto.js';
+import { EnvService } from '../config/env.service.js';
+import type {
+  KnowledgeSearchDto,
+  ListKnowledgeQuery,
+  UploadKnowledgeDto,
+} from './knowledge.dto.js';
 import { KNOWLEDGE_FILE_TYPES, KNOWLEDGE_MAX_SIZE } from './knowledge.dto.js';
 
 /**
@@ -25,7 +29,8 @@ export class KnowledgeService {
 
   constructor(
     @Inject(DB) private readonly db: Db,
-    env: EnvService,
+    // 同 tasks：无装饰参数需 @Inject(EnvService) 显式 token，否则 type import 擦除后无法解析
+    @Inject(EnvService) env: EnvService,
   ) {
     this.enqueuer = new TaskEnqueuer(env.env.REDIS_URL);
   }
@@ -79,7 +84,11 @@ export class KnowledgeService {
     return { docId, status: 'indexing' };
   }
 
-  /** 11 §2 文档列表（category/keyword；过滤已删） */
+  /**
+   * 11 §2 文档列表（category/keyword；过滤已删）。
+   * 响应字段对齐接口 11 §1.1：`size` 为可读字符串、`updatedBy` 为上传人姓名
+   * （与 detail §3.5 一致，前端列 colUpdatedBy 直接渲染）。
+   */
   async list(
     orgId: string,
     query: ListKnowledgeQuery & { page: number; pageSize: number },
@@ -90,17 +99,20 @@ export class KnowledgeService {
       category: string;
       status: string;
       error: string | null;
-      size: number | null;
+      size: string | null;
       fileType: string | null;
       uploadedAt: string;
-      uploadedBy: string | null;
+      updatedBy: string | null;
     }[];
     total: number;
     page: number;
     pageSize: number;
   }> {
     return withOrg(this.db, orgId, async (tx) => {
-      const conds = [eq(schema.knowledgeDocument.orgId, orgId), isNull(schema.knowledgeDocument.deletedAt)];
+      const conds = [
+        eq(schema.knowledgeDocument.orgId, orgId),
+        isNull(schema.knowledgeDocument.deletedAt),
+      ];
       if (query.category) {
         conds.push(eq(schema.knowledgeDocument.category, query.category));
       }
@@ -118,17 +130,18 @@ export class KnowledgeService {
           size: schema.knowledgeDocument.size,
           fileType: schema.knowledgeDocument.fileType,
           createdAt: schema.knowledgeDocument.createdAt,
-          uploadedBy: schema.knowledgeDocument.uploadedBy,
+          updatedBy: schema.userAccount.name,
         })
         .from(schema.knowledgeDocument)
+        .leftJoin(
+          schema.userAccount,
+          eq(schema.userAccount.id, schema.knowledgeDocument.uploadedBy),
+        )
         .where(where)
         .orderBy(desc(schema.knowledgeDocument.createdAt))
         .limit(query.pageSize)
         .offset((query.page - 1) * query.pageSize);
-      const [total] = await tx
-        .select({ n: count() })
-        .from(schema.knowledgeDocument)
-        .where(where);
+      const [total] = await tx.select({ n: count() }).from(schema.knowledgeDocument).where(where);
       return {
         items: rows.map((r) => ({
           docId: r.id,
@@ -136,10 +149,10 @@ export class KnowledgeService {
           category: r.category,
           status: r.status,
           error: r.error,
-          size: r.size,
+          size: formatFileSize(r.size),
           fileType: r.fileType,
           uploadedAt: r.createdAt.toISOString(),
-          uploadedBy: r.uploadedBy,
+          updatedBy: r.updatedBy ?? null,
         })),
         total: Number(total?.n ?? 0),
         page: query.page,
@@ -274,7 +287,10 @@ export class KnowledgeService {
         .select({ n: count() })
         .from(schema.knowledgeDocument)
         .where(
-          and(eq(schema.knowledgeDocument.orgId, orgId), isNull(schema.knowledgeDocument.deletedAt)),
+          and(
+            eq(schema.knowledgeDocument.orgId, orgId),
+            isNull(schema.knowledgeDocument.deletedAt),
+          ),
         );
       const [chunks] = await tx
         .select({ n: count() })
@@ -284,7 +300,12 @@ export class KnowledgeService {
         .select({ indexedAt: schema.knowledgeDocument.indexedAt })
         .from(schema.knowledgeDocument)
         .where(
-          and(eq(schema.knowledgeDocument.orgId, orgId), isNull(schema.knowledgeDocument.deletedAt)),
+          and(
+            eq(schema.knowledgeDocument.orgId, orgId),
+            isNull(schema.knowledgeDocument.deletedAt),
+            // PG DESC 默认 NULLS FIRST：过滤未索引行，避免取到 failed/indexing 的空 indexedAt
+            eq(schema.knowledgeDocument.status, 'indexed'),
+          ),
         )
         .orderBy(desc(schema.knowledgeDocument.indexedAt))
         .limit(1);
@@ -321,6 +342,23 @@ export class KnowledgeService {
 }
 
 // ===== 模块级辅助 =====
+
+/**
+ * 字节数 → 可读大小（11 §1.1：`size` 为字符串展示字段，与前端 mock/colSize 一致）。
+ * 无大小（历史/异常行）返回 null。
+ */
+function formatFileSize(bytes: number | null): string | null {
+  if (bytes === null || bytes === undefined) {
+    return null;
+  }
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  if (bytes >= 1024) {
+    return `${Math.round(bytes / 1024)} KB`;
+  }
+  return `${bytes} B`;
+}
 
 /** magic number 复核（07 §2 / 08 §7：防伪装扩展名） */
 function assertMagicNumber(ext: string, buffer: Buffer): void {

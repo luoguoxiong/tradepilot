@@ -1,16 +1,42 @@
 /**
  * 搜索/抓取供应商适配（后端技术方案 06 §3，M4 #6）：
- * - mock：确定性产出（跨轮换词/翻页可复算），保三图 dry-run 与单测可测；
  * - http：Serper 兼容搜索 API（web_search）+ 轻量 HTML 抓取（site_crawl，非 Playwright 渲染，
  *   动态页渲染列后续增强）。
  * 抓取合规（08 §7 获客与数据合规，M4 C8）：robots.txt 尊重（解析失败视为允许，业界惯例）、
  * 单站限速（per-host 最小间隔）、UA 标识（TradePilotBot）、excludeDomains 硬过滤、
  * 数据最小化（只存 title/desc 摘要，不整页入库）。搜索 API 侧 ToS 由供应商契约承担。
- * 进程级注入（同 email-send-config 模式）：worker 启动时 configureSearchProvider 一次。
+ * 进程级注入（同 email-send-config 模式）：worker 启动时 setSearchProviderFactory 一次，
+ * 按 org 解析「系统设置 → AI 模型配置」选用的搜索供应商（type=search，06 §3）。
  */
 
 /** 爬虫 UA 标识（08 §7：`TradePilotBot`） */
 export const CRAWLER_UA = 'TradePilotBot/1.0 (+https://tradepilot.ai/bot)';
+
+/** 官网关键页（产品/关于摘要来源） */
+const CRAWL_PAGES = ['/', '/products', '/about'] as const;
+
+/**
+ * 抓取请求头：保持 UA 自报身份不变（合规要求，不伪装浏览器），
+ * 补 Accept/Accept-Language 以适配「对缺失标准头直接拦截」的边缘 WAF。
+ */
+const CRAWL_HEADERS = {
+  'user-agent': CRAWLER_UA,
+  accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'accept-language': 'en-US,en;q=0.9',
+} as const;
+
+/** 域名归一：去协议/路径/端口，小写（返回空串表示非法） */
+export function normalizeHost(domain: string): string {
+  return (
+    (domain ?? '')
+      .trim()
+      .replace(/^https?:\/\//i, '')
+      .split('/')[0]
+      ?.split('?')[0]
+      ?.replace(/:\d+$/, '')
+      .toLowerCase() ?? ''
+  );
+}
 
 export interface WebSearchHit {
   title: string;
@@ -29,29 +55,6 @@ export interface SearchProvider {
   webSearch(query: string, page?: number): Promise<WebSearchHit[]>;
   /** 抓取官网关键页（/、/products、/about）产出摘要与产品线索 */
   crawlSite(domain: string): Promise<SiteCrawlResult>;
-}
-
-// ===== mock（确定性）=====
-
-export class MockSearchProvider implements SearchProvider {
-  async webSearch(query: string, page = 1): Promise<WebSearchHit[]> {
-    const slug = `p${page}-${query.length}`;
-    return [
-      {
-        title: `${query.slice(0, 40)} | vendor-${slug}.example.com`,
-        url: `https://vendor-${slug}.example.com`,
-        snippet: `mock 搜索结果：与「${query.slice(0, 24)}」相关的公司页（确定性 mock，M4 供应商适配）`,
-      },
-    ];
-  }
-
-  async crawlSite(domain: string): Promise<SiteCrawlResult> {
-    return {
-      summary: `[mock 抓取] ${domain}：主营产品与公司介绍摘要（mock 供应商，测试可断言）`,
-      products: ['mock product line A', 'mock product line B'],
-      crawledPages: ['/', '/products', '/about'],
-    };
-  }
 }
 
 // ===== http（Serper 兼容）=====
@@ -238,18 +241,54 @@ export class HttpSearchProvider implements SearchProvider {
     return text;
   }
 
+  /**
+   * 抓取官网关键页（/、/products、/about）。
+   * 根域与 www 变体依次尝试（部分站点仅其一可解析/放行，M4 真实站点鲁棒性）；
+   * 两者均无可用页时抛错，错误信息携带每页失败原因（HTTP 状态/超时/robots 禁止）便于定位。
+   */
   async crawlSite(domain: string): Promise<SiteCrawlResult> {
-    const base = `https://${domain.replace(/^https?:\/\//, '').replace(/\/$/, '')}`;
-    const pages = ['/', '/products', '/about'];
+    const host = normalizeHost(domain);
+    if (!host) {
+      throw new Error(`站点抓取失败（域名非法）: ${domain}`);
+    }
+    // 根域 ⇄ www 变体（先试原样主机，失败再试另一变体）
+    const bases = host.startsWith('www.')
+      ? [`https://${host}`, `https://${host.slice(4)}`]
+      : [`https://${host}`, `https://www.${host}`];
+    const failures: string[] = [];
+    for (const base of bases) {
+      const attempt = await this.crawlBase(base);
+      if (attempt.crawled.length > 0) {
+        return {
+          summary: attempt.summaries.join('\n').slice(0, 2000) || `${domain}（无摘要）`,
+          products: attempt.products,
+          crawledPages: attempt.crawled,
+        };
+      }
+      failures.push(...attempt.failures);
+    }
+    const detail = failures.slice(0, 6).join('; ');
+    throw new Error(`站点抓取失败（无可达页面）: ${domain}${detail ? ` — ${detail}` : ''}`);
+  }
+
+  /** 单主机抓取（原 crawlSite 主体，返回失败明细供上层汇总） */
+  private async crawlBase(base: string): Promise<{
+    summaries: string[];
+    products: string[];
+    crawled: string[];
+    failures: string[];
+  }> {
     const timeoutMs = this.options.fetchTimeoutMs ?? 10_000;
     const summaries: string[] = [];
     const products: string[] = [];
     const crawled: string[] = [];
-    for (const p of pages) {
+    const failures: string[] = [];
+    for (const p of CRAWL_PAGES) {
       // ① robots.txt 尊重（08 §7）：disallow 路径直接跳过
       if (this.respectRobots) {
         const robots = await this.getRobots(base);
         if (robots !== null && !robotsAllows(robots, p)) {
+          failures.push(`${p} robots.txt 禁止`);
           continue;
         }
       }
@@ -258,9 +297,10 @@ export class HttpSearchProvider implements SearchProvider {
       try {
         const res = await fetch(`${base}${p}`, {
           signal: AbortSignal.timeout(timeoutMs),
-          headers: { 'user-agent': CRAWLER_UA },
+          headers: CRAWL_HEADERS,
         });
         if (!res.ok) {
+          failures.push(`${p} HTTP ${res.status}`);
           continue;
         }
         const html = await res.text();
@@ -268,12 +308,13 @@ export class HttpSearchProvider implements SearchProvider {
         // 数据最小化（08 §7）：只提取 title/meta description 摘要与产品线索，不整页入库
         const title = /<title[^>]*>([^<]{1,200})<\/title>/i.exec(html)?.[1]?.trim();
         const desc =
-          /<meta[^>]+name=["']description["'][^>]+content=["']([^"']{1,400})["']/i.exec(
-            html,
-          )?.[1]?.trim() ?? '';
+          /<meta[^>]+name=["']description["'][^>]+content=["']([^"']{1,400})["']/i
+            .exec(html)?.[1]
+            ?.trim() ?? '';
         summaries.push(`${p}: ${title ?? ''}${desc ? ` — ${desc}` : ''}`.trim());
         // 产品线索：产品/目录链接锚文本（去重、截断）
-        const linkRe = /<a[^>]+href=["']([^"']*(?:product|catalog|item)[^"']*)["'][^>]*>([^<]{1,80})<\/a>/gi;
+        const linkRe =
+          /<a[^>]+href=["']([^"']*(?:product|catalog|item)[^"']*)["'][^>]*>([^<]{1,80})<\/a>/gi;
         let m: RegExpExecArray | null;
         while ((m = linkRe.exec(html)) !== null && products.length < 20) {
           const text = (m[2] ?? '').trim();
@@ -281,43 +322,46 @@ export class HttpSearchProvider implements SearchProvider {
             products.push(text);
           }
         }
-      } catch {
-        // 单页失败跳过（超时/403/网络），其余页继续
+      } catch (err) {
+        // 单页失败跳过（超时/403/网络），其余页继续，原因留存供诊断
+        failures.push(`${p} ${err instanceof Error ? err.message : String(err)}`);
       }
     }
-    if (crawled.length === 0) {
-      throw new Error(`站点抓取失败（无可达页面）: ${domain}`);
-    }
-    return {
-      summary: summaries.join('\n').slice(0, 2000) || `${domain}（无摘要）`,
-      products,
-      crawledPages: crawled,
-    };
+    return { summaries, products, crawled, failures };
   }
 }
 
 export function createSearchProvider(options: {
-  provider: 'mock' | 'http';
+  provider: 'http';
   baseUrl: string;
   apiKey: string;
 }): SearchProvider {
-  if (options.provider === 'http') {
-    return new HttpSearchProvider({ baseUrl: options.baseUrl, apiKey: options.apiKey });
+  if (options.provider !== 'http') {
+    throw new Error(`不支持的搜索供应商：${options.provider}（仅支持 http 即 Serper 兼容 API）`);
   }
-  return new MockSearchProvider();
+  return new HttpSearchProvider({ baseUrl: options.baseUrl, apiKey: options.apiKey });
 }
 
-// ===== 进程级注入（未注入默认 mock）=====
+// ===== 进程级注入（未注入明确报错，无 mock 兜底）=====
+// 16 FR-10 扩展后为「按 org 解析」：工厂可读库拿到 org 在「系统设置 → AI 模型配置」选用的
+// 搜索供应商（worker 侧装配）。
 
-let configured: SearchProvider | null = null;
+/** org → provider 工厂（异步：需读该 org 的 AI 模型选用配置） */
+export type SearchProviderFactory = (orgId?: string) => SearchProvider | Promise<SearchProvider>;
 
-export function configureSearchProvider(provider: SearchProvider): void {
-  configured = provider;
+let factory: SearchProviderFactory | null = null;
+
+/** 注册 org 级解析工厂（worker 启动时一次） */
+export function setSearchProviderFactory(next: SearchProviderFactory): void {
+  factory = next;
 }
 
-export function getSearchProvider(): SearchProvider {
-  if (!configured) {
-    configured = new MockSearchProvider();
+export async function getSearchProvider(orgId?: string): Promise<SearchProvider> {
+  if (factory) {
+    return await factory(orgId);
   }
-  return configured;
+  throw new Error(
+    `Search provider 未配置（org=${orgId ?? '-'}）：` +
+      '请由 worker 启动装配注入（setSearchProviderFactory）；无 mock 兜底',
+  );
 }

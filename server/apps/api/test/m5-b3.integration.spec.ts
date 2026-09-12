@@ -3,7 +3,8 @@
  * - GET /customers/{id} 头部 + Overview
  * - POST /customers/{id}/analyze 触发 AI 分析（异步）
  * - GET /customers/{id}/insights AI 客户洞察
- * - GET /customers/{id}/contacts 联系人列表
+ * - GET /customers/{id}/contacts 联系人列表（customer / lead 双数据源）
+ * - GET /customers/{id}/products 产品匹配列表（customer / lead 双数据源）
  * - GET /customers/{id}/conversations 会话列表
  * - GET /customers/{id}/quotes 历史报价（D6 降级）
  * - GET /customers/{id}/orders 历史订单（D6 降级）
@@ -13,7 +14,7 @@
  * 前置：docker compose up（PG 5432 / Redis 6380）+ 迁移已执行。
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import { createId, ErrorCode } from '@tradepilot/core';
 import { closeDb, createDb, schema, type Db, type OrgScopeContext } from '@tradepilot/db';
@@ -41,12 +42,15 @@ let taskEnqueuer: TaskEnqueuer;
 let orgId = '';
 let adminId = '';
 let adminCtx: OrgScopeContext;
+let salesId = '';
+let salesCtx: OrgScopeContext;
 let customerId = '';
 let contactId = '';
 let leadId = '';
-let leadHunterEmpId = '';
+let leadContactId = '';
 
 const adminEmail = `it-m5b3-${createId('org')}@test.com`;
+const salesEmail = `it-m5b3-sales-${createId('org')}@test.com`;
 
 async function expectBiz(promise: Promise<unknown>, code: number): Promise<void> {
   try {
@@ -78,6 +82,19 @@ beforeAll(async () => {
 
   adminCtx = { orgId, userId: adminId, role: 'admin', scope: 'all' };
 
+  // sales 成员 fixture（数据范围 40301 断言，ownerId=adminId 的 customer 对其不可见/不可写）
+  salesId = createId('usr');
+  await superDb.insert(schema.userAccount).values({
+    id: salesId,
+    orgId,
+    email: salesEmail,
+    passwordHash: 'fixture_no_login',
+    name: '销售乙',
+    role: 'sales',
+    status: 'active',
+  });
+  salesCtx = { orgId, userId: salesId, role: 'sales', scope: 'self' };
+
   taskEnqueuer = new TaskEnqueuer(env.env.REDIS_URL);
   const tasks = new TasksService(appDb, redis, env);
   const customers = new CustomersService(appDb, tasks);
@@ -87,13 +104,6 @@ beforeAll(async () => {
   customerId = createId('cus');
   contactId = createId('cont');
   leadId = createId('lead');
-
-  const [seedEmp] = await superDb
-    .select({ id: schema.aiEmployee.id })
-    .from(schema.aiEmployee)
-    .where(and(eq(schema.aiEmployee.orgId, orgId), eq(schema.aiEmployee.role, 'lead_hunter')))
-    .limit(1);
-  leadHunterEmpId = seedEmp?.id ?? '';
 
   // 创建测试客户
   await superDb.insert(schema.customer).values({
@@ -136,6 +146,31 @@ beforeAll(async () => {
     insight: { value: 85, confidence: 0.85, reasons: [] },
     inCrm: false,
   });
+
+  // 发现池联系人（lead 预览态 Contacts 页签数据源；转 CRM 迁移 + lead 开发信用例）
+  leadContactId = createId('con');
+  await superDb.insert(schema.aiLeadContact).values([
+    {
+      id: leadContactId,
+      orgId,
+      leadId,
+      name: 'Nina Patel',
+      title: 'Procurement Director',
+      email: 'nina@convertme.com',
+      decisionInfluencePct: 90,
+      source: 'ai_discovery',
+    },
+    {
+      id: createId('con'),
+      orgId,
+      leadId,
+      name: 'Owen Ford',
+      title: 'Buyer',
+      email: 'owen@convertme.com',
+      decisionInfluencePct: 75,
+      source: 'ai_discovery',
+    },
+  ]);
 
   // 创建测试活动
   await superDb.insert(schema.customerActivity).values({
@@ -190,21 +225,32 @@ afterAll(async () => {
       await tx.delete(schema.approvalLog).where(eq(schema.approvalLog.orgId, orgId));
       await tx.delete(schema.approvalRequest).where(eq(schema.approvalRequest.orgId, orgId));
       await tx.delete(schema.llmCall).where(eq(schema.llmCall.orgId, orgId));
+      // customer_insight.task_id → ai_task FK：须先于 ai_task 清理
+      await tx.delete(schema.customerInsight).where(eq(schema.customerInsight.orgId, orgId));
       await tx.delete(schema.aiTaskLog).where(eq(schema.aiTaskLog.orgId, orgId));
       await tx.delete(schema.aiTaskStep).where(eq(schema.aiTaskStep.orgId, orgId));
       await tx.delete(schema.aiTask).where(eq(schema.aiTask.orgId, orgId));
       await tx.delete(schema.followUpExecution).where(eq(schema.followUpExecution.orgId, orgId));
       await tx.delete(schema.followUpTask).where(eq(schema.followUpTask.orgId, orgId));
-      await tx.delete(schema.followUpStrategyStep).where(eq(schema.followUpStrategyStep.orgId, orgId));
+      await tx
+        .delete(schema.followUpStrategyStep)
+        .where(eq(schema.followUpStrategyStep.orgId, orgId));
       await tx.delete(schema.followUpStrategy).where(eq(schema.followUpStrategy.orgId, orgId));
-      await tx.delete(schema.conversationInsight).where(eq(schema.conversationInsight.orgId, orgId));
+      await tx
+        .delete(schema.conversationInsight)
+        .where(eq(schema.conversationInsight.orgId, orgId));
       await tx.delete(schema.message).where(eq(schema.message.orgId, orgId));
       await tx.delete(schema.conversation).where(eq(schema.conversation.orgId, orgId));
-      await tx.delete(schema.customerInsight).where(eq(schema.customerInsight.orgId, orgId));
       await tx.delete(schema.customerActivity).where(eq(schema.customerActivity.orgId, orgId));
       await tx.delete(schema.contact).where(eq(schema.contact.orgId, orgId));
-      await tx.update(schema.customer).set({ sourceLeadId: null }).where(eq(schema.customer.orgId, orgId));
-      await tx.update(schema.aiLead).set({ convertedCustomerId: null }).where(eq(schema.aiLead.orgId, orgId));
+      await tx
+        .update(schema.customer)
+        .set({ sourceLeadId: null })
+        .where(eq(schema.customer.orgId, orgId));
+      await tx
+        .update(schema.aiLead)
+        .set({ convertedCustomerId: null })
+        .where(eq(schema.aiLead.orgId, orgId));
       await tx.delete(schema.aiLeadContact).where(eq(schema.aiLeadContact.orgId, orgId));
       await tx.delete(schema.aiLead).where(eq(schema.aiLead.orgId, orgId));
       await tx.delete(schema.customer).where(eq(schema.customer.orgId, orgId));
@@ -265,17 +311,28 @@ describe('M5-B3-2 · POST /customers/{id}/analyze', () => {
 // ============================== B3-3 insights ==============================
 
 describe('M5-B3-3 · GET /customers/{id}/insights AI 客户洞察', () => {
-  it('返回客户洞察列表', async () => {
+  it('返回 Insight Schema 洞察（purchaseProbability + nextAction，04 §3.2）', async () => {
     const customers = (globalThis as Record<string, unknown>).__customers as CustomersService;
     const result = await customers.insights(adminCtx, customerId);
-    expect(result.length).toBeGreaterThanOrEqual(1);
-    const insight = result.find((i) => i.insightType === 'purchase_probability');
-    expect(insight).toBeDefined();
-    expect(Number(insight!.value)).toBe(92);
-    expect(Number(insight!.confidence)).toBeCloseTo(0.88);
-    expect(insight!.reasons.length).toBeGreaterThanOrEqual(1);
-    expect(insight!.nextAction).toBeDefined();
-    expect(insight!.nextAction!.type).toBe('contact_decision_maker');
+    expect(result.purchaseProbability).not.toBeNull();
+    expect(result.purchaseProbability!.value).toBe(92);
+    expect(result.purchaseProbability!.confidence).toBeCloseTo(0.88);
+    expect(result.purchaseProbability!.reasons.length).toBeGreaterThanOrEqual(1);
+    expect(result.purchaseProbability!.generatedAt).toBeTruthy();
+    expect(result.nextAction).toBeDefined();
+    expect(result.nextAction!.type).toBe('contact_decision_maker');
+    expect(result.nextAction!.targetId).toBeTruthy();
+  });
+
+  it('无分析数据 → purchaseProbability/nextAction 双 null（前端引导重新分析）', async () => {
+    const customers = (globalThis as Record<string, unknown>).__customers as CustomersService;
+    const created = await customers.create(adminCtx, {
+      companyName: `B3 无洞察客户 ${Date.now()}`,
+      country: 'US',
+    });
+    const result = await customers.insights(adminCtx, created.customerId);
+    expect(result.purchaseProbability).toBeNull();
+    expect(result.nextAction).toBeNull();
   });
 });
 
@@ -286,10 +343,61 @@ describe('M5-B3-4 · GET /customers/{id}/contacts 联系人列表', () => {
     const customers = (globalThis as Record<string, unknown>).__customers as CustomersService;
     const result = await customers.listCustomerContacts(adminCtx, customerId, 1, 10);
     expect(result.items.length).toBeGreaterThanOrEqual(1);
+    expect(result.items[0]!.customerId).toBe(customerId);
+    expect(result.items[0]!.companyName).toBeTruthy();
     expect(result.items[0]!.name).toBe('John Doe');
     expect(result.items[0]!.title).toBe('Purchasing Manager');
     expect(result.items[0]!.email).toBe('john@b3testcorp.com');
     expect(result.items[0]!.decisionInfluencePct).toBe(75);
+  });
+
+  it('lead 预览态（未转化）返回发现池联系人 ai_lead_contact（04 §3.1 双数据源）', async () => {
+    const customers = (globalThis as Record<string, unknown>).__customers as CustomersService;
+    const result = await customers.listCustomerContacts(adminCtx, leadId, 1, 10);
+    expect(result.total).toBe(2);
+    // 按决策影响力降序：90 在前并标为主联系人
+    expect(result.items[0]!.contactId).toBeTruthy();
+    expect(result.items[0]!.customerId).toBe(leadId);
+    expect(result.items[0]!.companyName).toBe('ConvertMe Inc');
+    expect(result.items[0]!.name).toBe('Nina Patel');
+    expect(result.items[0]!.title).toBe('Procurement Director');
+    expect(result.items[0]!.email).toBe('nina@convertme.com');
+    expect(result.items[0]!.decisionInfluencePct).toBe(90);
+    expect(result.items[0]!.isPrimary).toBe(true);
+    expect(result.items[1]!.name).toBe('Owen Ford');
+    expect(result.items[1]!.isPrimary).toBe(false);
+  });
+
+  it('不存在的 id → 404（lead 入口不再误报 40401）', async () => {
+    const customers = (globalThis as Record<string, unknown>).__customers as CustomersService;
+    await expectBiz(
+      customers.listCustomerContacts(adminCtx, 'lead_not_exist', 1, 10),
+      ErrorCode.NOT_FOUND,
+    );
+  });
+});
+
+// ============================== B3-4b products ==============================
+
+describe('M5-B3-4b · GET /customers/{id}/products 产品匹配列表', () => {
+  it('客户路径 → 空列表（产品目录 08 P1 未落地，04 §1.5）', async () => {
+    const customers = (globalThis as Record<string, unknown>).__customers as CustomersService;
+    const result = await customers.listCustomerProducts(adminCtx, customerId);
+    expect(result).toEqual([]);
+  });
+
+  it('lead 预览态（未转化）→ 空列表而非 40401（04 §3.1 双数据源）', async () => {
+    const customers = (globalThis as Record<string, unknown>).__customers as CustomersService;
+    const result = await customers.listCustomerProducts(adminCtx, leadId);
+    expect(result).toEqual([]);
+  });
+
+  it('不存在的 id → 404', async () => {
+    const customers = (globalThis as Record<string, unknown>).__customers as CustomersService;
+    await expectBiz(
+      customers.listCustomerProducts(adminCtx, 'lead_not_exist'),
+      ErrorCode.NOT_FOUND,
+    );
   });
 });
 
@@ -363,6 +471,17 @@ describe('M5-B3-9 · POST /contacts/{id}/generate-outreach 生成开发信', () 
     expect(msg!.direction).toBe('out');
   });
 
+  it('lead 预览态联系人 → 产出草稿（尚未入库，conversationId 为空）', async () => {
+    const customers = (globalThis as Record<string, unknown>).__customers as CustomersService;
+    const result = await customers.generateOutreach(adminCtx, leadContactId, {
+      scenario: 'cold_outreach',
+      language: 'en',
+    });
+    expect(result.draftId).toBeDefined();
+    expect(result.conversationId).toBe('');
+    expect(result.content).toContain('Dear Nina Patel');
+  });
+
   it('不存在的联系人 → 404', async () => {
     const customers = (globalThis as Record<string, unknown>).__customers as CustomersService;
     await expectBiz(
@@ -375,24 +494,92 @@ describe('M5-B3-9 · POST /contacts/{id}/generate-outreach 生成开发信', () 
 // ============================== B3-10 convert ==============================
 
 describe('M5-B3-10 · POST /leads/{id}/convert 单条 lead 转 CRM', () => {
-  it('转换成功返回 created=1', async () => {
+  it('转换成功返回单条结果 {leadId,customerId,customerName,mapped=false}', async () => {
     const leads = (globalThis as Record<string, unknown>).__leads as LeadsService;
     const result = await leads.convert(adminCtx, leadId, {});
-    expect(result.created).toBe(1);
-    expect(result.duplicated).toBe(0);
+    // 04 §2 出参是单条结果 + mapped 布尔（前端据此区分「新建 / 归并」文案），
+    // 非批量 add-to-crm 的 {created,duplicated,customers,mapped[]} 汇总形状。
+    expect(result.leadId).toBe(leadId);
+    expect(result.mapped).toBe(false);
+    expect(result.customerId).toBeTruthy();
+    expect(result.customerName).toBeTruthy();
 
     // 验证 lead 已标记
     const [lead] = await superDb
-      .select({ inCrm: schema.aiLead.inCrm, convertedCustomerId: schema.aiLead.convertedCustomerId })
+      .select({
+        inCrm: schema.aiLead.inCrm,
+        convertedCustomerId: schema.aiLead.convertedCustomerId,
+      })
       .from(schema.aiLead)
       .where(eq(schema.aiLead.id, leadId));
     expect(lead?.inCrm).toBe(true);
     expect(lead?.convertedCustomerId).toBeTruthy();
+    expect(result.customerId).toBe(lead?.convertedCustomerId);
+
+    // 转 CRM 补齐：发现池联系人迁移进 CRM contact（04 §3.6）
+    const migrated = await superDb
+      .select({
+        name: schema.contact.name,
+        title: schema.contact.title,
+        email: schema.contact.email,
+        decisionInfluencePct: schema.contact.decisionInfluencePct,
+        isPrimary: schema.contact.isPrimary,
+      })
+      .from(schema.contact)
+      .where(eq(schema.contact.customerId, result.customerId));
+    expect(migrated).toHaveLength(2);
+    const nina = migrated.find((c) => c.name === 'Nina Patel');
+    expect(nina?.title).toBe('Procurement Director');
+    expect(nina?.email).toBe('nina@convertme.com');
+    expect(nina?.decisionInfluencePct).toBe(90);
+    expect(nina?.isPrimary).toBe(true);
+
+    // 转化后 leadId 入口归并到归属客户（inCrm=true），读 contact 表返回同一批联系人
+    const customers = (globalThis as Record<string, unknown>).__customers as CustomersService;
+    const viaLeadId = await customers.listCustomerContacts(adminCtx, leadId, 1, 10);
+    expect(viaLeadId.total).toBe(2);
+    expect(viaLeadId.items[0]!.customerId).toBe(result.customerId);
+
+    // Products 页签同口径：转化后 leadId 归并到归属客户，返回 [] 而非 40401
+    expect(await customers.listCustomerProducts(adminCtx, leadId)).toEqual([]);
   });
 
-  it('已转换的 lead 重复提交 → duplicated', async () => {
+  it('已转换的 lead 重复提交 → mapped=true 且回退原归属客户', async () => {
     const leads = (globalThis as Record<string, unknown>).__leads as LeadsService;
-    const result = await leads.convert(adminCtx, leadId, {});
-    expect(result.duplicated).toBe(1);
+    const first = await leads.convert(adminCtx, leadId, {});
+    const again = await leads.convert(adminCtx, leadId, {});
+    expect(again.mapped).toBe(true);
+    expect(again.customerId).toBe(first.customerId);
+  });
+});
+
+// ============================== B3-11 越权（E1 补齐） ==============================
+
+describe('M5-B3-11 · 数据范围越权：sales(self) 访问他人客户 360° → 40301', () => {
+  it('detail / analyze / insights 对他人客户 → 40301', async () => {
+    const customers = (globalThis as Record<string, unknown>).__customers as CustomersService;
+    await expectBiz(customers.detail(salesCtx, customerId), ErrorCode.FORBIDDEN);
+    await expectBiz(
+      customers.analyze(salesCtx, customerId, { scope: 'overview' }),
+      ErrorCode.FORBIDDEN,
+    );
+    await expectBiz(customers.insights(salesCtx, customerId), ErrorCode.FORBIDDEN);
+  });
+
+  it('contacts / products / conversations / activities 子资源对他人客户 → 40301', async () => {
+    const customers = (globalThis as Record<string, unknown>).__customers as CustomersService;
+    await expectBiz(
+      customers.listCustomerContacts(salesCtx, customerId, 1, 10),
+      ErrorCode.FORBIDDEN,
+    );
+    await expectBiz(customers.listCustomerProducts(salesCtx, customerId), ErrorCode.FORBIDDEN);
+    await expectBiz(
+      customers.listCustomerConversations(salesCtx, customerId, 1, 10),
+      ErrorCode.FORBIDDEN,
+    );
+    await expectBiz(
+      customers.listCustomerActivities(salesCtx, customerId, 1, 10),
+      ErrorCode.FORBIDDEN,
+    );
   });
 });

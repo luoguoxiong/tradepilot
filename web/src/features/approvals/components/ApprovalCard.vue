@@ -31,7 +31,8 @@ const emailContext = computed(() =>
   isEmailSendContext(props.approval.context) ? props.approval.context : null,
 )
 const deleteContext = computed(() =>
-  props.approval.approvalType === 'customer_delete' && isCustomerDeleteContext(props.approval.context)
+  props.approval.approvalType === 'customer_delete' &&
+  isCustomerDeleteContext(props.approval.context)
     ? props.approval.context
     : null,
 )
@@ -66,7 +67,8 @@ const remainingHours = computed(() => {
 const remainingText = computed(() => {
   if (remainingHours.value === null) return ''
   if (remainingHours.value <= 0) return t('approvals.expired')
-  if (remainingHours.value >= 48) return t('approvals.remainingDays', { count: Math.round(remainingHours.value / 24) })
+  if (remainingHours.value >= 48)
+    return t('approvals.remainingDays', { count: Math.round(remainingHours.value / 24) })
   return t('approvals.remainingHours', { count: remainingHours.value })
 })
 </script>
@@ -75,7 +77,12 @@ const remainingText = computed(() => {
   <el-card class="approval-card" shadow="never" data-testid="approval-card">
     <header class="approval-card__head">
       <div class="approval-card__title-wrap">
-        <el-tag :type="approval.riskLevel === 'high' ? 'danger' : 'warning'" size="small" effect="dark" round>
+        <el-tag
+          :type="approval.riskLevel === 'high' ? 'danger' : 'warning'"
+          size="small"
+          effect="dark"
+          round
+        >
           {{ t(`approvals.risk.${approval.riskLevel}`) }}
         </el-tag>
         <h3 class="approval-card__title">{{ approval.title }}</h3>
@@ -131,7 +138,9 @@ const remainingText = computed(() => {
       <ul v-if="approval.reasons.length" class="approval-card__reasons">
         <li v-for="(reason, index) in approval.reasons" :key="index">
           <span class="approval-card__reason-text">{{ reason.text }}</span>
-          <span v-if="reason.evidence" class="approval-card__reason-evidence">{{ reason.evidence }}</span>
+          <span v-if="reason.evidence" class="approval-card__reason-evidence">{{
+            reason.evidence
+          }}</span>
         </li>
       </ul>
     </div>
@@ -142,11 +151,19 @@ const remainingText = computed(() => {
         {{ t('approvals.viewDetail') }}
       </el-button>
       <template v-if="isPending">
-        <el-button type="success" size="small" plain @click="emit('approve', approval)">
+        <!-- 12 §4：审批处置仅限 admin/manager（05 §3.2 基线，服务端 40301 为权威） -->
+        <el-button
+          v-permission="['admin', 'manager']"
+          type="success"
+          size="small"
+          plain
+          @click="emit('approve', approval)"
+        >
           {{ t('approvals.approve') }}
         </el-button>
         <el-button
           v-if="isEmailSend"
+          v-permission="['admin', 'manager']"
           type="primary"
           size="small"
           plain
@@ -154,7 +171,13 @@ const remainingText = computed(() => {
         >
           {{ t('approvals.editApprove') }}
         </el-button>
-        <el-button type="danger" size="small" plain @click="emit('reject', approval)">
+        <el-button
+          v-permission="['admin', 'manager']"
+          type="danger"
+          size="small"
+          plain
+          @click="emit('reject', approval)"
+        >
           {{ t('approvals.reject') }}
         </el-button>
       </template>
@@ -173,6 +196,7 @@ const remainingText = computed(() => {
 <style scoped lang="scss">
 .approval-card {
   --el-card-padding: 14px 16px;
+
   margin-bottom: 12px;
 
   &__head {

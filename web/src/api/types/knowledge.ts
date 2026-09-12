@@ -27,16 +27,16 @@ export interface KnowledgeDocument {
   deletedBy?: string
 }
 
-/** 知识统计（11 §1.2 FR-05） */
+/** 知识统计（11 §1.2 FR-05）；无已索引文档时 lastIndexedAt 为 null（展示兜底「—」） */
 export interface KnowledgeStats {
   documentsCount: number
   chunksCount: number
-  lastIndexedAt: string
+  lastIndexedAt: string | null
 }
 
-/** 文档列表查询（11 §2：category/keyword；过滤已删） */
+/** 文档列表查询（11 §2：category/keyword；过滤已删）；「全部」Tab 不传 category（枚举不接受 all） */
 export interface KnowledgeListQuery {
-  category?: KnowledgeCategory | 'all'
+  category?: KnowledgeCategory
   keyword?: string
   page?: number
   pageSize?: number
@@ -50,11 +50,7 @@ export interface UploadKnowledgeResp {
 
 /** 检索场景（11 §3.3，对内 API 各 AI 员工调用；前端仅「检索预览」用 sales_reply） */
 export type KnowledgeSearchScene =
-  | 'lead_match'
-  | 'sales_reply'
-  | 'follow_up'
-  | 'pricing_basis'
-  | 'business_analysis'
+  'lead_match' | 'sales_reply' | 'follow_up' | 'pricing_basis' | 'business_analysis'
 
 /** 检索命中（11 §1.3：docId/docName/chunkId 溯源三元组 + content/score） */
 export interface KnowledgeSearchHit {

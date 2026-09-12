@@ -7,6 +7,7 @@ import type { FormInstance, FormRules } from 'element-plus'
 
 import { createContact, getCustomers, updateContact } from '@/api/resources/customers'
 import type { ApiError } from '@/api/http'
+import { handleApiError } from '@/api/error-handler'
 import type { ContactItem } from '@/api/types/customers'
 import { qk } from '@/query/keys'
 import { staleTime } from '@/query/options'
@@ -113,11 +114,7 @@ const saveMutation = useMutation({
   },
   onError: (error: ApiError) => {
     // 40901：邮箱已被其他联系人使用（ER uq_contact_org_email）
-    if (error.code === 40901) {
-      ElMessage.error(t('crm.contactEmailExists'))
-      return
-    }
-    ElMessage.error(error.message || t('common.operationFailed'))
+    handleApiError(error, { conflictMessage: t('crm.contactEmailExists') })
   },
 })
 
@@ -154,7 +151,7 @@ async function submit() {
           style="width: 100%"
         >
           <el-option
-            v-for="customer in customersQuery.data.value?.list ?? []"
+            v-for="customer in customersQuery.data.value?.items ?? []"
             :key="customer.customerId"
             :value="customer.customerId"
             :label="customer.companyName"

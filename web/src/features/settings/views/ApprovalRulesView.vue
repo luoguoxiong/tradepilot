@@ -5,6 +5,7 @@ import { ElMessage } from 'element-plus'
 
 import type { Role } from '@/api/types/common'
 import { fetchRolePermissions, updateRolePermissions } from '@/api/resources/settings'
+import { handleApiError } from '@/api/error-handler'
 import type { ApprovalRule, RolePermissions } from '@/api/types/settings'
 import { AUTO_APPROVABLE_TYPES, MANDATORY_APPROVAL_TYPES } from '@/api/types/settings'
 import EmptyState from '@/components/business/EmptyState.vue'
@@ -54,6 +55,8 @@ async function load() {
     rolePermissions.value = await Promise.all(ROLES.map((role) => fetchRolePermissions(role)))
     rules.value = rolePermissions.value.find((p) => p.role === 'admin')?.approvalRules ?? []
     loaded.value = true
+  } catch (error) {
+    handleApiError(error)
   } finally {
     loading.value = false
   }
@@ -104,6 +107,8 @@ async function save() {
     await updateRolePermissions('admin', admin)
     dirty.value = false
     ElMessage.success(t('settings.saved'))
+  } catch (error) {
+    handleApiError(error)
   } finally {
     saving.value = false
   }

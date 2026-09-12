@@ -96,6 +96,8 @@ export class AuthService {
     await this.assertLoginRateLimit(email, clientIp);
 
     // 登录上下文：按 email 全局定位用户（login_lookup 策略，03 §1.1）
+    // 注意：不能在此 join org —— org 表 RLS 按 app.org_id 过滤，登录上下文未设 org_id
+    // 会导致 inner join 恒空、一律 40101（切专用角色后暴露，owner 模式绕过 RLS 掩盖）
     const rows = await withLoginContext(this.db, (tx) =>
       tx
         .select({
@@ -104,10 +106,8 @@ export class AuthService {
           role: schema.userAccount.role,
           status: schema.userAccount.status,
           passwordHash: schema.userAccount.passwordHash,
-          onboarding: schema.org.onboarding,
         })
         .from(schema.userAccount)
-        .innerJoin(schema.org, eq(schema.org.id, schema.userAccount.orgId))
         .where(eq(schema.userAccount.email, email))
         .limit(1),
     );
@@ -120,6 +120,15 @@ export class AuthService {
       throw new BizException(ErrorCode.UNAUTHORIZED, '邮箱或密码错误');
     }
 
+    // org.onboarding 在 org 上下文中单独读取（RLS 按 org_id 过滤）
+    const orgContextResult = await withOrg(this.db, user.orgId, (tx) =>
+      tx
+        .select({ onboarding: schema.org.onboarding })
+        .from(schema.org)
+        .where(eq(schema.org.id, user.orgId))
+        .limit(1),
+    );
+    const currentStep = orgContextResult[0]?.onboarding?.currentStep ?? 0;
     await withOrg(this.db, user.orgId, (tx) =>
       tx
         .update(schema.userAccount)
@@ -129,7 +138,7 @@ export class AuthService {
 
     return {
       ...(await this.issueTokens(user.id, user.orgId, user.role)),
-      onboarding: { currentStep: user.onboarding.currentStep },
+      onboarding: { currentStep },
     };
   }
 

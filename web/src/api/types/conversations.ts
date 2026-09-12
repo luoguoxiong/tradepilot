@@ -115,6 +115,8 @@ export interface SuggestionsApplyReq {
 export interface SuggestionsApplyResp {
   /** insert_draft：合并插入后的草稿全文 */
   draftContent?: string
+  /** insert_draft：草稿消息 id（无草稿时服务端新建，前端据此回填真实 id） */
+  draftId?: string
   /** create_tasks：生成任务 ID */
   taskIds?: string[]
 }

@@ -37,6 +37,21 @@ export const ENUMS = {
       color: 'var(--ai-idle)',
     },
   ],
+  /** AI 模型类型（16 FR-10 扩展） */
+  aiModelType: [
+    { value: 'llm', labelKey: 'enums.aiModelType.llm' },
+    { value: 'embedding', labelKey: 'enums.aiModelType.embedding' },
+    { value: 'search', labelKey: 'enums.aiModelType.search' },
+  ],
+  /** AI 模型提供方（16 FR-10 扩展） */
+  aiModelProvider: [
+    { value: 'openai', labelKey: 'enums.aiModelProvider.openai' },
+    { value: 'anthropic', labelKey: 'enums.aiModelProvider.anthropic' },
+    { value: 'deepseek', labelKey: 'enums.aiModelProvider.deepseek' },
+    { value: 'azure', labelKey: 'enums.aiModelProvider.azure' },
+    { value: 'mock', labelKey: 'enums.aiModelProvider.mock' },
+    { value: 'http', labelKey: 'enums.aiModelProvider.http' },
+  ],
   customerStage: [
     {
       value: 'new_lead',

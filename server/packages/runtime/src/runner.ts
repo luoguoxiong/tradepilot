@@ -15,7 +15,7 @@ import { schema, withOrg, type Db } from '@tradepilot/db';
 import { BizException, ErrorCode, createId } from '@tradepilot/core';
 import { EMPLOYEE_STATUS, TASK_STATUS, type TaskType } from '@tradepilot/shared';
 import type { GraphCompiler } from './compiler.js';
-import { BRANCH_KEY, ApprovalPendingError } from './compiler.js';
+import { BRANCH_KEY, ApprovalPendingError, PauseAbortError } from './compiler.js';
 import type { EmployeeRuntime, OrgApprovalRule, OrgRuntime, TaskRunContext } from './context.js';
 import type { TaskEventPublisher } from './events.js';
 import { buildDoneEvent, buildStatusEvent, flushBufferedEvents } from './events.js';
@@ -142,7 +142,14 @@ export class TaskRunner {
       const finalState = await graph.invoke(buildInitialState(ctx, stateKeys), ctx);
       const outputs =
         this.deps.sops.buildOutputs?.(ctx.taskType, finalState) ?? buildOutputs(finalState);
-      await this.complete(taskId, probe.orgId, snapshot.employee.id, outputs);
+      const updated = await this.complete(taskId, probe.orgId, snapshot.employee.id, outputs);
+      // 终态写回未命中（执行期间被 API 员工 pause 置 paused）→ 返回 paused，不覆盖状态
+      if (!updated) {
+        await redis.del(heartbeatKey(taskId));
+        await flushBufferedEvents(this.deps.publisher, taskId, ctx.events);
+        this.deps.logger.info({ taskId }, '任务执行完成但已被外部暂停，保持 paused');
+        return { status: TASK_STATUS.PAUSED };
+      }
       return { status: TASK_STATUS.COMPLETED, outputs };
     } catch (err) {
       if (err instanceof ApprovalPendingError) {
@@ -151,6 +158,13 @@ export class TaskRunner {
         await flushBufferedEvents(this.deps.publisher, taskId, ctx.events);
         logger.info({ taskId, approvalId: err.approvalId }, '任务进入审批挂起，job 正常结束');
         return { status: TASK_STATUS.WAITING_APPROVAL };
+      }
+      // 员工级 pause（02 §2）：API 已置 paused + 推送事件，runner 仅清理心跳/flush 缓冲事件后收尾
+      if (err instanceof PauseAbortError) {
+        await redis.del(heartbeatKey(taskId));
+        await flushBufferedEvents(this.deps.publisher, taskId, ctx.events);
+        logger.info({ taskId }, 'AI 员工已暂停，节点中止（保持 paused）');
+        return { status: TASK_STATUS.PAUSED };
       }
       // 外部调用日额度耗尽 → paused 而非 failed（03 §3.7：次日额度重置后由用户手动 resume）
       if (err instanceof BizException && err.code === ErrorCode.RATE_LIMITED) {
@@ -162,7 +176,11 @@ export class TaskRunner {
         { taskId, error, err: err instanceof Error ? err : undefined },
         '任务失败（堆栈见 err 字段）',
       );
-      await this.fail(taskId, probe.orgId, snapshot.employee.id, error, probe.title);
+      const updated = await this.fail(taskId, probe.orgId, snapshot.employee.id, error, probe.title);
+      if (!updated) {
+        // 失败收尾未命中（执行期间被暂停）→ 保持 paused，不覆盖
+        return { status: TASK_STATUS.PAUSED, error };
+      }
       return { status: TASK_STATUS.FAILED, error };
     } finally {
       stopHeartbeat();
@@ -396,10 +414,11 @@ export class TaskRunner {
     orgId: string,
     employeeId: string,
     outputs: Record<string, unknown>[],
-  ): Promise<void> {
+  ): Promise<boolean> {
     const now = new Date();
-    await withOrg(this.deps.db, orgId, async (tx) => {
-      await tx
+    return withOrg(this.deps.db, orgId, async (tx) => {
+      // 终态写回带 status 前置（防 02 §2 员工 pause 竞态覆盖：API 已置 paused → 0 行命中不覆盖）
+      const rows = await tx
         .update(schema.aiTask)
         .set({
           status: TASK_STATUS.COMPLETED,
@@ -408,7 +427,12 @@ export class TaskRunner {
           finishedAt: now,
           updatedAt: now,
         })
-        .where(eq(schema.aiTask.id, taskId));
+        .where(and(eq(schema.aiTask.id, taskId), eq(schema.aiTask.status, TASK_STATUS.RUNNING)))
+        .returning({ id: schema.aiTask.id });
+      if (rows.length === 0) {
+        this.deps.logger.warn({ taskId }, '任务终态写回未命中（已被外部暂停/置终态），跳过完成回写');
+        return false;
+      }
       // M3-06：终态回写前置校验——员工仍持有其它 active 任务则保持状态（防并发覆盖）
       const released = await releaseEmployeeIdle(tx, { employeeId, excludeTaskId: taskId, now });
       if (!released) {
@@ -417,13 +441,19 @@ export class TaskRunner {
           '任务完成但员工仍占用其它任务，保持员工状态（终态回写前置校验）',
         );
       }
+      return true;
+    }).then(async (ok) => {
+      if (!ok) {
+        return false;
+      }
+      await this.deps.redis.del(heartbeatKey(taskId));
+      await this.deps.publisher.publish(
+        taskId,
+        buildDoneEvent({ status: TASK_STATUS.COMPLETED, outputs }),
+      );
+      this.deps.logger.info({ taskId }, '任务完成');
+      return true;
     });
-    await this.deps.redis.del(heartbeatKey(taskId));
-    await this.deps.publisher.publish(
-      taskId,
-      buildDoneEvent({ status: TASK_STATUS.COMPLETED, outputs }),
-    );
-    this.deps.logger.info({ taskId }, '任务完成');
   }
 
   private async fail(
@@ -432,13 +462,19 @@ export class TaskRunner {
     employeeId: string,
     error: string,
     title = '',
-  ): Promise<void> {
+  ): Promise<boolean> {
     const now = new Date();
-    await withOrg(this.deps.db, orgId, async (tx) => {
-      await tx
+    const ok = await withOrg(this.deps.db, orgId, async (tx) => {
+      // 终态写回带 status 前置（同 complete，防 pause 竞态覆盖）
+      const rows = await tx
         .update(schema.aiTask)
         .set({ status: TASK_STATUS.FAILED, error, finishedAt: now, updatedAt: now })
-        .where(eq(schema.aiTask.id, taskId));
+        .where(and(eq(schema.aiTask.id, taskId), eq(schema.aiTask.status, TASK_STATUS.RUNNING)))
+        .returning({ id: schema.aiTask.id });
+      if (rows.length === 0) {
+        this.deps.logger.warn({ taskId }, '任务失败回写未命中（已被外部暂停/置终态），跳过失败落库');
+        return false;
+      }
       // M3-06：同 complete，终态回写前置校验
       const released = await releaseEmployeeIdle(tx, { employeeId, excludeTaskId: taskId, now });
       if (!released) {
@@ -447,7 +483,11 @@ export class TaskRunner {
           '任务失败但员工仍占用其它任务，保持员工状态（终态回写前置校验）',
         );
       }
+      return true;
     });
+    if (!ok) {
+      return false;
+    }
     await this.deps.redis.del(heartbeatKey(taskId));
     await this.deps.publisher.publish(
       taskId,
@@ -469,6 +509,7 @@ export class TaskRunner {
         );
       }
     }
+    return true;
   }
 
   // ===== 心跳 =====

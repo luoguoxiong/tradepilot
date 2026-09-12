@@ -87,7 +87,7 @@ export const aiIntent = pgEnum('ai_intent', [
   'other',
 ]);
 export const msgDirection = pgEnum('msg_direction', ['in', 'out']);
-export const msgStatus = pgEnum('msg_status', ['draft', 'sent', 'failed']);
+export const msgStatus = pgEnum('msg_status', ['draft', 'sent', 'failed', 'waiting_approval']);
 export const senderType = pgEnum('sender_type', ['ai', 'user', 'contact']);
 export const followUpStage = pgEnum('follow_up_stage', [
   'follow_up_1',
@@ -182,6 +182,11 @@ export const userRole = pgEnum('user_role', ['admin', 'manager', 'sales']);
 export const memberStatus = pgEnum('member_status', ['active', 'disabled', 'invited']);
 export const mailboxProvider = pgEnum('mailbox_provider', ['gmail', 'outlook', 'smtp_imap']);
 export const mailboxStatus = pgEnum('mailbox_status', ['connected', 'error', 'disconnected']);
+
+// AI 模型配置（16 FR-10 扩展）：普通大模型 / 向量化（Embedding）模型 / 搜索供应商
+// 备注：'search' 标签由 manual/0011_manual_ai_model_type_search.sql 幂等补齐（drizzle 生成的
+// 0004 不含该标签，避免存量库重放报 enum label already exists）。
+export const aiModelType = pgEnum('ai_model_type', ['llm', 'embedding', 'search']);
 
 // 经理与报告
 export const discoveryType = pgEnum('discovery_type', ['opportunity', 'risk']);

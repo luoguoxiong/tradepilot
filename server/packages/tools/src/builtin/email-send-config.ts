@@ -6,7 +6,7 @@
  * - db：失败留痕专用连接（06 §2.3「最终失败 message.status='failed'」）——失败路径必须
  *   独立事务落库：工具节点执行被 runtime execTool 的 withOrg 单事务包裹，抛错会连带回滚
  *   ctx.tx 内的一切写入，failed 行须走独立连接才能留存。
- * 测试注入：setMailboxDriverFactory（@tradepilot/integrations）替换驱动。
+ * 未注入时 email_send 直接报错（无 mock 外发兜底）；测试同样注入真实配置后走真实驱动。
  */
 import type { MailboxDriverOptions } from '@tradepilot/integrations';
 import type { Db } from '@tradepilot/db';
@@ -20,11 +20,6 @@ let config: EmailSendOptions | null = null;
 
 export function configureEmailSend(options: EmailSendOptions): void {
   config = options;
-}
-
-/** 配置是否已注入（未注入 → email_send 走 mock 外发兜底，M3 测试/演练语义） */
-export function isEmailSendConfigured(): boolean {
-  return config !== null;
 }
 
 export function getEmailSendConfig(): EmailSendOptions {

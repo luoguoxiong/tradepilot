@@ -1,11 +1,9 @@
 /**
  * 嵌入服务适配（后端技术方案 07 §2 ④ / 06 §4）：
- * - mock：文本派生确定性向量（跨进程一致——API 侧 query 与 worker 侧 chunk 必须同源），
- *   测试与离线开发可用；
  * - openai：OpenAI 兼容 /embeddings 接口（text-embedding-3-small，1536 维，ER 06 vector(1536)）。
- * 进程级注入（同 email-send-config 模式）：api/worker 启动时 configureEmbedding 一次。
+ * 进程级注入（同 email-send-config 模式）：api/worker 启动时 setEmbeddingProviderFactory 一次，
+ * 未注入即明确报错（无 mock 兜底）。
  */
-import { createHash } from 'node:crypto';
 
 export interface EmbeddingProvider {
   readonly dimensions: number;
@@ -15,62 +13,31 @@ export interface EmbeddingProvider {
 }
 
 export interface EmbeddingOptions {
-  provider: 'mock' | 'openai';
+  provider: 'openai';
   baseUrl: string;
   apiKey: string;
   model: string;
-  /** mock 维度（对齐 ER 06 vector(1536)） */
-  mockDimensions?: number;
+  /** 返回的向量维度（须与 knowledge_chunk.embedding 一致） */
+  dimensions?: number;
 }
-
-export const MOCK_EMBEDDING_DIMENSIONS = 1536;
 
 /**
- * mock 确定性向量：文本 sha256 派生种子 → 分桶伪随机 + L2 归一。
- * 同文本恒定同向量（跨进程/跨包一致），不同文本高维近似正交——混合检索的向量路
- * 在 mock 下可复算可断言，真实语义随 openai provider。
+ * 知识索引向量维度硬约束：`knowledge_chunk.embedding` 为 `vector(1536)`（ER 06），
+ * 选用的 embedding 模型维度必须一致，否则入库时报维度不匹配。
  */
-export function mockEmbed(text: string, dimensions = MOCK_EMBEDDING_DIMENSIONS): number[] {
-  const vec = new Float64Array(dimensions);
-  let seed = Buffer.from(text, 'utf8');
-  let filled = 0;
-  while (filled < dimensions) {
-    const digest = createHash('sha256').update(seed).digest();
-    for (let i = 0; i < digest.length && filled < dimensions; i += 4) {
-      // 32bit → [-1, 1)
-      const n = digest.readUInt32BE(i) / 0x1_0000_0000;
-      vec[filled] = n * 2 - 1;
-      filled += 1;
-    }
-    seed = digest;
-  }
-  let norm = 0;
-  for (const v of vec) {
-    norm += v * v;
-  }
-  norm = Math.sqrt(norm) || 1;
-  return Array.from(vec, (v) => v / norm);
-}
-
-export class MockEmbeddingProvider implements EmbeddingProvider {
-  readonly dimensions: number;
-  readonly model = 'mock-embedding-1';
-
-  constructor(dimensions = MOCK_EMBEDDING_DIMENSIONS) {
-    this.dimensions = dimensions;
-  }
-
-  async embed(texts: string[]): Promise<number[][]> {
-    return texts.map((t) => mockEmbed(t, this.dimensions));
-  }
-}
+export const KNOWLEDGE_EMBEDDING_DIMENSIONS = 1536;
 
 export class OpenAiEmbeddingProvider implements EmbeddingProvider {
   readonly dimensions: number;
   readonly model: string;
 
   constructor(
-    private readonly options: { baseUrl: string; apiKey: string; model: string; dimensions?: number },
+    private readonly options: {
+      baseUrl: string;
+      apiKey: string;
+      model: string;
+      dimensions?: number;
+    },
   ) {
     this.model = options.model;
     this.dimensions = options.dimensions ?? 1536;
@@ -103,27 +70,39 @@ export class OpenAiEmbeddingProvider implements EmbeddingProvider {
 }
 
 export function createEmbeddingProvider(options: EmbeddingOptions): EmbeddingProvider {
-  if (options.provider === 'openai') {
-    return new OpenAiEmbeddingProvider({
-      baseUrl: options.baseUrl,
-      apiKey: options.apiKey,
-      model: options.model,
-    });
+  if (options.provider !== 'openai') {
+    throw new Error(`不支持的向量模型提供方：${options.provider}（仅支持 openai 兼容协议）`);
   }
-  return new MockEmbeddingProvider(options.mockDimensions);
+  return new OpenAiEmbeddingProvider({
+    baseUrl: options.baseUrl,
+    apiKey: options.apiKey,
+    model: options.model,
+    dimensions: options.dimensions,
+  });
 }
 
-// ===== 进程级注入（api/worker 启动时一次；未注入默认 mock）=====
+// ===== 进程级注入（api/worker 启动时一次）=====
+// 16 FR-10 扩展后为「按 org 解析」：工厂可读库拿到 org 选用的 embedding 模型（api/worker 侧装配）。
+// 未注册工厂时明确报错（无 mock 兜底）。
 
-let configured: EmbeddingProvider | null = null;
+/** org → provider 工厂（异步：需读该 org 的 AI 模型选用配置） */
+export type EmbeddingProviderFactory = (
+  orgId?: string,
+) => EmbeddingProvider | Promise<EmbeddingProvider>;
 
-export function configureEmbedding(provider: EmbeddingProvider): void {
-  configured = provider;
+let factory: EmbeddingProviderFactory | null = null;
+
+/** 注册 org 级解析工厂（api/worker 启动时一次） */
+export function setEmbeddingProviderFactory(next: EmbeddingProviderFactory): void {
+  factory = next;
 }
 
-export function getEmbeddingProvider(): EmbeddingProvider {
-  if (!configured) {
-    configured = new MockEmbeddingProvider();
+export async function getEmbeddingProvider(orgId?: string): Promise<EmbeddingProvider> {
+  if (factory) {
+    return await factory(orgId);
   }
-  return configured;
+  throw new Error(
+    `Embedding provider 未配置（org=${orgId ?? '-'}）：` +
+      '请由 api/worker 启动装配注入（setEmbeddingProviderFactory）；无 mock 兜底',
+  );
 }

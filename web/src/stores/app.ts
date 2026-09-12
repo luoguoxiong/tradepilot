@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 
 import { LOCALE_STORAGE_KEY, persistLocale, type Lang } from '@/locales'
+import { setDayjsLocale } from '@/utils/date'
 
 const SIDER_KEY = 'tradepilot.siderCollapsed'
 
@@ -29,6 +30,8 @@ export const useAppStore = defineStore('app', {
     setLocale(lang: Lang) {
       this.locale = lang
       persistLocale(lang)
+      // dayjs 相对时间 locale 跟随界面语言（01 §6）
+      setDayjsLocale(lang)
     },
   },
 })

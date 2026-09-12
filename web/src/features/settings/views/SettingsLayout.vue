@@ -3,14 +3,27 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
+import { usePermission } from '@/composables/usePermission'
+
 /**
  * 系统设置二级布局（16 FR-01~12）：左侧子导航 + 内容区。
  * 子路由不进全局 Sider（meta.menu 不设置），设置内导航承载 12 个子模块。
+ * adminOnly 项按角色裁剪（AI 模型配置仅 admin，与后端 @Roles('admin') 一致）。
  */
+interface SettingsNavItem {
+  path: string
+  titleKey: string
+  /** P1 占位模块（展示「即将上线」标签） */
+  p1?: boolean
+  /** 仅 admin 可见 */
+  adminOnly?: boolean
+}
+
 const route = useRoute()
 const { t } = useI18n()
+const { isAdmin } = usePermission()
 
-const NAV = [
+const NAV: SettingsNavItem[] = [
   { path: '/settings/org', titleKey: 'settings.orgInfo' },
   { path: '/settings/members', titleKey: 'settings.members' },
   { path: '/settings/mailboxes', titleKey: 'settings.mailboxes' },
@@ -19,9 +32,11 @@ const NAV = [
   { path: '/settings/ai-employees', titleKey: 'settings.aiEmployees' },
   { path: '/settings/crm-integration', titleKey: 'settings.crmIntegration', p1: true },
   { path: '/settings/pricing-rules', titleKey: 'settings.pricingRules', p1: true },
-  { path: '/settings/ai-models', titleKey: 'settings.aiModels', p1: true },
+  { path: '/settings/ai-models', titleKey: 'settings.aiModels', adminOnly: true },
   { path: '/settings/api-keys', titleKey: 'settings.apiKeys', p1: true },
 ]
+
+const visibleNav = computed(() => NAV.filter((item) => !item.adminOnly || isAdmin.value))
 
 const title = computed(() => {
   const current = NAV.find((item) => route.path.startsWith(item.path))
@@ -33,7 +48,7 @@ const title = computed(() => {
   <div class="settings-layout">
     <aside class="settings-layout__nav">
       <el-menu :default-active="route.path" router>
-        <el-menu-item v-for="item in NAV" :key="item.path" :index="item.path">
+        <el-menu-item v-for="item in visibleNav" :key="item.path" :index="item.path">
           <span>{{ t(item.titleKey) }}</span>
           <el-tag
             v-if="item.p1"

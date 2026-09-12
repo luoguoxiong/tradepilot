@@ -50,7 +50,7 @@ function openDetail(contact: ContactItem) {
 }
 
 const total = computed(() => contactsQuery.data.value?.total ?? 0)
-const list = computed(() => contactsQuery.data.value?.list ?? [])
+const list = computed(() => contactsQuery.data.value?.items ?? [])
 
 function influenceBarWidth(pct?: number | null): string {
   if (pct === null || pct === undefined) return '0%'

@@ -65,6 +65,20 @@ export interface RoleTemplate {
   kpiConfig: { metric: string; target: number; period: 'daily' }
 }
 
+/** POST /ai-employees/{id}/pause：暂停员工全部执行中任务（02 §3.4，仅 admin/manager） */
+export interface PauseEmployeeResp {
+  employeeId: string
+  /** 本次置为 paused 的任务数 */
+  pausedTasks: number
+}
+
+/** POST /ai-employees/{id}/resume：恢复员工（paused 任务重新排队续跑） */
+export interface ResumeEmployeeResp {
+  employeeId: string
+  /** 本次恢复重排的任务数 */
+  resumedTasks: number
+}
+
 /** 创建 AI 员工请求（02 §1.2；仅前端分步，后端单次 POST） */
 export interface CreateEmployeeReq {
   role: EmployeeRole

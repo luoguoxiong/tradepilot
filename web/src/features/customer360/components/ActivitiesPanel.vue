@@ -47,7 +47,7 @@ watch(
   },
 )
 
-const list = computed(() => activitiesQuery.data.value?.list ?? [])
+const list = computed(() => activitiesQuery.data.value?.items ?? [])
 const total = computed(() => activitiesQuery.data.value?.total ?? 0)
 
 const typeOptions = ENUMS.activityType.map((o) => ({ value: o.value, label: t(o.labelKey) }))

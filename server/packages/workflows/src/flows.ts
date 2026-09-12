@@ -15,6 +15,7 @@ import { schema, withOrg } from '@tradepilot/db';
 import {
   boundExternal,
   detectEmailLanguage,
+  TASK_LOG_TYPE,
   type CompanyLead,
   type LeadContact,
   type LeadScore,
@@ -47,8 +48,17 @@ function normDomain(domain: string | null | undefined): string | null {
   );
 }
 
+/**
+ * 公司归并键（03 §3.6 去重口径：归一化域名优先，名称兜底）。
+ * 联系人归并（search-tools.entityKey）与此同口径 —— 不同公司可能同名，
+ * mock 供应商的公司名由查询词派生必然同名，仅按名称归并会把多家公司串在一起。
+ */
+function entityKey(name: string, domain: string | null | undefined): string {
+  return normDomain(domain) ?? name.toLowerCase().trim();
+}
+
 function leadKey(lead: Pick<CompanyLead, 'companyName' | 'domain'>): string {
-  return normDomain(lead.domain) ?? lead.companyName.toLowerCase().trim();
+  return entityKey(lead.companyName, lead.domain);
 }
 
 /** org.send_rules.sendWindow（'HH:MM'）→ core SendWindow（小时粒度） */
@@ -83,7 +93,10 @@ function readAdvanced(ctx: TaskRunContext): AdvancedSettings {
  * scoreLevel 确定性映射（03 §3.5：单一评分源 matchPct，scoreLevel 不做二次 AI 判断，
  * 与 LLM 输出不一致时以本映射为准）：High ≥ high（默认 85）、Medium ≥ medium（默认 60）。
  */
-export function mapScoreLevel(matchPct: number, thresholds?: MatchThresholds): 'high' | 'medium' | 'low' {
+export function mapScoreLevel(
+  matchPct: number,
+  thresholds?: MatchThresholds,
+): 'high' | 'medium' | 'low' {
   const high = typeof thresholds?.high === 'number' ? thresholds.high : 85;
   const medium = typeof thresholds?.medium === 'number' ? thresholds.medium : 60;
   return matchPct >= high ? 'high' : matchPct >= medium ? 'medium' : 'low';
@@ -94,6 +107,14 @@ function bagArray<T>(ctx: TaskRunContext, key: string): T[] {
 }
 
 /** ===== lead_hunting ===== */
+
+/**
+ * 发现阶段留存的真实公司身份，按去重键（归一化域名优先）索引，供 assembleLeads 回填域名/官网/国家。
+ * 不能按公司名索引：同名不同域名的公司会互相覆盖，导致后一轮的域名/官网/国家顶掉前一轮，
+ * 且两家公司的联系人被并到同一条 lead。
+ */
+type CompanyIdentity = { domain?: string; website?: string; country?: string };
+type LeadIdentityMap = Record<string, CompanyIdentity>;
 
 /**
  * 三级去重口径（03 §3.6）：excludeDomains/companySizeRange 硬过滤 → 任务内已发现（bag seenKeys）→
@@ -176,9 +197,15 @@ const dedupCheck: FlowNodeFn = async (state, ctx) => {
   if (!fresh) {
     return { branch: 'duplicate' };
   }
-  ctx.bag.set('companyMeta', {
-    ...(ctx.bag.get('companyMeta') as Record<string, string> | undefined),
-    [fresh.companyName]: fresh.country ?? 'Unknown',
+  // 身份锚点：真实公司名/域名/官网只在发现阶段（搜索命中）存在，LLM 评分节点不回显这些字段
+  // （mock provider 下会退化为 'mock-*' / 'Unknown'）。按去重键留存，由 recordScore 记录键后回填。
+  ctx.bag.set('leadIdentity', {
+    ...(ctx.bag.get('leadIdentity') as LeadIdentityMap | undefined),
+    [leadKey(fresh)]: {
+      domain: normDomain(fresh.domain) ?? undefined,
+      website: fresh.website,
+      country: fresh.country,
+    },
   });
   return { patch: { discovered: [fresh] }, branch: 'new' };
 };
@@ -194,9 +221,23 @@ const recordScore: FlowNodeFn = (state, ctx) => {
     return { branch: 'low' };
   }
   const level = mapScoreLevel(current.matchPct, readAdvanced(ctx).matchThresholds);
-  const normalized: LeadScore = { ...current, scoreLevel: level };
+  // 身份以发现阶段为准：match_product 只应决定 matchPct 与理由，
+  // 若采信 LLM 回显的 companyName，则下游 meta/contacts 按名连接、域名级去重、国家画像会全部失配
+  // （本地 mock provider 下正是 'mock-companyName' + 'Unknown' + 联系人恒空）。
+  const discovered = (state['discovered'] as CompanyLead[] | undefined)?.[0];
+  const normalized: LeadScore = {
+    ...current,
+    companyName: discovered?.companyName ?? current.companyName,
+    scoreLevel: level,
+  };
   const all = [...bagArray<LeadScore>(ctx, 'scoredAll'), normalized];
   ctx.bag.set('scoredAll', all);
+  // 与 scoredAll 同下标记录去重键：CompanyLead 的身份字段（domain）不经过 LLM 评分节点回传，
+  // 只能在此把本轮发现的键留住，供 assembleLeads 取回域名/官网/国家并按域名归并联系人。
+  ctx.bag.set('scoredKeys', [
+    ...bagArray<string>(ctx, 'scoredKeys'),
+    discovered ? leadKey(discovered) : entityKey(normalized.companyName, null),
+  ]);
   return { patch: { scored: all }, branch: level === 'low' ? 'low' : 'matched' };
 };
 
@@ -222,41 +263,65 @@ function readTargetCount(state: State, ctx: TaskRunContext): number {
   return typeof value === 'number' && value >= 1 ? Math.min(100, Math.floor(value)) : 1;
 }
 
-/** 汇总发现池 leads（scored × contacts 按 companyName 连接 + 元数据国家）→ crm_write 入参。
- *  contacts 以 bag 累积为准（find_contact/lookup_contact 工具跨轮写入，含公开渠道 email）。 */
+/** 汇总发现池 leads（scored × contacts 归并 + 发现阶段身份）→ crm_write 入参。
+ *  contacts 以 bag 累积为准（find_contact/lookup_contact 工具跨轮写入，含公开渠道 email）。
+ *  两条连接线都按去重键（归一化域名优先，03 §3.6）而非公司名：
+ *  - 身份：domain/website/country 缺失会使 ai_lead.company_domain 恒空，域名级去重永不命中；
+ *  - 联系人：同名不同域名的公司会被串成一条 lead（mock 供应商公司名由查询词派生必然同名）。 */
 const assembleLeads: FlowNodeFn = (state, ctx) => {
   const scoredAll = bagArray<LeadScore>(ctx, 'scoredAll');
-  const meta = (ctx.bag.get('companyMeta') as Record<string, string> | undefined) ?? {};
+  const scoredKeys = bagArray<string>(ctx, 'scoredKeys');
+  const identity = (ctx.bag.get('leadIdentity') as LeadIdentityMap | undefined) ?? {};
   const contacts = bagArray<LeadContact>(ctx, 'contactsAll');
-  const leads = scoredAll.map((s) => ({
-    companyName: s.companyName,
-    country: meta[s.companyName] ?? 'Unknown',
-    matchPct: s.matchPct,
-    scoreLevel: s.scoreLevel,
-    reasons: s.reasons,
-    contacts: contacts
-      .filter((c) => c.companyName === s.companyName)
-      .map((c) => ({
-        name: c.name,
-        title: c.title,
-        email: c.email,
-        decisionInfluencePct: c.decisionInfluencePct,
-      })),
-  }));
+  const leads = scoredAll.map((s, i) => {
+    const key = scoredKeys[i] ?? entityKey(s.companyName, null);
+    const id = identity[key];
+    return {
+      companyName: s.companyName,
+      country: id?.country ?? 'Unknown',
+      domain: id?.domain,
+      website: id?.website,
+      matchPct: s.matchPct,
+      scoreLevel: s.scoreLevel,
+      reasons: s.reasons,
+      contacts: contacts
+        .filter((c) => entityKey(c.companyName, c.domain) === key)
+        .map((c) => ({
+          name: c.name,
+          title: c.title,
+          email: c.email,
+          decisionInfluencePct: c.decisionInfluencePct,
+        })),
+    };
+  });
   return { patch: { crmLeads: leads } };
 };
 
-/** finalize（L）：产出统计写日志事件（outputs 由 runner 从 State 摘取） */
-const finalize: FlowNodeFn = (state, ctx) => {
+/**
+ * finalize（L）：产出统计落 ai_task_log 并推日志事件（outputs 由 runner 从 State 摘取）。
+ * 必须先落库再推事件：否则该日志仅存在于实时流，断线后 /logs?after= 补拉将永久丢失
+ * （03 §6.2 幂等续传：实时与回放同构）。
+ */
+const finalize: FlowNodeFn = async (state, ctx) => {
   const scoredAll = bagArray<LeadScore>(ctx, 'scoredAll');
   const highValue = scoredAll.filter((s) => s.scoreLevel === 'high').length;
+  const content = `获客完成：分析 ${scoredAll.length} 家，高价值 ${highValue} 家`;
+  const logId = createId('tlog');
+  const occurredAt = ctx.now;
+  await withOrg(ctx.db, ctx.orgId, async (tx) => {
+    await tx.insert(schema.aiTaskLog).values({
+      id: logId,
+      orgId: ctx.orgId,
+      taskId: ctx.taskId,
+      occurredAt,
+      type: TASK_LOG_TYPE.FOUND,
+      content,
+      leadId: null,
+    });
+  });
   ctx.events.push({
     type: 'log',
-    payload: {
-      logId: createId('tlog'),
-      type: 'found',
-      content: `获客完成：分析 ${scoredAll.length} 家，高价值 ${highValue} 家`,
-    },
+    payload: { logId, time: occurredAt.toISOString(), type: TASK_LOG_TYPE.FOUND, content },
   });
   return { patch: {} };
 };
@@ -301,8 +366,18 @@ const loadThread: FlowNodeFn = async (state, ctx) => {
   const lastIn = [...thread].reverse().find((m) => m.direction === 'in');
   // 语言跟随（06 §7）：落库 language 优先，缺失按正文确定性检测 zh/en，无 in 信号默认英文
   const detectedLanguage = lastIn
-    ? (lastIn.language?.trim() || detectEmailLanguage(lastIn.body))
+    ? lastIn.language?.trim() || detectEmailLanguage(lastIn.body)
     : 'en';
+  // M5-C4 洞察写回：来信无语言标记时将检测结果写回 message.language（「语言跟随」持久化，
+  // 06 详情/草稿语言口径与状态 detectedLanguage 同源）
+  if (lastIn && !lastIn.language?.trim()) {
+    await withOrg(ctx.db, ctx.orgId, async (tx) => {
+      await tx
+        .update(schema.message)
+        .set({ language: detectedLanguage, updatedAt: ctx.now })
+        .where(eq(schema.message.id, lastIn.messageId));
+    });
+  }
   const customerSnapshot = customerId
     ? await loadCustomerInsights(ctx.db, ctx.orgId, customerId)
     : null;
@@ -323,13 +398,97 @@ const draftBranch: FlowNodeFn = (state) => {
   return { branch: draft?.grounded === true ? 'grounded' : 'need_info' };
 };
 
-/** need_info 收尾：不发送，draft.missingInfo 随 outputs 留存（completed · 需补充资料） */
-const needInfo: FlowNodeFn = () => ({ patch: {} });
+/** need_info 收尾：不发送，draft.missingInfo 随 outputs 留存（completed · 需补充资料）；
+ * copilot/intent 产出不依赖发送分支，洞察照常写回（06 §3.3 供右栏展示） */
+const needInfo: FlowNodeFn = async (state, ctx) => {
+  await persistConversationInsight(state, ctx);
+  return { patch: {} };
+};
 
-/** writeback（M3 flow 承载）：发送结果写 CRM 活动记录；首响时长指标随数据中心（P1） */
+/** intent.label（LLM 自由文本标签）→ ai_intent 枚举（确定性关键词映射，兜底 other） */
+function mapAiIntent(label: unknown): 'rfq' | 'price_compare' | 'logistics' | 'sample' | 'other' {
+  const s = typeof label === 'string' ? label.toLowerCase() : '';
+  if (/rfq|询价|request/.test(s)) {
+    return 'rfq';
+  }
+  if (/price|quote|比价|报价/.test(s)) {
+    return 'price_compare';
+  }
+  if (/logistic|shipping|物流|运费/.test(s)) {
+    return 'logistics';
+  }
+  if (/sample|样品|打样/.test(s)) {
+    return 'sample';
+  }
+  return 'other';
+}
+
+/**
+ * M5-C4 洞察写回：email_reply 图 copilot_analyze 产出 → conversation_insight
+ * （uq_conversation_insight 按会话 upsert，intent/purchaseProbability/suggestions/citations）。
+ * knowledgeChunks 形状 = knowledge_search 工具出参 { chunks: [{ chunkId, documentId, title, ... }] }。
+ */
+async function persistConversationInsight(state: State, ctx: TaskRunContext): Promise<void> {
+  const conversationId = str(state['conversationId']);
+  const intent = state['intent'] as { label?: string } | undefined;
+  const copilot = state['copilot'] as
+    { purchaseProbability?: number; recommendedActions?: string[] } | undefined;
+  if (!conversationId || (!intent && !copilot)) {
+    return;
+  }
+  const kb = state['knowledgeChunks'] as
+    { chunks?: { chunkId?: string; documentId?: string; title?: string }[] } | undefined;
+  const citations = (kb?.chunks ?? [])
+    .filter((c) => typeof c.documentId === 'string' && c.documentId)
+    .map((c) => ({
+      docId: c.documentId!,
+      ...(typeof c.title === 'string' && c.title ? { docName: c.title } : {}),
+      ...(typeof c.chunkId === 'string' && c.chunkId ? { chunkId: c.chunkId } : {}),
+    }));
+  const suggestions = (copilot?.recommendedActions ?? [])
+    .filter((a) => typeof a === 'string' && a.trim().length > 0)
+    .slice(0, 5)
+    .map((label) => ({ suggestionId: createId('sug'), label }));
+  const probability = copilot?.purchaseProbability;
+  const values = {
+    id: createId('cins'),
+    orgId: ctx.orgId,
+    conversationId,
+    intent: mapAiIntent(intent?.label),
+    ...(typeof probability === 'number' && Number.isFinite(probability)
+      ? { purchaseProbability: Math.max(0, Math.min(100, Math.round(probability))) }
+      : {}),
+    suggestions,
+    ...(citations.length > 0 ? { citations } : {}),
+    generatedAt: ctx.now,
+    updatedAt: ctx.now,
+  };
+  await withOrg(ctx.db, ctx.orgId, async (tx) => {
+    await tx
+      .insert(schema.conversationInsight)
+      .values(values)
+      .onConflictDoUpdate({
+        target: schema.conversationInsight.conversationId,
+        set: {
+          intent: values.intent,
+          ...(values.purchaseProbability !== undefined
+            ? { purchaseProbability: values.purchaseProbability }
+            : {}),
+          suggestions: values.suggestions,
+          ...(citations.length > 0 ? { citations } : {}),
+          generatedAt: values.generatedAt,
+          updatedAt: values.updatedAt,
+        },
+      });
+  });
+}
+
+/** writeback（M3 flow 承载）：发送结果写 CRM 活动记录 + conversation_insight 洞察写回（M5-C4）；
+ * 首响时长指标随数据中心（P1） */
 const writeback: FlowNodeFn = async (state, ctx) => {
   const messageId = str(state['messageId']);
   const customerId = str(state['customerId']);
+  await persistConversationInsight(state, ctx);
   if (!customerId) {
     return { patch: {} };
   }
@@ -649,6 +808,112 @@ const scheduleNext: FlowNodeFn = async (state, ctx) => {
   return { patch: { nextStep: { seq: next.seq, runAt: nextRunAt.toISOString() } } };
 };
 
+/** ===== product_analysis（M5-C4：customer_insight 写回） ===== */
+
+/**
+ * load_analysis_context：分析对象加载。
+ * - customerId（客户 360 /customers/{id}/analyze）：加载客户画像快照 → analysisTargets 单元素；
+ * - leadIds（03 /leads/batch-analyze）：发现池 lead 快照（ai_lead 非 customer，洞察仅落 outputs，
+ *   不写 customer_insight——FK 约束 customer_id → customer.id）。
+ */
+const loadAnalysisContext: FlowNodeFn = async (state, ctx) => {
+  const customerId = str(state['customerId']);
+  const leadIds = Array.isArray(state['leadIds'])
+    ? state['leadIds'].map((v) => String(v)).filter((v) => v.length > 0)
+    : [];
+
+  const targets: { id: string; name: string; country: string; industry: string | null }[] = [];
+  await withOrg(ctx.db, ctx.orgId, async (tx) => {
+    if (customerId) {
+      const [c] = await tx
+        .select({
+          id: schema.customer.id,
+          companyName: schema.customer.companyName,
+          country: schema.customer.country,
+          industry: schema.customer.industry,
+        })
+        .from(schema.customer)
+        .where(and(eq(schema.customer.id, customerId), isNull(schema.customer.deletedAt)))
+        .limit(1);
+      if (c) {
+        targets.push({
+          id: c.id,
+          name: c.companyName,
+          country: c.country,
+          industry: c.industry,
+        });
+      }
+      return;
+    }
+    if (leadIds.length > 0) {
+      const rows = await tx
+        .select({
+          id: schema.aiLead.id,
+          companyName: schema.aiLead.companyName,
+          country: schema.aiLead.country,
+          industry: schema.aiLead.industry,
+        })
+        .from(schema.aiLead)
+        .where(and(eq(schema.aiLead.orgId, ctx.orgId), inArray(schema.aiLead.id, leadIds)));
+      for (const r of rows) {
+        targets.push({ id: r.id, name: r.companyName, country: r.country, industry: r.industry });
+      }
+    }
+  });
+  return { patch: { analysisTargets: targets } };
+};
+
+/**
+ * write_customer_insight：copilot 分析产出 → customer_insight
+ * （uq_customer_insight_type 按 (customer_id, insight_type) upsert；taskId 溯源 ai_task）。
+ * 仅 customerId 场景写表；value = purchaseProbability（numeric 文本），reasons = 推荐动作映射。
+ */
+const writeCustomerInsight: FlowNodeFn = async (state, ctx) => {
+  const customerId = str(state['customerId']);
+  const copilot = state['copilot'] as
+    { purchaseProbability?: number; stage?: string; recommendedActions?: string[] } | undefined;
+  if (!customerId || !copilot) {
+    return { patch: {} };
+  }
+  const actions = (copilot.recommendedActions ?? [])
+    .filter((a) => typeof a === 'string' && a.trim().length > 0)
+    .slice(0, 5);
+  const probability =
+    typeof copilot.purchaseProbability === 'number' && Number.isFinite(copilot.purchaseProbability)
+      ? Math.max(0, Math.min(100, Math.round(copilot.purchaseProbability)))
+      : null;
+  const reasons = actions.map((label) => ({ text: label }));
+  const nextAction = actions.length > 0 ? { type: 'follow_up', label: actions[0]! } : null;
+  await withOrg(ctx.db, ctx.orgId, async (tx) => {
+    await tx
+      .insert(schema.customerInsight)
+      .values({
+        id: createId('cins'),
+        orgId: ctx.orgId,
+        customerId,
+        insightType: 'purchase_probability',
+        ...(probability !== null ? { value: String(probability) } : {}),
+        reasons,
+        ...(nextAction ? { nextAction } : {}),
+        taskId: ctx.taskId,
+        generatedAt: ctx.now,
+        updatedAt: ctx.now,
+      })
+      .onConflictDoUpdate({
+        target: [schema.customerInsight.customerId, schema.customerInsight.insightType],
+        set: {
+          ...(probability !== null ? { value: String(probability) } : {}),
+          reasons,
+          ...(nextAction ? { nextAction } : {}),
+          taskId: ctx.taskId,
+          generatedAt: ctx.now,
+          updatedAt: ctx.now,
+        },
+      });
+  });
+  return { patch: {} };
+};
+
 /** ===== 注册表装配 ===== */
 
 /** 注册到具体实现类（register 方法在 Simple 实现上，接口仅暴露 get/has） */
@@ -668,6 +933,8 @@ export function registerFlows(registry: SimpleFlowRegistry): void {
   registry.register('select_step', selectStep);
   registry.register('writeback_execution', writebackExecution);
   registry.register('schedule_next', scheduleNext);
+  registry.register('load_analysis_context', loadAnalysisContext);
+  registry.register('write_customer_insight', writeCustomerInsight);
 }
 
 /** 便捷装配：新建 SimpleFlowRegistry 并注入全部 flow */

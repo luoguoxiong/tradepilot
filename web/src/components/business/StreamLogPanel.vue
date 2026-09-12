@@ -140,6 +140,9 @@ function meta(type: string) {
     width: 72px;
     color: var(--tp-text-tertiary);
     font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   &__content {

@@ -32,7 +32,7 @@ const query = useQuery({
   staleTime: staleTime.DETAIL,
 })
 
-const items = computed(() => query.data.value?.list ?? [])
+const items = computed(() => query.data.value?.items ?? [])
 </script>
 
 <template>

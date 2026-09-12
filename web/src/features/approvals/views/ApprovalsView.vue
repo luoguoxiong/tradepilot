@@ -43,7 +43,8 @@ const summaryQuery = useQuery({
 const tabs = computed(() => summaryQuery.data.value?.tabs ?? [])
 
 const listFilters = computed(() => ({
-  type: activeType.value,
+  // 12 §3.2：「全部」Tab 不传 type（后端枚举无 all 语义，缺省即全量）
+  type: activeType.value === 'all' ? undefined : activeType.value,
   status: statusFilter.value,
   page: pageNum.value,
   pageSize: 20,
@@ -54,7 +55,7 @@ const listQuery = useQuery({
   queryFn: () => fetchApprovals(listFilters.value),
 })
 
-const items = computed(() => listQuery.data.value?.list ?? [])
+const items = computed(() => listQuery.data.value?.items ?? [])
 const total = computed(() => listQuery.data.value?.total ?? 0)
 
 function onTabChange(): void {
@@ -114,14 +115,18 @@ async function onEditApproveConfirm(approvalId: string, emailContent: string): P
 /** 拒绝：reason 必填（12 §3.4），弹窗收集理由回流 AI 员工反馈闭环 */
 async function onReject(item: ApprovalItem): Promise<void> {
   try {
-    const { value } = await ElMessageBox.prompt(t('approvals.rejectReasonTip'), t('approvals.reject'), {
-      type: 'warning',
-      inputPlaceholder: t('approvals.rejectReasonPlaceholder'),
-      inputValidator: (input: string) =>
-        input.trim().length > 0 ? true : t('approvals.rejectReasonRequired'),
-      confirmButtonText: t('approvals.reject'),
-      cancelButtonText: t('common.cancel'),
-    })
+    const { value } = await ElMessageBox.prompt(
+      t('approvals.rejectReasonTip'),
+      t('approvals.reject'),
+      {
+        type: 'warning',
+        inputPlaceholder: t('approvals.rejectReasonPlaceholder'),
+        inputValidator: (input: string) =>
+          input.trim().length > 0 ? true : t('approvals.rejectReasonRequired'),
+        confirmButtonText: t('approvals.reject'),
+        cancelButtonText: t('common.cancel'),
+      },
+    )
     const okResult = await reject(item.approvalId, value.trim())
     if (okResult) drawerVisible.value = false
   } catch {
@@ -190,7 +195,9 @@ watch(
       </template>
       <el-empty
         v-else-if="!listQuery.isLoading.value"
-        :description="statusFilter === 'pending' ? t('approvals.emptyPending') : t('approvals.emptyProcessed')"
+        :description="
+          statusFilter === 'pending' ? t('approvals.emptyPending') : t('approvals.emptyProcessed')
+        "
         :image-size="88"
       />
     </div>

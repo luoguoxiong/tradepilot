@@ -36,15 +36,10 @@ export const apiEnvSchema = baseEnvSchema.extend({
   S3_REGION: z.string().default('us-east-1'),
   S3_ACCESS_KEY_ID: z.string().default('tradepilot'),
   S3_SECRET_ACCESS_KEY: z.string().default('tradepilot_dev'),
-  /** 嵌入服务（07 §2：mock = 确定性向量，测试/离线可用；openai = OpenAI 兼容接口） */
-  EMBEDDING_PROVIDER: z.enum(['mock', 'openai']).default('mock'),
-  EMBEDDING_BASE_URL: z.string().default('https://api.openai.com/v1'),
-  EMBEDDING_API_KEY: z.string().default(''),
-  EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
-  /** 搜索供应商（06 §3：mock = 确定性 mock；http = Serper 兼容搜索 API） */
-  SEARCH_PROVIDER: z.enum(['mock', 'http']).default('mock'),
-  SEARCH_BASE_URL: z.string().default('https://google.serper.dev'),
-  SEARCH_API_KEY: z.string().default(''),
+  /**
+   * 注：LLM / Embedding / Search 等模型与供应商配置不再经环境变量，
+   * 统一由「系统设置 → AI 模型配置」台账（ai_model，仅 admin 可维护）读库解析。
+   */
   /** org 级搜索/抓取日额度（06 §3 令牌桶，按 org 时区日界轮换） */
   ORG_SEARCH_DAILY_LIMIT: z.coerce.number().int().min(1).default(2000),
 });
@@ -74,15 +69,21 @@ export const workerEnvSchema = baseEnvSchema.extend({
   S3_REGION: z.string().default('us-east-1'),
   S3_ACCESS_KEY_ID: z.string().default('tradepilot'),
   S3_SECRET_ACCESS_KEY: z.string().default('tradepilot_dev'),
-  /** 嵌入服务（07 §2：mock = 确定性向量，测试/离线可用；openai = OpenAI 兼容接口） */
-  EMBEDDING_PROVIDER: z.enum(['mock', 'openai']).default('mock'),
-  EMBEDDING_BASE_URL: z.string().default('https://api.openai.com/v1'),
-  EMBEDDING_API_KEY: z.string().default(''),
-  EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
-  /** 搜索供应商（06 §3：mock = 确定性 mock；http = Serper 兼容搜索 API） */
-  SEARCH_PROVIDER: z.enum(['mock', 'http']).default('mock'),
-  SEARCH_BASE_URL: z.string().default('https://google.serper.dev'),
-  SEARCH_API_KEY: z.string().default(''),
+  /**
+   * 注：LLM / Embedding / Search 等模型与供应商配置不再经环境变量，
+   * 统一由「系统设置 → AI 模型配置」台账（ai_model，仅 admin 可维护）读库解析。
+   */
+  /**
+   * 是否允许 worker 启动时对 langgraph schema 执行 DDL（PostgresSaver.setup()）。
+   * 默认 false：checkpoint 4 表由 manual 迁移 0009 以表 owner 身份建立；运行时角色
+   * tradepilot_app 无数据库级 CREATE 权限，调用 setup() 会 42501（其首句即 CREATE SCHEMA）。
+   * 仅在 langgraph 依赖升级需要补列时临时置 true（需配合具备 DDL 权限的连接串）。
+   * 不可用 z.coerce.boolean：其实现为 Boolean(input)，字符串 'false' 同样为真。
+   */
+  LANGGRAPH_CHECKPOINT_SETUP: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
 });
 export type WorkerEnv = z.infer<typeof workerEnvSchema>;
 

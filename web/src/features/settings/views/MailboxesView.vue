@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { createMailbox, deleteMailbox, fetchMailboxes, testMailbox } from '@/api/resources/settings'
+import { handleApiError } from '@/api/error-handler'
 import type { Mailbox } from '@/api/types/settings'
 import EmptyState from '@/components/business/EmptyState.vue'
 import MailboxForm from '@/features/settings/components/MailboxForm.vue'
@@ -28,6 +29,8 @@ async function load() {
   loading.value = true
   try {
     mailboxes.value = await fetchMailboxes()
+  } catch (error) {
+    handleApiError(error)
   } finally {
     loading.value = false
   }
@@ -56,23 +59,30 @@ async function onTest(row: Mailbox) {
       ElMessage.error(result.error ?? t('common.operationFailed'))
     }
     await load()
+  } catch (error) {
+    handleApiError(error)
   } finally {
     testingId.value = null
   }
 }
 
 async function onDelete(row: Mailbox) {
-  await ElMessageBox.confirm(
+  const confirmed = await ElMessageBox.confirm(
     t('settings.deleteMailboxConfirm', { account: maskEmail(row.account) }),
     {
       type: 'warning',
       confirmButtonText: t('common.confirm'),
       cancelButtonText: t('common.cancel'),
     },
-  )
-  await deleteMailbox(row.mailboxId)
-  ElMessage.success(t('settings.saved'))
-  await load()
+  ).catch(() => false)
+  if (!confirmed) return
+  try {
+    await deleteMailbox(row.mailboxId)
+    ElMessage.success(t('settings.saved'))
+    await load()
+  } catch (error) {
+    handleApiError(error)
+  }
 }
 
 async function onCreate(req: Parameters<typeof createMailbox>[0]) {
@@ -87,6 +97,8 @@ async function onCreate(req: Parameters<typeof createMailbox>[0]) {
     }
     dialogVisible.value = false
     await load()
+  } catch (error) {
+    handleApiError(error)
   } finally {
     creating.value = false
   }

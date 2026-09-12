@@ -139,7 +139,10 @@ export async function writeToolLog(
     content,
     leadId: leadId ?? null,
   });
-  ctx.emit({ type: 'log', payload: { logId, type, content, ...(leadId ? { leadId } : {}) } });
+  ctx.emit({
+    type: 'log',
+    payload: { logId, time: ctx.now.toISOString(), type, content, ...(leadId ? { leadId } : {}) },
+  });
   return logId;
 }
 

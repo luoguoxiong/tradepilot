@@ -9,11 +9,9 @@ import StrategyTimeline from '../components/StrategyTimeline.vue'
 import StrategyFormDrawer from '../components/StrategyFormDrawer.vue'
 import ApplyStrategyDialog from '../components/ApplyStrategyDialog.vue'
 import ExecutionsDrawer from '../components/ExecutionsDrawer.vue'
-import {
-  deleteFollowUpStrategy,
-  getFollowUpStrategies,
-} from '@/api/resources/follow-ups'
+import { deleteFollowUpStrategy, getFollowUpStrategies } from '@/api/resources/follow-ups'
 import type { FollowUpStrategy } from '@/api/types/follow-up'
+import { handleApiError } from '@/api/error-handler'
 import { qk } from '@/query/keys'
 import { staleTime } from '@/query/options'
 import { useDictStore } from '@/stores/dict'
@@ -36,7 +34,7 @@ const strategiesQuery = useQuery({
   staleTime: staleTime.LIST,
 })
 
-const strategies = computed<FollowUpStrategy[]>(() => strategiesQuery.data.value?.list ?? [])
+const strategies = computed<FollowUpStrategy[]>(() => strategiesQuery.data.value?.items ?? [])
 
 // ===== 表单抽屉（新建 / 编辑 / 复制并编辑） =====
 const formVisible = ref(false)
@@ -74,7 +72,11 @@ async function onDelete(strategy: FollowUpStrategy) {
   const confirmed = await ElMessageBox.confirm(
     t('followUp.deleteConfirm', { name: strategy.name }),
     t('common.delete'),
-    { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') },
+    {
+      type: 'warning',
+      confirmButtonText: t('common.confirm'),
+      cancelButtonText: t('common.cancel'),
+    },
   ).catch(() => false)
   if (!confirmed) return
   try {
@@ -82,12 +84,14 @@ async function onDelete(strategy: FollowUpStrategy) {
     ElMessage.success(t('followUp.deleted'))
     void queryClient.invalidateQueries({ queryKey: qk.followUps.all })
   } catch (error) {
-    ElMessage.error((error as Error).message || t('common.operationFailed'))
+    // 被进行中任务引用 → 40901，由统一管道提示（04 §3.5）
+    handleApiError(error)
   }
 }
 
 function scopeSummary(strategy: FollowUpStrategy): string {
-  const values = strategy.targetScope.customerValue.map((v) => t(`enums.leadValue.${v}`))
+  // targetScope.customerValue 允许省略（DTO optional / 旧数据 {}），防御缺省
+  const values = (strategy.targetScope.customerValue ?? []).map((v) => t(`enums.leadValue.${v}`))
   const industry = strategy.targetScope.industry ?? []
   return [...values, ...industry].join(' / ') || t('followUp.scopeAll')
 }

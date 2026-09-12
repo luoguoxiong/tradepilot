@@ -67,6 +67,18 @@ export class ApprovalPendingError extends Error {
   }
 }
 
+/**
+ * 外部暂停中断异常（02 §2 员工级 pause 协作收口）：
+ * 节点执行前探测到 DB 中任务已离开 running（API 已置 paused）→ 中止本轮执行；
+ * runner 捕获后仅清理心跳/flush 事件，不覆盖 paused 状态（终态写回另有 status 前置兜底）。
+ */
+export class PauseAbortError extends Error {
+  constructor() {
+    super('AI 员工已暂停，任务中止（PauseAbortError）');
+    this.name = 'PauseAbortError';
+  }
+}
+
 /** ===== 注册表（workflows 包注入实现；compiler 只依赖接口）===== */
 
 /** promptRef → 模板（{{var}} 插值，来源 sop content.prompts / 固化模板） */
@@ -369,7 +381,8 @@ export class GraphCompiler {
         await this.completeStep(ctx, node, seq, log);
         return { ...patch, [BRANCH_KEY]: patch[BRANCH_KEY] ?? null };
       } catch (err) {
-        if (!(err instanceof ApprovalPendingError)) {
+        // 审批挂起 / 外部暂停：步骤保持占位态，不落 failed（终态语义由 runner / 审批处置收口）
+        if (!(err instanceof ApprovalPendingError) && !(err instanceof PauseAbortError)) {
           await this.failStep(ctx, node, seq, err);
         }
         throw err;
@@ -525,8 +538,18 @@ export class GraphCompiler {
 
   private async beginStep(ctx: TaskRunContext, node: SopNode, seq: number): Promise<void> {
     const now = ctx.now;
-    await withOrg(ctx.db, ctx.orgId, (tx) =>
-      tx
+    await withOrg(ctx.db, ctx.orgId, async (tx) => {
+      // 节点级暂停探测（02 §2 员工 pause 协作收口）：DB 中任务已离开 running（API 置 paused）→ 中止，
+      // 不落当前节点 failed（PauseAbortError 由 wrapNode 豁免，runner 收尾保持 paused）
+      const [task] = await tx
+        .select({ status: schema.aiTask.status })
+        .from(schema.aiTask)
+        .where(eq(schema.aiTask.id, ctx.taskId))
+        .limit(1);
+      if (task && task.status !== TASK_STATUS.RUNNING) {
+        throw new PauseAbortError();
+      }
+      await tx
         .insert(schema.aiTaskStep)
         .values({
           id: createId('step'),
@@ -545,8 +568,8 @@ export class GraphCompiler {
             startedAt: now,
             finishedAt: null,
           },
-        }),
-    );
+        });
+    });
   }
 
   private async completeStep(
@@ -573,7 +596,10 @@ export class GraphCompiler {
           content: log.content,
           leadId: null,
         });
-        ctx.events.push({ type: 'log', payload: { logId, type: log.type, content: log.content } });
+        ctx.events.push({
+          type: 'log',
+          payload: { logId, time: now.toISOString(), type: log.type, content: log.content },
+        });
       }
       const progress = node.progress ?? 0;
       const [row] = await tx

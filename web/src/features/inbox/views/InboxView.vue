@@ -26,8 +26,8 @@ function onSelect(item: ConversationListItem): void {
   selectedId.value = item.conversationId
 }
 
-function onInsertDraft(content: string): void {
-  convPaneRef.value?.insertIntoDraft(content)
+function onInsertDraft(content: string, draftId?: string): void {
+  convPaneRef.value?.insertIntoDraft(content, draftId)
 }
 </script>
 

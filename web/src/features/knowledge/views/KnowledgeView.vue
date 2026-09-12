@@ -19,7 +19,7 @@ import { staleTime } from '@/query/options'
 import { usePermission } from '@/composables/usePermission'
 import { useDictStore } from '@/stores/dict'
 import { formatRelative } from '@/utils/date'
-import { ApiError } from '@/api/http'
+import { handleApiError } from '@/api/error-handler'
 import SearchPreviewDialog from '../components/SearchPreviewDialog.vue'
 
 defineOptions({ name: 'KnowledgeView' })
@@ -40,7 +40,8 @@ const category = ref<KnowledgeCategory | 'all'>('all')
 const keyword = ref<string | undefined>(undefined)
 
 const listFilters = computed(() => ({
-  category: category.value,
+  // 「全部」Tab 不传 category：后端枚举校验会拒绝 'all'（40001，11 §2）
+  category: category.value === 'all' ? undefined : category.value,
   keyword: keyword.value,
   page: 1,
   pageSize: 20,
@@ -52,7 +53,7 @@ const listQuery = useQuery({
   staleTime: staleTime.LIST,
   // 索引轮询：列表存在 indexing 行时 3s 轮询，至终态自动停（04 §3.6）
   refetchInterval: (query) =>
-    query.state.data?.list.some((doc: KnowledgeDocument) => doc.status === 'indexing')
+    query.state.data?.items.some((doc: KnowledgeDocument) => doc.status === 'indexing')
       ? 3_000
       : false,
 })
@@ -63,7 +64,7 @@ const statsQuery = useQuery({
   staleTime: staleTime.DETAIL,
 })
 
-const docs = computed<KnowledgeDocument[]>(() => listQuery.data.value?.list ?? [])
+const docs = computed<KnowledgeDocument[]>(() => listQuery.data.value?.items ?? [])
 const total = computed(() => listQuery.data.value?.total ?? 0)
 const stats = computed(() => statsQuery.data.value)
 
@@ -99,9 +100,7 @@ async function onUploadRequest(options: UploadRequestOptions) {
     ElMessage.success(t('knowledge.uploadSuccess', { count: results.length }))
     invalidateAll()
   } catch (error) {
-    ElMessage.error(
-      error instanceof ApiError ? error.message : t('common.operationFailed'),
-    )
+    handleApiError(error)
   } finally {
     uploading.value = false
   }
@@ -114,7 +113,7 @@ async function onRetry(doc: KnowledgeDocument) {
     ElMessage.success(t('enums.knowledgeDocStatus.indexing'))
     invalidateAll()
   } catch (error) {
-    ElMessage.error((error as Error).message || t('common.operationFailed'))
+    handleApiError(error)
   }
 }
 
@@ -124,7 +123,11 @@ async function onDelete(doc: KnowledgeDocument) {
     await ElMessageBox.confirm(
       t('knowledge.deleteConfirm', { name: doc.fileName }),
       t('knowledge.deleteTitle'),
-      { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') },
+      {
+        type: 'warning',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+      },
     )
   } catch {
     return
@@ -134,7 +137,7 @@ async function onDelete(doc: KnowledgeDocument) {
     ElMessage.success(t('knowledge.deleted'))
     invalidateAll()
   } catch (error) {
-    ElMessage.error((error as Error).message || t('common.operationFailed'))
+    handleApiError(error)
   }
 }
 
@@ -227,12 +230,7 @@ const searchVisible = ref(false)
         <template #default="{ row }">{{ formatRelative(row.uploadedAt) }}</template>
       </el-table-column>
       <el-table-column prop="updatedBy" :label="t('knowledge.colUpdatedBy')" width="110" />
-      <el-table-column
-        v-if="canManage"
-        :label="t('knowledge.colActions')"
-        width="90"
-        fixed="right"
-      >
+      <el-table-column v-if="canManage" :label="t('knowledge.colActions')" width="90" fixed="right">
         <template #default="{ row }">
           <el-button link type="danger" size="small" @click="onDelete(row)">
             {{ t('knowledge.delete') }}

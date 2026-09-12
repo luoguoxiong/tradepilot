@@ -153,8 +153,9 @@ export const appRoutes: RouteRecordRaw[] = [
           {
             path: 'ai-models',
             name: 'settings-ai-models',
-            component: () => import('@/features/settings/views/SettingsPlaceholderView.vue'),
-            meta: { title: 'settings.aiModels' },
+            component: () => import('@/features/settings/views/AiModelsView.vue'),
+            // 模型/供应商配置属敏感配置，仅 admin 可见（与后端 @Roles('admin') 一致）
+            meta: { title: 'settings.aiModels', roles: ['admin'] },
           },
           {
             path: 'api-keys',

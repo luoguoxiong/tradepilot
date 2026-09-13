@@ -177,6 +177,8 @@ export const ID_PREFIX = {
   followUpStrategy: 'strat',
   followUpTask: 'ftask',
   report: 'rpt',
+  /** AI 发现·机会/风险（ai_discovery，ER 00 §2.2 / 13 §3.2） */
+  discovery: 'disc',
   trace: 'trc',
   /** 通知设置行（notification_setting） */
   notificationSetting: 'ntf',

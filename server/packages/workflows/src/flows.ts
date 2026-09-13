@@ -10,14 +10,36 @@
  */
 import { and, desc, eq, gt, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { createId } from '@tradepilot/core';
-import { computeDeferredNextRunAt, type SendWindow } from '@tradepilot/core';
+import { copilotNextActionType, computeDeferredNextRunAt, type SendWindow } from '@tradepilot/core';
 import {
   ORDER_RISK_SUGGESTIONS,
   computeOrderRisk,
   normalizeOrderProgress,
   type OrderRiskAssessment,
 } from '@tradepilot/core';
-import { schema, withOrg } from '@tradepilot/db';
+import {
+  schema,
+  withOrg,
+  upsertDiscoveries,
+  fetchOpportunityCandidates,
+  fetchStaleHighValueCustomers,
+} from '@tradepilot/db';
+import {
+  MANAGER_HIGH_VALUE_SCORE,
+  MANAGER_INACTIVE_DAYS,
+  MANAGER_REPORT_PERIODS,
+  buildBusinessReportCitations,
+  buildBusinessReportMarkdown,
+  buildOpportunityDiscoveries,
+  buildRiskDiscovery,
+  managerInsightWindow,
+  reportPeriodLabel,
+  type BusinessReportInput,
+  type DiscoveryDraft,
+  type ManagerOverview,
+  type ManagerReportPeriod,
+  type ReportTeamRow,
+} from '@tradepilot/core';
 import {
   boundExternal,
   detectEmailLanguage,
@@ -889,7 +911,13 @@ const writeCustomerInsight: FlowNodeFn = async (state, ctx) => {
       ? Math.max(0, Math.min(100, Math.round(copilot.purchaseProbability)))
       : null;
   const reasons = actions.map((label) => ({ text: label }));
-  const nextAction = actions.length > 0 ? { type: 'follow_up', label: actions[0]! } : null;
+  // 下一步动作优先取「流程型」语义的动作（D8 恢复：创建报价 → send_quote 引导 04 跳 09），
+  // 无流程型动作时回落首条动作 + follow_up（P0 既有行为）
+  const flowLabel = actions.find((label) => copilotNextActionType(label) !== null) ?? actions[0];
+  const nextAction =
+    flowLabel !== undefined
+      ? { type: copilotNextActionType(flowLabel) ?? 'follow_up', label: flowLabel }
+      : null;
   await withOrg(ctx.db, ctx.orgId, async (tx) => {
     await tx
       .insert(schema.customerInsight)
@@ -1316,6 +1344,200 @@ const alertAnomaly: FlowNodeFn = async (state, ctx) => {
   return { patch: { alert: { atRisk: true, content, suggestionId: suggestionId || null } } };
 };
 
+/** ===== 13 AI 外贸经理：business_analysis（P1-13-06/07） ===== */
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function num(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function isoDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function readOverview(value: unknown): ManagerOverview | null {
+  const raw = asRecord(value);
+  if (!raw) {
+    return null;
+  }
+  return {
+    newCustomers: num(raw['newCustomers']),
+    newInquiries: num(raw['newInquiries']),
+    newQuotes: num(raw['newQuotes']),
+    dealsClosed: num(raw['dealsClosed']),
+  };
+}
+
+/**
+ * load_report_context：校验报告行（防越权/防幽灵任务），并把 API 侧同源指标快照铺进 State。
+ * 指标快照由 `POST /manager/reports/generate` 写入 task.input（AnalyticsService 同源），
+ * worker 不重复实现统计口径（13 §3.1 / 15 §3 一致性红线）。
+ */
+const loadReportContext: FlowNodeFn = async (state, ctx) => {
+  const reportId = str(state['reportId']) || str(ctx.task.input['reportId']);
+  if (!reportId) {
+    await writeTaskLog(ctx, TASK_LOG_TYPE.ERROR, '经营分析缺少 reportId，任务结束');
+    return { done: true };
+  }
+  const periodRaw = str(state['period']) || str(ctx.task.input['period']);
+  const period: ManagerReportPeriod = (MANAGER_REPORT_PERIODS as readonly string[]).includes(
+    periodRaw,
+  )
+    ? (periodRaw as ManagerReportPeriod)
+    : 'daily';
+  const periodStart = str(state['periodStart']) || str(ctx.task.input['periodStart']);
+  const periodEnd = str(state['periodEnd']) || str(ctx.task.input['periodEnd']);
+
+  const exists = await withOrg(ctx.db, ctx.orgId, async (tx) => {
+    const [row] = await tx
+      .select({ id: schema.businessReport.id })
+      .from(schema.businessReport)
+      .where(
+        and(eq(schema.businessReport.id, reportId), eq(schema.businessReport.orgId, ctx.orgId)),
+      )
+      .limit(1);
+    if (!row) {
+      return false;
+    }
+    await tx
+      .update(schema.businessReport)
+      .set({ status: 'generating', updatedAt: ctx.now })
+      .where(eq(schema.businessReport.id, reportId));
+    return true;
+  });
+  if (!exists) {
+    await writeTaskLog(ctx, TASK_LOG_TYPE.ERROR, `经营报告不存在或已删除: ${reportId}`);
+    return { done: true };
+  }
+
+  const previousPeriod = asRecord(ctx.task.input['previousPeriod']);
+  await writeTaskLog(
+    ctx,
+    TASK_LOG_TYPE.MATCH,
+    `开始生成${reportPeriodLabel(period)}（${periodStart} ~ ${periodEnd}）`,
+  );
+
+  return {
+    patch: {
+      reportId,
+      period,
+      periodStart,
+      periodEnd,
+      overview: readOverview(ctx.task.input['overview']),
+      previousOverview: readOverview(ctx.task.input['previousOverview']),
+      previousPeriod: previousPeriod
+        ? { start: str(previousPeriod['start']), end: str(previousPeriod['end']) }
+        : null,
+      team: Array.isArray(ctx.task.input['team']) ? (ctx.task.input['team'] as unknown[]) : [],
+    },
+  };
+};
+
+/** detect_opportunities：近窗 vs 前窗询盘环比（阈值见 core 常量），产出可下钻 evidence */
+const detectOpportunities: FlowNodeFn = async (state, ctx) => {
+  const window = managerInsightWindow({ anchor: ctx.now, timeZone: ctx.org.timezone });
+  const candidates = await withOrg(ctx.db, ctx.orgId, (tx) =>
+    fetchOpportunityCandidates(tx, window),
+  );
+  const drafts = buildOpportunityDiscoveries(candidates, {
+    startDate: isoDate(window.recentStart),
+    endDate: isoDate(new Date(window.recentEnd.getTime() - 1)),
+  });
+  await writeTaskLog(
+    ctx,
+    TASK_LOG_TYPE.MATCH,
+    `机会检测完成：${candidates.length} 个国家候选，命中 ${drafts.length} 条`,
+  );
+  return { patch: { opportunityDiscoveries: drafts } };
+};
+
+/** detect_risks：高价值客户静默判定（score ≥ 阈值、非 cold、最后触达超期） */
+const detectRisks: FlowNodeFn = async (state, ctx) => {
+  const cutoff = new Date(ctx.now.getTime() - MANAGER_INACTIVE_DAYS * 86_400_000);
+  const rows = await withOrg(ctx.db, ctx.orgId, (tx) =>
+    fetchStaleHighValueCustomers(tx, {
+      scoreThreshold: MANAGER_HIGH_VALUE_SCORE,
+      cutoff,
+      limit: 20,
+    }),
+  );
+  const risk = buildRiskDiscovery(rows);
+  await writeTaskLog(
+    ctx,
+    TASK_LOG_TYPE.MATCH,
+    `风险检测完成：${rows.length} 个高价值客户静默超 ${MANAGER_INACTIVE_DAYS} 天`,
+  );
+  return { patch: { riskDiscoveries: risk ? [risk] : [] } };
+};
+
+/** compose_report：五段 Markdown + citations（纯函数组装，保证与发现列表同一套文案） */
+const composeReport: FlowNodeFn = (state, ctx) => {
+  const discoveries: DiscoveryDraft[] = [
+    ...((state['opportunityDiscoveries'] as DiscoveryDraft[] | undefined) ?? []),
+    ...((state['riskDiscoveries'] as DiscoveryDraft[] | undefined) ?? []),
+  ];
+  const previousPeriod = asRecord(state['previousPeriod']);
+  const input: BusinessReportInput = {
+    period: (state['period'] as ManagerReportPeriod | undefined) ?? 'daily',
+    periodStart: str(state['periodStart']),
+    periodEnd: str(state['periodEnd']),
+    overview: readOverview(state['overview']),
+    previousOverview: readOverview(state['previousOverview']),
+    previousPeriod: previousPeriod
+      ? { start: str(previousPeriod['start']), end: str(previousPeriod['end']) }
+      : null,
+    discoveries,
+    team: (state['team'] as ReportTeamRow[] | undefined) ?? [],
+    generatedAt: ctx.now,
+  };
+  return {
+    patch: {
+      discoveries,
+      reportContent: buildBusinessReportMarkdown(input),
+      reportCitations: buildBusinessReportCitations(input),
+    },
+  };
+};
+
+/** persist_report：business_report → ready + ai_discovery 幂等写回（P1-13-07） */
+const persistReport: FlowNodeFn = async (state, ctx) => {
+  const reportId = str(state['reportId']);
+  const content = str(state['reportContent']);
+  const discoveries = (state['discoveries'] as DiscoveryDraft[] | undefined) ?? [];
+
+  if (!reportId || !content) {
+    if (reportId) {
+      await withOrg(ctx.db, ctx.orgId, (tx) =>
+        tx
+          .update(schema.businessReport)
+          .set({ status: 'failed', updatedAt: ctx.now })
+          .where(eq(schema.businessReport.id, reportId)),
+      );
+    }
+    await writeTaskLog(ctx, TASK_LOG_TYPE.ERROR, '经营报告组装失败：缺少报告标识或正文');
+    return { done: true };
+  }
+
+  const citations = (state['reportCitations'] as Record<string, unknown>[] | undefined) ?? [];
+  await withOrg(ctx.db, ctx.orgId, async (tx) => {
+    await upsertDiscoveries(tx, ctx.orgId, discoveries);
+    await tx
+      .update(schema.businessReport)
+      .set({ status: 'ready', content, citations, generatedAt: ctx.now, updatedAt: ctx.now })
+      .where(
+        and(eq(schema.businessReport.id, reportId), eq(schema.businessReport.orgId, ctx.orgId)),
+      );
+  });
+  await writeTaskLog(ctx, TASK_LOG_TYPE.FOUND, `经营报告已生成：${discoveries.length} 条发现`);
+  return { patch: { reportStatus: 'ready', discoveryCount: discoveries.length } };
+};
+
 /** 任务日志落库 + 推实时事件（先落库再推事件，保证断线回放同构，03 §6.2） */
 async function writeTaskLog(
   ctx: TaskRunContext,
@@ -1367,6 +1589,11 @@ export function registerFlows(registry: SimpleFlowRegistry): void {
   registry.register('write_customer_insight', writeCustomerInsight);
   registry.register('load_product_context', loadProductContext);
   registry.register('write_product_knowledge', writeProductKnowledge);
+  registry.register('load_report_context', loadReportContext);
+  registry.register('detect_opportunities', detectOpportunities);
+  registry.register('detect_risks', detectRisks);
+  registry.register('compose_report', composeReport);
+  registry.register('persist_report', persistReport);
 }
 
 /** 便捷装配：新建 SimpleFlowRegistry 并注入全部 flow */

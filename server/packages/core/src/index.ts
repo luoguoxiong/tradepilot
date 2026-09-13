@@ -10,3 +10,6 @@ export * from './rrf.js';
 export * from './pricing.js';
 export * from './order-risk.js';
 export * from './analytics.js';
+export * from './manager-insights.js';
+export * from './employee-kpi.js';
+export * from './copilot-action.js';

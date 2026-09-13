@@ -140,6 +140,17 @@ export const qk = {
       [...qk.analytics.all, 'drilldown', metric, filters, page] as const,
   },
 
-  /** 工作台（01）：首屏只读聚合 */
+  /** 工作台（01）：首屏只读聚合 + D3 每日报告 */
   dashboardSummary: ['dashboard', 'summary'] as const,
+  dashboardDailyReport: ['dashboard', 'daily-report'] as const,
+
+  /** AI 外贸经理（13）：overview(date) / discoveries(type) / efficiency / reports(filters) / report(id) */
+  manager: {
+    all: ['manager'] as const,
+    overview: (date: string) => [...qk.manager.all, 'overview', date] as const,
+    discoveries: (type: unknown) => [...qk.manager.all, 'discoveries', type] as const,
+    efficiency: () => [...qk.manager.all, 'efficiency'] as const,
+    reports: (filters: unknown) => [...qk.manager.all, 'reports', filters] as const,
+    report: (reportId: string) => [...qk.manager.all, 'report', reportId] as const,
+  },
 } as const

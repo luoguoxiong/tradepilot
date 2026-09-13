@@ -1,6 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, desc, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
-import { BizException, computeDeferredNextRunAt, createId, ErrorCode } from '@tradepilot/core';
+import {
+  BizException,
+  classifyCopilotAction,
+  computeDeferredNextRunAt,
+  copilotSuggestionKind,
+  createId,
+  ErrorCode,
+  type CopilotAction,
+} from '@tradepilot/core';
 import { schema, withOrg, type Db } from '@tradepilot/db';
 import {
   applyOwnerScope,
@@ -20,6 +28,14 @@ import { DB } from '../db/db.module.js';
 import { EnvService } from '../config/env.service.js';
 import { PINO_ROOT } from '../common/logger/logger.factory.js';
 import { sendConversationEmail } from './send-mail.helper.js';
+import {
+  buildStructuredSourceSections,
+  composeDraftCitations,
+  DRAFT_SYSTEM_PROMPT,
+  isDraftGrounded,
+  loadDraftSources,
+  type DraftSources,
+} from './draft-sources.js';
 import type {
   AiDraftDto,
   AskAiDto,
@@ -32,9 +48,12 @@ import type {
 /**
  * 06 AI 销售工作台 · 会话服务（接口 06，M5-A3 读侧 + M5-C1/C2 写侧）：
  * - 读侧：列表（多邮箱聚合）/ 详情（含 approvalId 派生）/ Copilot；
- * - 写侧：ai-draft / regenerate（LlmGateway scene=email_reply + knowledge_search 依据）、
+ * - 写侧：ai-draft / regenerate（LlmGateway scene=email_reply + FR-10 依据：knowledge_search
+ *   + 08 产品结构化数据 + 16 报价规则 + 08 自动归档的产品资料）、
  *   PUT /messages（编辑留痕 editedDiff）、send（分支 A 直发 / 分支 B 审批）、
  *   copilot/suggestions/apply（内容型插入草稿 / 流程型创建跟进任务）、ask-ai（RAG 检索）。
+ * - 流程型「创建报价」（D8）由前端按 `customerId` 跳 09 报价中心（`create=1` 深链）执行，
+ *   服务端只负责给出建议 kind/action，不在本模块建单（09 建单必须带产品行，见 09 §7-A2）。
  */
 
 /** 邮件回复草稿输出契约（与 @tradepilot/workflows draftReplySchema 同构，避免 API 引入 workflows 依赖） */
@@ -84,6 +103,8 @@ export interface ConversationDetail {
 }
 
 export interface CopilotData {
+  /** 会话所属客户（流程型「创建报价」跳 09 需带客） */
+  customerId: string;
   intent: string;
   purchaseProbability: number;
   stage: string;
@@ -92,6 +113,8 @@ export interface CopilotData {
     label: string;
     checked: boolean;
     kind: 'content' | 'process';
+    /** 流程型动作标识（create_quote 跳 09 建报价 / create_tasks 建跟进任务；内容型不返回） */
+    action?: CopilotAction;
   }[];
   citations: { docId: string; docName: string; chunkId: string }[];
   insight: { confidence: number; reasons: { text: string; evidence?: string; source?: string }[] };
@@ -380,15 +403,21 @@ export class ConversationsService {
         .limit(1);
 
       return {
+        customerId: conv.customerId,
         intent: insight?.intent ?? 'other',
         purchaseProbability: insight?.purchaseProbability ?? 0,
         stage: conv.stage,
-        suggestions: (insight?.suggestions ?? []).map((s) => ({
-          suggestionId: s.suggestionId,
-          label: s.label,
-          checked: false,
-          kind: 'content' as const,
-        })),
+        // 流程型建议识别（D8 恢复）：文案 → create_quote / create_tasks，内容型不返回 action
+        suggestions: (insight?.suggestions ?? []).map((s) => {
+          const action = classifyCopilotAction(s.label);
+          return {
+            suggestionId: s.suggestionId,
+            label: s.label,
+            checked: false,
+            kind: copilotSuggestionKind(s.label),
+            ...(action ? { action } : {}),
+          };
+        }),
         citations: (insight?.citations ?? []).map((c) => ({
           docId: c.docId,
           docName: c.docName ?? '',
@@ -435,11 +464,10 @@ export class ConversationsService {
         scene: 'sales_reply',
         topK: 5,
       });
-      const citations: CitationItem[] = kb.results.map((r) => ({
-        docId: r.docId,
-        docName: r.docName,
-        chunkId: r.chunkId,
-      }));
+      // 结构化依据来源（D9 / FR-10）：08 产品中心（MOQ/交期/阶梯价/规格）+ 16 报价规则
+      // + 11 中由 08 自动归档的产品资料（source='product'，D11），一并注入草稿并可溯源
+      const sources = await loadDraftSources(tx, ctx.orgId, base.content);
+      const citations: CitationItem[] = composeDraftCitations(kb.results, sources);
 
       // LLM 生成（mock provider 确定性产出；红线：无依据 → grounded=false 不编造）
       const draft = await this.generateReplyDraft(
@@ -447,6 +475,7 @@ export class ConversationsService {
         thread,
         language,
         kb.results,
+        sources,
         dto.instruction,
       );
 
@@ -474,7 +503,13 @@ export class ConversationsService {
         basedOnMessageId: dto.basedOnMessageId,
         generatedAt: now.toISOString(),
         citations,
-        ...(kb.noResult || citations.length === 0 ? { missingKnowledge: true } : {}),
+        // FR-10：知识检索命中或产品结构化数据命中任一即视为有依据（都无 → 提示补充资料）
+        ...(isDraftGrounded({
+          citationCount: citations.length,
+          productFactCount: sources.productFacts.length,
+        })
+          ? {}
+          : { missingKnowledge: true }),
       };
     });
   }
@@ -677,7 +712,10 @@ export class ConversationsService {
     });
   }
 
-  /** §3.4 POST /copilot/suggestions/apply：内容型 insert_draft / 流程型 create_tasks */
+  /**
+   * §3.4 POST /copilot/suggestions/apply：内容型 insert_draft / 流程型 create_tasks。
+   * 流程型「创建报价」不经本接口（前端带 customerId 跳 09 报价中心，见 D8）。
+   */
   async applySuggestions(
     ctx: OrgScopeContext,
     dto: SuggestionsApplyDto,
@@ -811,26 +849,28 @@ export class ConversationsService {
     return 'en';
   }
 
-  /** LLM 生成回复草稿（scene=email_reply；红线：无依据参数禁止编造） */
+  /** LLM 生成回复草稿（scene=email_reply；红线：无依据参数禁止编造；FR-10：知识 + 产品结构化 + 报价规则） */
   private async generateReplyDraft(
     ctx: OrgScopeContext,
     thread: { direction: string; content: string }[],
     language: string,
     kb: KnowledgeSearchHit[],
+    sources: DraftSources,
     instruction?: string,
   ): Promise<{ subject: string; body: string; grounded: boolean }> {
     const threadText =
       thread.map((m) => `${m.direction === 'in' ? '客户' : '我方'}: ${m.content}`).join('\n') ||
       '（空会话）';
     const kbText = kb.map((r, i) => `[${i + 1}] ${r.docName}: ${r.content}`).join('\n') || '（无）';
+    const sourceSections = buildStructuredSourceSections(sources);
     const { data } = await this.llm.structured(
       { orgId: ctx.orgId, node: 'ai_draft', scene: 'email_reply' },
       draftReplyOutputSchema,
       {
-        system:
-          '你是外贸销售写手。生成一封回复邮件。红线：业务参数（价格/MOQ/交期/认证）只允许引用知识检索结果；无依据参数时置 grounded=false 并列出 missingInfo，禁止编造。语言跟随 detectedLanguage。',
+        system: DRAFT_SYSTEM_PROMPT,
         user:
           `会话上下文：\n${threadText}\n检测语言：${language}\n知识依据：${kbText}` +
+          (sourceSections.length > 0 ? `\n${sourceSections.join('\n')}` : '') +
           (instruction ? `\n附加要求：${instruction}` : '') +
           `\n\n请输出 JSON：{ subject, body, grounded, missingInfo? }。`,
       },

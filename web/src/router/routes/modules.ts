@@ -230,16 +230,19 @@ export const appRoutes: RouteRecordRaw[] = [
         component: () => import('@/features/orders/views/OrderDetailView.vue'),
         meta: { title: 'menu.orders', feature: 'orders' },
       },
+      // 13 AI 外贸经理（P1）：今日经营概览 + AI 发现 + 团队效率 + 经营报告
       {
         path: 'manager',
         name: 'manager',
-        component: placeholder,
+        component: () => import('@/features/manager/views/ManagerView.vue'),
         meta: {
           title: 'menu.manager',
           icon: 'UserFilled',
           menu: true,
           order: 24,
           feature: 'manager',
+          // 经理视角全量经营数据，仅经理及以上（与后端 @Roles('admin','manager') 一致）
+          roles: ['admin', 'manager'],
         },
       },
       {

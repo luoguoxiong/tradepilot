@@ -129,6 +129,11 @@ afterAll(async () => {
       await tx.delete(schema.sopTemplate).where(eq(schema.sopTemplate.orgId, orgId));
       await tx.delete(schema.aiModelSetting).where(eq(schema.aiModelSetting.orgId, orgId));
       await tx.delete(schema.rolePermission).where(eq(schema.rolePermission.orgId, orgId));
+      // 通知由审批/任务等业务事件生成（notification.org_id FK → org，必须先清）
+      await tx.delete(schema.notification).where(eq(schema.notification.orgId, orgId));
+      await tx
+        .delete(schema.notificationSetting)
+        .where(eq(schema.notificationSetting.orgId, orgId));
       await tx.delete(schema.userAccount).where(eq(schema.userAccount.orgId, orgId));
       await tx.delete(schema.org).where(eq(schema.org.id, orgId));
     });

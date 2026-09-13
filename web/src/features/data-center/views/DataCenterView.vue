@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import { Download } from '@element-plus/icons-vue'
 
 import ScopeSelect from '@/components/business/ScopeSelect.vue'
@@ -9,7 +10,11 @@ import DrilldownDrawer from '../components/DrilldownDrawer.vue'
 import MarketDistribution from '../components/MarketDistribution.vue'
 import TrendChart from '../components/TrendChart.vue'
 import { useDataCenter } from '../composables/useDataCenter'
-import type { AnalyticsMetric } from '@/api/types/analytics'
+import {
+  ANALYTICS_METRICS,
+  type AnalyticsMetric,
+  type AnalyticsPeriod,
+} from '@/api/types/analytics'
 import { useDictStore } from '@/stores/dict'
 
 defineOptions({ name: 'DataCenterView' })
@@ -18,6 +23,7 @@ defineOptions({ name: 'DataCenterView' })
  * 15 数据中心（15 §1/§3，P1-15-01~06）：
  * 全局筛选（周期 / 国家 / AI 员工 / 数据范围）→ AI 贡献卡 + 增长趋势 + 市场分布，
  * 卡片与图表均可下钻明细（15 §4），支持导出当前筛选报表。
+ * 支持深链：`/data-center?metric=&period=&startDate=&endDate=&country=`（13 §3.2 发现证据 ref 落地）。
  */
 const { t } = useI18n()
 const dict = useDictStore()
@@ -72,6 +78,35 @@ function onMarketDrilldown(marketCountry: string) {
   if (marketCountry !== 'OTHER') country.value = marketCountry
   drilldownMetric.value = 'new_customers'
 }
+
+// ===== 深链（13 §3.2 发现证据 ref）=====
+const route = useRoute()
+
+/** 从 query 恢复筛选并直接打开对应指标明细；非法值一律忽略，不影响页面默认行为 */
+function applyDeepLink() {
+  const qCountry = typeof route.query.country === 'string' ? route.query.country : ''
+  if (qCountry) country.value = qCountry
+
+  const qPeriod = route.query.period
+  if (typeof qPeriod === 'string' && PERIODS.some((item) => item.value === qPeriod)) {
+    period.value = qPeriod as AnalyticsPeriod
+  }
+
+  const startDate = typeof route.query.startDate === 'string' ? route.query.startDate : ''
+  const endDate = typeof route.query.endDate === 'string' ? route.query.endDate : ''
+  if (period.value === 'custom' && startDate && endDate) {
+    customRange.value = [startDate, endDate]
+  }
+
+  const metric = typeof route.query.metric === 'string' ? route.query.metric : ''
+  if ((ANALYTICS_METRICS as readonly string[]).includes(metric)) {
+    drilldownMetric.value = metric as AnalyticsMetric
+  }
+}
+
+applyDeepLink()
+// 同页二次深链（如从经理页连续点两条证据）同样生效
+watch(() => route.query, applyDeepLink)
 </script>
 
 <template>

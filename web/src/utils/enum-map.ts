@@ -312,6 +312,25 @@ export const ENUMS = {
       color: 'var(--ai-scheduled)',
     },
   ],
+  /** AI 经营报告状态（13 §1.4） */
+  managerReportStatus: [
+    {
+      value: 'generating',
+      labelKey: 'enums.managerReportStatus.generating',
+      color: 'var(--ai-working)',
+    },
+    { value: 'ready', labelKey: 'enums.managerReportStatus.ready', color: 'var(--ai-idle)' },
+    { value: 'failed', labelKey: 'enums.managerReportStatus.failed', color: 'var(--ai-risk)' },
+  ],
+  /** AI 发现类型（13 §1.2） */
+  managerDiscoveryType: [
+    {
+      value: 'opportunity',
+      labelKey: 'enums.managerDiscoveryType.opportunity',
+      color: 'var(--ai-working)',
+    },
+    { value: 'risk', labelKey: 'enums.managerDiscoveryType.risk', color: 'var(--ai-risk)' },
+  ],
   /** 国家/地区（05 §1.2 添加客户表单 + 筛选；值 = ISO 3166-1 alpha-2 大写代码） */
   country: [
     { value: 'US', labelKey: 'enums.country.us' },

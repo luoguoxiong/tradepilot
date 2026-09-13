@@ -54,7 +54,13 @@ export class OpenAiEmbeddingProvider implements EmbeddingProvider {
         'content-type': 'application/json',
         authorization: `Bearer ${this.options.apiKey}`,
       },
-      body: JSON.stringify({ model: this.options.model, input: texts }),
+      // dimensions：OpenAI 兼容协议的向量截断参数（须原样下发，否则配置形同虚设；
+      // 模型不支持截断时会返回原生维度 → 由下方长度校验明确报错）
+      body: JSON.stringify({
+        model: this.options.model,
+        input: texts,
+        ...(this.options.dimensions ? { dimensions: this.options.dimensions } : {}),
+      }),
     });
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
@@ -65,7 +71,17 @@ export class OpenAiEmbeddingProvider implements EmbeddingProvider {
     if (data.length !== texts.length) {
       throw new Error(`嵌入服务返回条数不匹配: 期望 ${texts.length}，实际 ${data.length}`);
     }
-    return data.map((d) => d.embedding);
+    const vectors = data.map((d) => d.embedding);
+    // 维度校验前置：不让「与向量列不一致」的错误拖到入库时才以 PG 报错暴露
+    // （如模型不支持 dimensions 截断而返回原生维度）
+    const actual = vectors[0]?.length ?? 0;
+    if (actual !== this.dimensions) {
+      throw new Error(
+        `嵌入模型 ${this.options.model} 返回 ${actual} 维，与配置维度 ${this.dimensions} 不一致：` +
+          '请改用支持 dimensions 截断的模型，或调整向量列维度（knowledge_chunk.embedding）与配置保持一致',
+      );
+    }
+    return vectors;
   }
 }
 

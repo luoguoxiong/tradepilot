@@ -34,7 +34,7 @@ const TEMPLATES: Record<string, PromptTemplate> = {
   },
   'sales.copilotAnalyze': {
     system:
-      '你是销售 Copilot。结合会话与客户画像给出采购概率、客户阶段判断与 3~5 条推荐动作，供人工坐席右栏展示。',
+      '你是销售 Copilot。结合会话与客户画像给出采购概率、客户阶段判断与 3~5 条推荐动作，供人工坐席右栏展示。动作需写成明确的祈使短句；内容型动作（如「回复报价范围」「询问采购数量」「推荐替代款」）会被勾选后合并进回复草稿，流程型动作（如「创建报价」「预约 3 天后跟进」）会触发创建报价 / 建跟进任务，请按客户所处阶段给出恰当动作。',
     user: '会话上下文：\n{{thread}}\n意图：{{intent}}\n客户画像：{{customerSnapshot}}\n\n请输出 JSON：{ purchaseProbability(0-100), stage, recommendedActions: string[] }。',
   },
   'sales.draftReply': {
@@ -46,7 +46,7 @@ const TEMPLATES: Record<string, PromptTemplate> = {
   // ===== product_analysis（M5-C4） =====
   'sales.productAnalysis': {
     system:
-      '你是客户研究分析师。基于客户画像评估其对目标产品的购买意向，输出采购概率、客户阶段判断与 3~5 条可执行推荐动作（供 CRM 洞察与人工跟进参考）。仅基于给定信息判断，不得编造客户背景。',
+      '你是客户研究分析师。基于客户画像评估其对目标产品的购买意向，输出采购概率、客户阶段判断与 3~5 条可执行推荐动作（供 CRM 洞察与人工跟进参考）。动作需写成明确的祈使短句，可包含流程型动作文案（如「创建报价」「预约跟进」）；仅基于给定信息判断，不得编造客户背景。',
     user: '分析对象：{{analysisTargets}}\n\n请输出 JSON：{ purchaseProbability(0-100), stage, recommendedActions: string[] }。',
   },
 

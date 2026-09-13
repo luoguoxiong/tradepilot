@@ -46,6 +46,16 @@ let runningTaskId = '';
 const adminEmail = `it-m5c-${createId('org')}@test.com`;
 const salesEmail = `it-m5c-sales-${createId('org')}@test.com`;
 
+/** 02 §1.2 承载决策（D4 恢复后六角色全启用）：卡片 workspacePath 期望值 */
+const WORKSPACE_PATH: Record<string, string> = {
+  lead_hunter: '/lead-gen',
+  customer_researcher: '/crm',
+  sales: '/inbox',
+  follow_up: '/follow-up',
+  merchandiser: '/orders',
+  manager: '/manager',
+};
+
 async function expectBiz(promise: Promise<unknown>, code: number): Promise<BizException> {
   try {
     await promise;
@@ -120,6 +130,9 @@ afterAll(async () => {
       await tx.delete(schema.llmCall).where(eq(schema.llmCall.orgId, orgId));
       await tx.delete(schema.aiTaskLog).where(eq(schema.aiTaskLog.orgId, orgId));
       await tx.delete(schema.aiTaskStep).where(eq(schema.aiTaskStep.orgId, orgId));
+      // ai_lead.task_id FK → ai_task：先清业务行再删任务（本文件 seed 了经任务归因的线索）
+      await tx.delete(schema.aiLeadContact).where(eq(schema.aiLeadContact.orgId, orgId));
+      await tx.delete(schema.aiLead).where(eq(schema.aiLead.orgId, orgId));
       await tx.delete(schema.aiTask).where(eq(schema.aiTask.orgId, orgId));
       await tx.delete(schema.approvalLog).where(eq(schema.approvalLog.orgId, orgId));
       await tx.delete(schema.approvalRequest).where(eq(schema.approvalRequest.orgId, orgId));
@@ -138,8 +151,6 @@ afterAll(async () => {
       await tx.delete(schema.customerActivity).where(eq(schema.customerActivity.orgId, orgId));
       await tx.delete(schema.contact).where(eq(schema.contact.orgId, orgId));
       await tx.delete(schema.customer).where(eq(schema.customer.orgId, orgId));
-      await tx.delete(schema.aiLeadContact).where(eq(schema.aiLeadContact.orgId, orgId));
-      await tx.delete(schema.aiLead).where(eq(schema.aiLead.orgId, orgId));
       await tx.delete(schema.aiEmployee).where(eq(schema.aiEmployee.orgId, orgId));
       await tx.delete(schema.sopTemplate).where(eq(schema.sopTemplate.orgId, orgId));
       await tx.delete(schema.aiModelSetting).where(eq(schema.aiModelSetting.orgId, orgId));
@@ -321,6 +332,18 @@ describe('M5-C3 · GET /ai-employees（卡片列表 + currentTask 聚合）', ()
       startedAt: new Date(),
       createdBy: adminId,
     });
+    // 业务量口径（P1 精化）：今日产出/KPI 取业务表聚合而非任务数 → 造 1 条经 task 归因到该员工的今日线索
+    await superDb.insert(schema.aiLead).values({
+      id: createId('lead'),
+      orgId,
+      taskId: runningTaskId,
+      companyName: 'US Running Shoes Co',
+      country: 'US',
+      matchPct: 90,
+      scoreLevel: 'high',
+      insight: { value: 90, confidence: 0.9, reasons: [] },
+      inCrm: false,
+    });
   });
 
   it('列表含全量员工卡（6 预置 + 创建的），字段结构与承载决策正确', async () => {
@@ -332,10 +355,8 @@ describe('M5-C3 · GET /ai-employees（卡片列表 + currentTask 聚合）', ()
       expect(card.employeeId.startsWith('emp_')).toBe(true);
       expect(card.name.length).toBeGreaterThan(0);
       expect(Array.isArray(card.todayStats)).toBe(true);
-      // D4 承载决策：跟单/经理工作台入口禁用（null）
-      if (card.role === 'merchandiser' || card.role === 'manager') {
-        expect(card.workspacePath).toBeNull();
-      }
+      // 承载决策（D4 恢复）：六角色工作台入口全部启用（跟单随 10 / 经理随 13 解开占位）
+      expect(card.workspacePath).toBe(WORKSPACE_PATH[card.role]);
     }
     const hunter = resp.items.find((i) => i.employeeId === empId)!;
     expect(hunter.workspacePath).toBe('/lead-gen');
@@ -353,13 +374,16 @@ describe('M5-C3 · GET /ai-employees（卡片列表 + currentTask 聚合）', ()
       progressPct: 40,
       currentStep: 'search_sources',
     });
-    // 今日任务计数 = 1（running 任务 createdAt=今天）
+    // 今日产出（P1 精化）：今日产出 = 经任务归因到该员工的今日线索数 = 1
+    expect(card.todayStats[0]!.label).toBe('今日找到客户');
     expect(card.todayStats[0]!.count).toBe(1);
-    // KPI：非占位角色展示（achieved = 今日任务计数）
+    // KPI：非占位角色展示（achieved 与今日产出同源 → 1 / target 35）
     expect(card.kpi).not.toBeNull();
     expect(card.kpi!.metric).toBe('daily_leads');
     expect(card.kpi!.target).toBe(35);
     expect(card.kpi!.period).toBe('daily');
+    expect(card.kpi!.achieved).toBe(1);
+    expect(card.kpi!.progressPct).toBe(3);
   });
 
   it('无任务员工卡：status=idle + currentTask=null（种子 idle 员工）', async () => {
@@ -367,7 +391,13 @@ describe('M5-C3 · GET /ai-employees（卡片列表 + currentTask 聚合）', ()
     const merchandiser = resp.items.find((i) => i.role === 'merchandiser')!;
     expect(merchandiser.status).toBe('idle');
     expect(merchandiser.currentTask).toBeNull();
-    expect(merchandiser.kpi).toBeNull();
+    // D4 恢复：跟单 KPI 不再占位（在跟订单数，存量指标；本 org 未造订单 → 0）
+    expect(merchandiser.kpi).not.toBeNull();
+    expect(merchandiser.kpi!.metric).toBe('active_orders');
+    expect(merchandiser.kpi!.target).toBe(99);
+    expect(merchandiser.kpi!.achieved).toBe(0);
+    expect(merchandiser.todayStats[0]!.label).toBe('在跟订单');
+    expect(merchandiser.todayStats[0]!.count).toBe(0);
   });
 });
 

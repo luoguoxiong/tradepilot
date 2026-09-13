@@ -116,6 +116,15 @@ export default {
       idle: 'Idle',
       error: 'Error',
     },
+    managerReportStatus: {
+      generating: 'Generating',
+      ready: 'Ready',
+      failed: 'Failed',
+    },
+    managerDiscoveryType: {
+      opportunity: 'Opportunity',
+      risk: 'Risk',
+    },
     taskStatus: {
       running: 'Running',
       waitingApproval: 'Waiting approval',
@@ -913,23 +922,41 @@ export default {
       '{created} tasks created; {skipped} customers skipped for existing running task (one running task per customer)',
   },
   dashboard: {
-    // Greeting (01 §1.1 FR-01; dailyReport hidden in P0 per D3)
+    // Greeting (01 §1.1 FR-01; D3: daily report entry restored with 13)
     greetingMorning: 'Good morning',
     greetingAfternoon: 'Good afternoon',
     greetingEvening: 'Good evening',
     greetingNight: 'Working late',
     onlineEmployees: 'AI employees online {online}/{total}',
-    // KPI (01 §1.2 FR-02; D1: new_quotes/estimated_revenue restored in P1)
+    // KPI (01 §1.2 FR-02; D1: new_quotes/estimated_revenue restored with 09/10)
     metric: {
       new_customers: 'New Customers',
       new_inquiries: 'New Inquiries',
       new_quotes: 'New Quotes',
       estimated_revenue: 'Estimated Revenue',
     },
+    estimatedTag: 'Est.',
     compare: {
+      vs_yesterday: 'vs yesterday',
       vs_last_week: 'vs last week',
       vs_last_month: 'vs last month',
     },
+    // AI daily report (01 §3.2/§3.3; D3 restored with 13)
+    dailyReport: 'AI Daily Report',
+    reportStatus: {
+      ready: 'Ready',
+      generating: 'Generating',
+      failed: 'Failed',
+    },
+    reportGeneratedAt: 'Generated at {time}',
+    reportEmpty: 'No AI daily report yet',
+    reportEmptyHint:
+      'Generate today\u2019s business report: the AI manager will summarize the day\u2019s metrics, risks and advice',
+    generateReport: 'Generate today\u2019s report',
+    regenerateReport: 'Regenerate',
+    reportGenerating: 'Report is generating and will appear automatically',
+    reportFailed: 'Report generation failed, you can retry',
+    reportGenerateFailed: 'Failed to start report generation',
     // AI employee status (01 §1.3 FR-03)
     employeeSection: 'AI Employee Status',
     waitingApprovalCount: '{count} tasks awaiting approval',
@@ -943,6 +970,8 @@ export default {
     },
     // High-value customers (01 §1.4 FR-04)
     highValueSection: 'High-value Customers',
+    // To-do center entry (01 §1.5 FR-06; D14: enabled with 14, hidden in P0)
+    enterTodoCenter: 'Open to-do center',
   },
   knowledge: {
     // Stats (11 §1.2 FR-05)
@@ -999,6 +1028,8 @@ export default {
     tabContacts: 'Contacts',
     tabProducts: 'Products',
     tabConversations: 'Conversations',
+    tabQuotes: 'Quotes',
+    tabOrders: 'Orders',
     tabActivities: 'Activities',
     tabInsights: 'AI Insights',
     // Stage stepper (05 §3.2)
@@ -1052,6 +1083,12 @@ export default {
     convWip: 'Conversation details open in the AI Sales Workspace',
     convEmpty: 'No email conversations',
     convEmptyHint: 'Connect a mailbox and conversations will appear here automatically',
+    // Quotes / Orders tabs (04 §1.4 FR-07, D6: enabled with 09/10)
+    quotesEmpty: 'No quotes for this customer yet',
+    quotesEmptyHint: 'Create a quote for this customer and it will show up here',
+    createQuote: 'Create quote',
+    ordersEmpty: 'No orders for this customer yet',
+    ordersEmptyHint: 'Orders generated from won quotes will appear here',
     // Activities
     activitiesEmpty: 'No activity records',
     // AI Insights (04 §1.3 / FR-05)
@@ -1129,6 +1166,8 @@ export default {
       kindProcess: 'Process',
       insertDraft: 'Insert into draft',
       createTasks: 'Create tasks',
+      createQuote: 'Create quote',
+      quoteJumped: 'Customer prefilled — finish the quote in Quotes',
       inserted: 'Points inserted into draft',
       tasksCreated: 'Created {count} follow-up tasks',
       askAi: 'Ask AI',
@@ -1159,7 +1198,11 @@ export default {
     },
     tab: {
       all: 'All',
+      quote: 'Quotes',
       email_send: 'Email sending',
+      order_change: 'Order changes',
+      bulk_marketing: 'Bulk marketing',
+      contract: 'Contracts',
       customer_delete: 'Customer deletion',
     },
     pending: 'Pending',
@@ -1180,6 +1223,13 @@ export default {
     relatedCounts: 'Related data',
     quotes: 'Quotes',
     orders: 'Orders',
+    quoteNo: 'Quote no.',
+    amount: 'Amount',
+    currency: 'Currency',
+    orderNo: 'Order no.',
+    deliveryDate: 'Delivery date',
+    viewSource: 'View source',
+    changeValue: '{before} → {after}',
     confidence: 'Confidence',
     emailContent: 'Email content',
     logs: 'Audit log',
@@ -1215,6 +1265,8 @@ export default {
     currentTask: 'Current task',
     noCurrentTask: 'No running task',
     viewTaskLog: 'View logs',
+    viewTasks: 'Task history',
+    taskListTitle: '{name} · Task history',
     pause: 'Pause',
     resume: 'Resume',
     pauseDone: 'Paused {n} running task(s)',
@@ -1301,6 +1353,62 @@ export default {
       foundCustomer: 'Customer found',
       repliedEmail: 'Email replied',
       followUp: 'Follow-up',
+    },
+  },
+  manager: {
+    title: 'AI Trade Manager',
+    subtitle: 'Business overview · proactive findings · one-click dispatch',
+    overviewTitle: "Today's business overview",
+    overview: {
+      newCustomers: 'New customers',
+      newInquiries: 'New inquiries',
+      newQuotes: 'New quotes',
+      dealsClosed: 'Deals closed',
+    },
+    discovery: {
+      title: 'AI findings',
+      all: 'All',
+      opportunity: 'Opportunity',
+      risk: 'Risk',
+      empty: 'No opportunities or risks found yet (findings appear as data accumulates)',
+      evidence: 'Evidence',
+      evidenceSource: 'Source',
+      viewDetail: 'View detail',
+      executed: 'Executed',
+      executedAt: 'Executed at',
+      viewTask: 'View task',
+      viewStrategy: 'View strategy',
+      taskStarted: 'Lead generation task started',
+      strategyEnabled: 'Reactivation strategy enabled',
+      executeFailed: 'Action failed, please retry later',
+      createdVia: 'AI Trade Manager',
+    },
+    efficiency: {
+      title: 'AI team efficiency',
+      employee: 'Employee',
+      role: 'Role',
+      metric: 'KPI metric',
+      progress: 'Progress',
+      noTarget: 'No target set',
+      todayScope: 'Daily basis',
+    },
+    report: {
+      title: 'Business reports',
+      generate: 'Generate report',
+      period: 'Period',
+      status: 'Status',
+      generatedAt: 'Generated at',
+      createdAt: 'Created at',
+      content: 'Report content',
+      action: 'Action',
+      view: 'View',
+      empty: 'No reports yet, click "Generate report" to create one',
+      generated: 'Report task submitted and will appear once ready',
+      generateFailed: 'Failed to generate report, please retry later',
+      generating: 'Generating report, please wait…',
+      failed: 'Report generation failed, you can regenerate it',
+      citations: 'Sources',
+      periodLabel: { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', all: 'All periods' },
     },
   },
   settings: {
@@ -1421,7 +1529,7 @@ export default {
     modelApiKeyPlaceholder: 'Submitted on save only, encrypted at rest',
     modelApiKeyKeep: 'Leave blank to keep unchanged',
     modelDimensions: 'Dimensions',
-    modelDimensionsFixed: 'Fixed at 1536 to match the knowledge index vector column.',
+    modelDimensionsFixed: 'Fixed at 2048 to match the knowledge index vector column.',
     modelTemperature: 'Temperature',
     modelMaxTokens: 'Max tokens',
     modelCurrent: 'Active',
@@ -1597,6 +1705,7 @@ export default {
   },
   notify: {
     pendingApprovals: 'Pending approvals',
+    noPending: 'No pending approvals',
     waitingApprovalTitle: 'Task awaiting approval',
     waitingApprovalMessage:
       'The AI employee submitted an approval request. Click to open the approval center.',

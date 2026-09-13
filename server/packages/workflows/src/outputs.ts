@@ -166,6 +166,30 @@ function orderMonitorOutputs(state: State): Record<string, unknown>[] {
   ];
 }
 
+/**
+ * business_analysis（13 §7）：insight（报告标识 + 周期 + 发现数 + citations）。
+ * 正文落在 business_report.content（长文本不塞 outputs），outputs 只留任务详情可追溯的摘要。
+ */
+function businessAnalysisOutputs(state: State): Record<string, unknown>[] {
+  const content = state['reportContent'];
+  if (typeof content !== 'string' || content.length === 0) {
+    return [];
+  }
+  const citations = arr(state, 'reportCitations');
+  return [
+    {
+      type: 'insight',
+      payload: {
+        ...(typeof state['reportId'] === 'string' ? { reportId: state['reportId'] } : {}),
+        ...(typeof state['period'] === 'string' ? { period: state['period'] } : {}),
+        status: typeof state['reportStatus'] === 'string' ? state['reportStatus'] : 'ready',
+        discoveryCount: typeof state['discoveryCount'] === 'number' ? state['discoveryCount'] : 0,
+        ...(citations.length > 0 ? { citations } : {}),
+      },
+    },
+  ];
+}
+
 const BUILDERS: Record<string, (state: State) => Record<string, unknown>[]> = {
   lead_hunting: leadHuntingOutputs,
   email_reply: emailReplyOutputs,
@@ -173,6 +197,7 @@ const BUILDERS: Record<string, (state: State) => Record<string, unknown>[]> = {
   product_analysis: productAnalysisOutputs,
   product_knowledge: productKnowledgeOutputs,
   order_monitor: orderMonitorOutputs,
+  business_analysis: businessAnalysisOutputs,
 };
 
 /** 按 taskType 组装类型化 outputs；未注册类型返回 null（runner 回落通用 result 包裹） */

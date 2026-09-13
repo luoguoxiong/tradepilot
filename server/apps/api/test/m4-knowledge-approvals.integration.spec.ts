@@ -263,6 +263,11 @@ afterAll(async () => {
       await tx.delete(schema.followUpStrategy).where(eq(schema.followUpStrategy.orgId, orgId));
       await tx.delete(schema.customer).where(eq(schema.customer.orgId, orgId));
       await tx.delete(schema.aiEmployee).where(eq(schema.aiEmployee.orgId, orgId));
+      // 通知由审批/任务等业务事件生成（notification.org_id FK → org，必须先清）
+      await tx.delete(schema.notification).where(eq(schema.notification.orgId, orgId));
+      await tx
+        .delete(schema.notificationSetting)
+        .where(eq(schema.notificationSetting.orgId, orgId));
       await tx.delete(schema.userAccount).where(eq(schema.userAccount.orgId, orgId));
       await tx.delete(schema.org).where(eq(schema.org.id, orgId));
     }
@@ -423,12 +428,17 @@ describe('M4 #9 · 11 知识中心', () => {
 });
 
 describe('M4 #10 · 12 审核中心', () => {
-  it('summary：all + P0 常驻类型 + count>0 类型 Tab（12 §3.1）', async () => {
+  it('summary：all + 常驻类型（P0/P1）+ count>0 类型 Tab（12 §3.1 / D10）', async () => {
     const result = await approvals.summary(ORG_A);
     const all = result.tabs.find((t) => t.type === 'all');
     expect(all?.count).toBe(4); // APPROVE/EDIT/REJECT pending + CD pending（EXPIRED 不计）
     expect(result.tabs.some((t) => t.type === 'email_send' && t.count === 3)).toBe(true);
     expect(result.tabs.some((t) => t.type === 'customer_delete' && t.count === 1)).toBe(true);
+    // D10：报价 / 订单变更随 09/10 常驻返回（count=0 也返回，由前端按启用模块裁剪）
+    expect(result.tabs.some((t) => t.type === 'quote' && t.count === 0)).toBe(true);
+    expect(result.tabs.some((t) => t.type === 'order_change' && t.count === 0)).toBe(true);
+    // 无来源模块的类型此时不占位
+    expect(result.tabs.some((t) => t.type === 'bulk_marketing')).toBe(false);
   });
 
   it('list：status 筛选 + 卡片字段；detail 不存在 40401', async () => {
@@ -523,5 +533,27 @@ describe('M4 #10 · 12 审核中心', () => {
       approvals.approve(ORG_A, APPROVER, APR_APPROVE, { action: 'approve' }),
       40901,
     );
+  });
+
+  it('D10：无来源模块的类型（bulk_marketing）仅在确有数据时进入 Tab', async () => {
+    const approvalId = createId('apr');
+    await superDb.insert(schema.approvalRequest).values({
+      id: approvalId,
+      orgId: ORG_A,
+      approvalType: 'bulk_marketing',
+      riskLevel: 'medium',
+      title: '批量营销审批',
+      bizType: 'follow_up_strategy',
+      bizId: STRAT,
+      context: {},
+      aiProposal: {},
+      expiresAt: new Date(Date.now() + 48 * 3600_000),
+    });
+
+    const result = await approvals.summary(ORG_A);
+    expect(result.tabs.some((t) => t.type === 'bulk_marketing' && t.count === 1)).toBe(true);
+    expect(result.tabs.find((t) => t.type === 'all')?.count).toBe(5);
+
+    await superDb.delete(schema.approvalRequest).where(eq(schema.approvalRequest.id, approvalId));
   });
 });

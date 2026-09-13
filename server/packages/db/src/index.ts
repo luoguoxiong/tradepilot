@@ -36,6 +36,8 @@ export type {
   CrmFieldMapping,
 } from './schema/index.js';
 export * from './scope.js';
+export * from './manager-insights.js';
+export * from './employee-kpi.js';
 export { seedOrg } from './seed/register-seed.js';
 
 /** 创建连接池（api 与 worker 各自独立；02 §3 池参数基线） */

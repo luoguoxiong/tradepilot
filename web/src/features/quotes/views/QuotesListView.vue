@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { Plus } from '@element-plus/icons-vue'
 
@@ -21,11 +21,24 @@ defineOptions({ name: 'QuotesListView' })
 /**
  * 09 报价列表（FR-01/FR-02，09 §1.1）：
  * 状态 Tab（all + 五状态，附各档数量）→ externalQuery 进 ProTable 全量 key；
- * 关键词（报价编号/客户名）+ 客户筛选；行点击进入详情；「+ 新建报价」弹窗。
+ * 关键词（报价编号/客户名）+ 客户筛选；行点击进入详情；「+ 新建报价」弹窗；
+ * D8 深链：`?customerId=xxx&create=1`（客户 360° Quotes 页签空态 / AI Insights「创建报价」）
+ * → 预置客户筛选 + 直接打开新建弹窗。
  */
 const { t } = useI18n()
 const router = useRouter()
+const route = useRoute()
 const queryClient = useQueryClient()
+
+// ===== D8 深链参数 =====
+const deepLinkCustomerId = computed(() =>
+  typeof route.query.customerId === 'string' ? route.query.customerId : '',
+)
+
+/** 预置客户筛选（ProTable 初始筛选值，Tab 切换重挂载后仍生效） */
+const defaultQuery = computed<Record<string, unknown>>(() =>
+  deepLinkCustomerId.value ? { customerId: deepLinkCustomerId.value } : {},
+)
 
 const columns: ProColumn[] = [
   { prop: 'quoteNo', labelKey: 'quotes.quoteNo', width: 170 },
@@ -78,6 +91,20 @@ const filters = computed<FilterField[]>(() => [
 
 const formVisible = ref(false)
 
+/** D8：create=1 时打开新建弹窗并带入客户，随后清除该参数（避免刷新重复弹窗） */
+watch(
+  () => route.query.create,
+  (flag) => {
+    if (flag !== '1') return
+    formVisible.value = true
+    void router.replace({
+      name: 'quotes',
+      query: deepLinkCustomerId.value ? { customerId: deepLinkCustomerId.value } : {},
+    })
+  },
+  { immediate: true },
+)
+
 function formatDateTime(value: string): string {
   return new Date(value).toLocaleString()
 }
@@ -117,6 +144,7 @@ function onSaved(quoteId: string) {
       :query-key-base="qk.quotes.all"
       :filters="filters"
       :external-query="externalQuery"
+      :default-query="defaultQuery"
       row-key="quoteId"
       @row-click="onRowClick"
     >
@@ -124,7 +152,12 @@ function onSaved(quoteId: string) {
       <template #col-createdAt="{ row }">{{ formatDateTime(row.createdAt) }}</template>
     </ProTable>
 
-    <QuoteFormDialog v-model="formVisible" mode="create" @saved="onSaved" />
+    <QuoteFormDialog
+      v-model="formVisible"
+      mode="create"
+      :preset-customer-id="deepLinkCustomerId"
+      @saved="onSaved"
+    />
   </div>
 </template>
 

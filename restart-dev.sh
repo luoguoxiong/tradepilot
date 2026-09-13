@@ -33,6 +33,26 @@ ok()   { printf '  \033[32m✔\033[0m %s\n' "$*"; }
 warn() { printf '  \033[33m!\033[0m %s\n' "$*"; }
 err()  { printf '  \033[31m✘\033[0m %s\n' "$*"; }
 
+# 服务要求 Node ≥ 20（package.json engines）：Node 18 无 globalThis.crypto，
+# worker 会以 "crypto is not defined" 之类难以定位的运行时错误失败，故启动前显式拦截。
+check_node_version() {
+  local version major
+  version="$(node -v 2>/dev/null || true)"
+  major="${version#v}"
+  major="${major%%.*}"
+  if [ -z "$major" ]; then
+    err "未找到 node，请先安装 Node 20+（server/web/package.json engines: >=20）"
+    return 1
+  fi
+  if [ "$major" -lt 20 ] 2>/dev/null; then
+    err "当前 node $version 低于要求（>=20），服务会以 crypto is not defined 等错误启动失败"
+    log "  请切换版本后重试，例如：nvm use 20 && $0 $*"
+    return 1
+  fi
+  ok "node $version"
+  return 0
+}
+
 # 读取 server/.env 中的键（取第一个匹配，与 main.ts 的 loadLocalDotEnv 语义一致）
 read_dotenv_port() {
   local key="$1" file="$ROOT/server/.env" line value
@@ -256,6 +276,7 @@ main() {
   fi
 
   log ""
+  check_node_version "$@" || exit 1
   set -m
 
   for name in "${services[@]}"; do

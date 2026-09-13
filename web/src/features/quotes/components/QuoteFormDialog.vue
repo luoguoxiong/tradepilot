@@ -26,8 +26,10 @@ const props = withDefaults(
     modelValue: boolean
     mode?: 'create' | 'edit'
     quote?: QuoteDetail | null
+    /** 新建时预置客户（D8：客户 360°/AI Insights「创建报价」流程型建议带入客户） */
+    presetCustomerId?: string
   }>(),
-  { mode: 'create', quote: null },
+  { mode: 'create', quote: null, presetCustomerId: '' },
 )
 
 const emit = defineEmits<{
@@ -120,7 +122,8 @@ function resetFromQuote() {
       unitPrice: item.unitPrice,
     }))
   } else {
-    form.customerId = ''
+    // 新建：可携带预置客户（D8 客户 360° / AI Insights 引导带入）
+    form.customerId = props.presetCustomerId
     form.contactId = ''
     form.currency = 'USD'
     form.incoterms = ''

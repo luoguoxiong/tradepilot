@@ -92,6 +92,10 @@ export async function searchKnowledgeChunks(
     ),`
     : sql``;
   const vecJoin = vecLiteral ? sql`LEFT JOIN vec ON vec.id = s.id` : sql``;
+  // 降级（嵌入不可用 → 无 vec CTE/join）时，打分项与过滤条件必须同步移除，
+  // 否则 SELECT/WHERE 仍引用 vec.rn / vec.id → 42P01（missing FROM-clause entry for table "vec"）。
+  const vecScore = vecLiteral ? sql`COALESCE(1.0/(${RRF_K}+vec.rn),0) + ` : sql``;
+  const vecFilter = vecLiteral ? sql`vec.id IS NOT NULL OR ` : sql``;
 
   const rowsRes = await tx.execute(sql`
     WITH scope AS (
@@ -112,12 +116,12 @@ export async function searchKnowledgeChunks(
       LIMIT ${CANDIDATE_K}
     )
     SELECT s.id AS chunk_id, s.document_id, s.file_name, s.category, s.content, s.metadata,
-      COALESCE(1.0/(${RRF_K}+vec.rn),0) + COALESCE(1.0/(${RRF_K}+fts.rn),0) + COALESCE(1.0/(${RRF_K}+trgm.rn),0) AS rrf
+      ${vecScore}COALESCE(1.0/(${RRF_K}+fts.rn),0) + COALESCE(1.0/(${RRF_K}+trgm.rn),0) AS rrf
     FROM scope s
     ${vecJoin}
     LEFT JOIN fts ON fts.id = s.id
     LEFT JOIN trgm ON trgm.id = s.id
-    WHERE vec.id IS NOT NULL OR fts.id IS NOT NULL OR trgm.id IS NOT NULL
+    WHERE ${vecFilter}fts.id IS NOT NULL OR trgm.id IS NOT NULL
     ORDER BY rrf DESC
     LIMIT ${topK}
   `);

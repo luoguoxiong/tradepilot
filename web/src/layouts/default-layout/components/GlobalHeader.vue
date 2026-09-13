@@ -36,6 +36,14 @@ const onSearch = useDebounceFn((value: string) => {
 // ===== 通知铃：待审数徽标（notifyStore 15s 轮询）=====
 const pendingCount = computed(() => notifyStore.pendingCount)
 
+/**
+ * 铃铛下拉明细：仅有待审数据的类型（D10 起 summary 会返回 count=0 的常驻类型 —
+ * 报价 / 订单变更 — 供审核中心 Tab 常驻，此处按 count>0 过滤避免下拉出现空行）。
+ */
+const pendingTabs = computed(() =>
+  notifyStore.tabs.filter((tab) => tab.type !== 'all' && tab.count > 0),
+)
+
 function goApprovals() {
   router.push('/approvals')
 }
@@ -91,8 +99,11 @@ function onSwitchLang(lang: 'zh-CN' | 'en') {
             <el-dropdown-item disabled>
               {{ t('notify.pendingApprovals') }}
             </el-dropdown-item>
+            <el-dropdown-item v-if="!pendingTabs.length" disabled>
+              {{ t('notify.noPending') }}
+            </el-dropdown-item>
             <el-dropdown-item
-              v-for="tab in notifyStore.tabs"
+              v-for="tab in pendingTabs"
               :key="tab.type"
               divided
               @click="goApprovals"

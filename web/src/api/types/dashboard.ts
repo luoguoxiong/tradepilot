@@ -1,8 +1,8 @@
 /**
- * 01-Dashboard 工作台（接口文档 01 v0.2）：
- * 只读聚合视图；P0 降级对齐 00 §5.1 D1~D3——
- * kpis 无 new_quotes/estimated_revenue、pendingItems 无 quote_approval/order_delay_risk、
- * 无 dailyReport 字段（未启用 metric/入口不返回而非返回 0）。
+ * 01-Dashboard 工作台（接口文档 01 v0.3）：
+ * 只读聚合视图；D1~D3 随模块交付逐项恢复——
+ * kpis 全量 new_customers/new_inquiries/new_quotes/estimated_revenue（§3.1）、
+ * pendingItems 四类（§3.1）、dailyReport 经 /dashboard/daily-report 单独拉取（D3，随 13）。
  */
 
 /** KPI metric（01 §1.2 FR-02） */
@@ -42,10 +42,7 @@ export interface DashboardHighValueCustomer {
 
 /** 今日待处理类型（01 §1.5 FR-05） */
 export type DashboardPendingType =
-  | 'quote_approval'
-  | 'high_value_overdue'
-  | 'customer_reply'
-  | 'order_delay_risk'
+  'quote_approval' | 'high_value_overdue' | 'customer_reply' | 'order_delay_risk'
 
 /** 今日待处理项（01 §1.5）：点击按 link 携带预置筛选跳转 */
 export interface DashboardPendingItem {
@@ -55,21 +52,41 @@ export interface DashboardPendingItem {
   link: string
 }
 
-/** AI 每日报告入口（01 §1.1；P0 D3 不返回，前端隐藏） */
+/**
+ * AI 每日报告（01 §3.2 GET /dashboard/daily-report，D3 随 13 恢复）：
+ * content 为五段 Markdown；无报告时接口返回 40401（前端按「暂无报告 + 可生成」渲染）。
+ */
 export interface DashboardDailyReport {
   reportId: string
+  period: 'daily' | 'weekly' | 'monthly'
+  status: 'generating' | 'ready' | 'failed'
+  content: string | null
+  generatedAt: string | null
+  citations: Record<string, unknown>[]
+}
+
+/** 生成请求/响应（01 §3.3 POST /dashboard/daily-report/generate，异步任务） */
+export interface GenerateDailyReportReq {
+  period?: 'daily' | 'weekly' | 'monthly'
+}
+
+export interface GenerateDailyReportResp {
+  taskId: string
+  reportId: string
+  /** 异步任务状态（queued/running）；报告状态经 GET /dashboard/daily-report 轮询 */
   status: string
+  period: string
 }
 
 /** 首屏聚合（01 §3.1 GET /dashboard/summary） */
 export interface DashboardSummary {
   greeting: { onlineEmployeeCount: number; onlineEmployeeTotal: number }
-  /** P0 仅 new_customers/new_inquiries（D1）；P1 恢复全量 */
+  /** D1 全量：new_customers/new_inquiries/new_quotes/estimated_revenue */
   kpis: DashboardKpi[]
   aiEmployees: DashboardEmployee[]
   highValueCustomers: DashboardHighValueCustomer[]
-  /** P0 仅 high_value_overdue/customer_reply（D2） */
+  /** D2 全量四类 */
   pendingItems: DashboardPendingItem[]
-  /** P0 D3：字段不返回 */
-  dailyReport?: DashboardDailyReport
+  /** 报告正文经 /dashboard/daily-report 单独拉取（首屏不内联） */
+  dailyReport?: never
 }

@@ -401,6 +401,55 @@ const ORDER_MONITOR_SOP: SopGraphDefinition = {
   ],
 };
 
+/**
+ * business_analysis（13 AI 外贸经理 §7 / P1-13-06）：
+ * 加载报告上下文 → 机会检测 → 风险检测 → 五段报告组装 → 报告落库 + ai_discovery 写回。
+ * 全 flow 图（无 LLM 节点）：沿用 order_monitor 先例——结论必须由业务表聚合确定性产出（13 §4 红线），
+ * 四项指标由 API 侧以任务 input 快照传入（与 15 数据中心 / 13 overview **同一 service 同源**），
+ * 避免 worker 重复实现统计口径；预测类内容以 `estimated: true` 标注（13 §4）。
+ */
+const BUSINESS_ANALYSIS_SOP: SopGraphDefinition = {
+  version: 1,
+  entry: 'load_report_context',
+  nodes: [
+    {
+      id: 'load_report_context',
+      kind: 'flow',
+      route: 'load_report_context',
+      title: '加载报告上下文',
+      progress: 20,
+    },
+    {
+      id: 'detect_opportunities',
+      kind: 'flow',
+      route: 'detect_opportunities',
+      title: '机会检测',
+      progress: 20,
+    },
+    { id: 'detect_risks', kind: 'flow', route: 'detect_risks', title: '风险检测', progress: 20 },
+    {
+      id: 'compose_report',
+      kind: 'flow',
+      route: 'compose_report',
+      title: '组装五段报告',
+      progress: 20,
+    },
+    {
+      id: 'persist_report',
+      kind: 'flow',
+      route: 'persist_report',
+      title: '报告落库与发现写回',
+      progress: 20,
+    },
+  ],
+  edges: [
+    { from: 'load_report_context', to: 'detect_opportunities' },
+    { from: 'detect_opportunities', to: 'detect_risks' },
+    { from: 'detect_risks', to: 'compose_report' },
+    { from: 'compose_report', to: 'persist_report' },
+  ],
+};
+
 /** taskType → SOP + State 通道键（文档字段 + 编排辅助键） */
 const TASK_SOPS: Record<string, { sop: SopGraphDefinition; stateKeys: string[] }> = {
   lead_hunting: {
@@ -503,6 +552,29 @@ const TASK_SOPS: Record<string, { sop: SopGraphDefinition; stateKeys: string[] }
       'alert',
     ],
   },
+  business_analysis: {
+    sop: BUSINESS_ANALYSIS_SOP,
+    stateKeys: [
+      ...BASE_KEYS,
+      // input 播种（reports.generate: reportId + 周期 + 指标快照 + 团队快照）
+      'reportId',
+      'period',
+      'periodStart',
+      'periodEnd',
+      'overview',
+      'previousOverview',
+      'previousPeriod',
+      'team',
+      // 编排辅助
+      'opportunityDiscoveries',
+      'riskDiscoveries',
+      'discoveries',
+      'reportContent',
+      'reportCitations',
+      'reportStatus',
+      'discoveryCount',
+    ],
+  },
 };
 
 export const workflowSopProvider: TaskSopProvider = {
@@ -530,4 +602,5 @@ export const WORKFLOW_SOP_DEFINITIONS: Readonly<Record<string, SopGraphDefinitio
   product_analysis: PRODUCT_ANALYSIS_SOP,
   product_knowledge: PRODUCT_KNOWLEDGE_SOP,
   order_monitor: ORDER_MONITOR_SOP,
+  business_analysis: BUSINESS_ANALYSIS_SOP,
 };

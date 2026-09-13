@@ -25,9 +25,11 @@ import {
 } from '@element-plus/icons-vue'
 
 import { useNotifyStore } from '@/stores/notify'
+import { useAuthStore } from '@/stores/auth'
 
 /**
- * Sider 菜单由路由表自动生成（02 §1.1）：meta.menu !== false，按 features.ts 过滤、meta.order 排序。
+ * Sider 菜单由路由表自动生成（02 §1.1）：meta.menu !== false，按 features.ts 过滤、meta.order 排序，
+ * 并按 meta.roles 做角色裁剪（UX 层与守卫一致，服务端 40301 为权威；如 /manager 仅经理及以上可见）。
  * 1280px 以下自动折叠为图标栏（04 §4 响应式约定）；折叠状态与用户手动开关取并集。
  * /approvals 菜单项挂待审数角标（M5-B5，notifyStore 15s 轮询驱动，折叠/展开两态均可见）。
  */
@@ -55,15 +57,20 @@ const router = useRouter()
 const route = useRoute()
 const { t } = useI18n()
 const notifyStore = useNotifyStore()
+const auth = useAuthStore()
 
 const pendingCount = computed(() => notifyStore.pendingCount)
 
 const { siderCollapsed: collapsed } = useSiderCollapsed()
 
+/** 角色裁剪（13 §1.2 经理页专属等）：meta.roles 存在且当前角色不在其中 → 不进菜单 */
+const canAccess = (roles?: string[]): boolean =>
+  !roles || (auth.user?.role !== undefined && roles.includes(auth.user.role))
+
 const menuItems = computed(() =>
   router
     .getRoutes()
-    .filter((r) => r.meta.menu)
+    .filter((r) => r.meta.menu && canAccess(r.meta.roles))
     .sort((a, b) => (a.meta.order ?? 99) - (b.meta.order ?? 99))
     .map((r) => ({ path: r.path, titleKey: r.meta.title ?? '', icon: r.meta.icon })),
 )

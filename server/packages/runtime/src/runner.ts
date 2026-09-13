@@ -71,7 +71,10 @@ export interface RunTaskResult {
 export class TaskRunner {
   constructor(private readonly deps: TaskRunnerDeps) {}
 
-  async run(taskId: string, opts?: { resume?: ResumeHint }): Promise<RunTaskResult> {
+  async run(
+    taskId: string,
+    opts?: { resume?: ResumeHint; fromPause?: boolean },
+  ): Promise<RunTaskResult> {
     const { db, redis, logger } = this.deps;
 
     // ① 跨租户定位任务（sched_scan 策略放行 SELECT，02 §4.3）
@@ -100,7 +103,7 @@ export class TaskRunner {
     }
 
     // ② 领取（乐观锁状态机）
-    const claim = await this.claim(probe, opts?.resume);
+    const claim = await this.claim(probe, opts);
     if (!claim.ok) {
       return { status: 'skipped' };
     }
@@ -139,7 +142,13 @@ export class TaskRunner {
     try {
       const { sop, stateKeys } = this.deps.sops.get(ctx.taskType);
       const graph = this.deps.compiler.compile(ctx.orgId, ctx.taskType, sop, stateKeys);
-      const finalState = await graph.invoke(buildInitialState(ctx, stateKeys), ctx);
+      // 审批 resume / 手动恢复（fromPause）：invoke(null) 从最近检查点续跑当前节点；
+      // 全新任务以初始 State 从 START 起跑（04 §5.2/§5.4）。
+      const resumeFromCheckpoint = Boolean(opts?.resume) || Boolean(opts?.fromPause);
+      const finalState = await graph.invoke(
+        resumeFromCheckpoint ? null : buildInitialState(ctx, stateKeys),
+        ctx,
+      );
       const outputs =
         this.deps.sops.buildOutputs?.(ctx.taskType, finalState) ?? buildOutputs(finalState);
       const updated = await this.complete(taskId, probe.orgId, snapshot.employee.id, outputs);
@@ -176,7 +185,13 @@ export class TaskRunner {
         { taskId, error, err: err instanceof Error ? err : undefined },
         '任务失败（堆栈见 err 字段）',
       );
-      const updated = await this.fail(taskId, probe.orgId, snapshot.employee.id, error, probe.title);
+      const updated = await this.fail(
+        taskId,
+        probe.orgId,
+        snapshot.employee.id,
+        error,
+        probe.title,
+      );
       if (!updated) {
         // 失败收尾未命中（执行期间被暂停）→ 保持 paused，不覆盖
         return { status: TASK_STATUS.PAUSED, error };
@@ -192,6 +207,8 @@ export class TaskRunner {
   /**
    * 乐观锁领取（04 §5.2）：
    * - 正常：scheduled → running（0 行命中 = 重复投递/已取消 → 跳过）；
+   * - fromPause（手动恢复，P1-X-30 / 04 §5.4）：paused → running（API 已置 running 时幂等放行），
+   *   runner 侧 invoke(null) 从最近检查点续跑当前节点（工具按 taskId+nodeId 幂等防重复）；
    * - resume：waiting_approval → running（markResumed 已置 running 时幂等放行），
    *   并同步员工 working、follow_up_task scheduled（排期冻结解除）。
    */
@@ -203,10 +220,43 @@ export class TaskRunner {
       title: string;
       input: Record<string, unknown>;
     },
-    resume?: ResumeHint,
+    opts: { resume?: ResumeHint; fromPause?: boolean } = {},
   ): Promise<{ ok: boolean; transitioned: boolean }> {
+    const { resume } = opts;
     const now = new Date();
     return withOrg(this.deps.db, probe.orgId, async (tx) => {
+      if (opts.fromPause) {
+        const rows = await tx
+          .update(schema.aiTask)
+          .set({
+            status: TASK_STATUS.RUNNING,
+            startedAt: sql`coalesce(${schema.aiTask.startedAt}, ${now})`,
+            updatedAt: now,
+          })
+          .where(and(eq(schema.aiTask.id, probe.id), eq(schema.aiTask.status, TASK_STATUS.PAUSED)))
+          .returning({ id: schema.aiTask.id });
+        if (rows.length === 0) {
+          const [row] = await tx
+            .select({ status: schema.aiTask.status })
+            .from(schema.aiTask)
+            .where(eq(schema.aiTask.id, probe.id))
+            .limit(1);
+          if (row?.status === TASK_STATUS.RUNNING) {
+            return { ok: true, transitioned: false }; // API 已置 running，幂等续跑
+          }
+          this.deps.logger.warn(
+            { taskId: probe.id, status: row?.status },
+            '手动恢复领取未命中，任务已非 paused',
+          );
+          return { ok: false, transitioned: false };
+        }
+        await tx
+          .update(schema.aiEmployee)
+          .set({ status: EMPLOYEE_STATUS.WORKING, statusDetail: probe.title, updatedAt: now })
+          .where(eq(schema.aiEmployee.id, probe.employeeId));
+        return { ok: true, transitioned: true };
+      }
+
       if (resume) {
         const rows = await tx
           .update(schema.aiTask)
@@ -430,7 +480,10 @@ export class TaskRunner {
         .where(and(eq(schema.aiTask.id, taskId), eq(schema.aiTask.status, TASK_STATUS.RUNNING)))
         .returning({ id: schema.aiTask.id });
       if (rows.length === 0) {
-        this.deps.logger.warn({ taskId }, '任务终态写回未命中（已被外部暂停/置终态），跳过完成回写');
+        this.deps.logger.warn(
+          { taskId },
+          '任务终态写回未命中（已被外部暂停/置终态），跳过完成回写',
+        );
         return false;
       }
       // M3-06：终态回写前置校验——员工仍持有其它 active 任务则保持状态（防并发覆盖）
@@ -472,7 +525,10 @@ export class TaskRunner {
         .where(and(eq(schema.aiTask.id, taskId), eq(schema.aiTask.status, TASK_STATUS.RUNNING)))
         .returning({ id: schema.aiTask.id });
       if (rows.length === 0) {
-        this.deps.logger.warn({ taskId }, '任务失败回写未命中（已被外部暂停/置终态），跳过失败落库');
+        this.deps.logger.warn(
+          { taskId },
+          '任务失败回写未命中（已被外部暂停/置终态），跳过失败落库',
+        );
         return false;
       }
       // M3-06：同 complete，终态回写前置校验

@@ -3,12 +3,29 @@ import { and, asc, desc, eq, ilike, inArray, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 import { BizException, createId } from '@tradepilot/core';
 import { schema, withOrg, type Db } from '@tradepilot/db';
-import { TaskEnqueuer } from '@tradepilot/runtime';
-import { EMPLOYEE_OCCUPYING_TASK_STATUSES, type TaskType } from '@tradepilot/shared';
+import {
+  TaskEnqueuer,
+  TaskEventPublisher,
+  buildDoneEvent,
+  buildStatusEvent,
+  releaseEmployeeIdle,
+} from '@tradepilot/runtime';
+import {
+  EMPLOYEE_OCCUPYING_TASK_STATUSES,
+  EMPLOYEE_STATUS,
+  TASK_STATUS,
+  type TaskStatus,
+  type TaskType,
+} from '@tradepilot/shared';
 import { DB } from '../db/db.module.js';
 import { REDIS } from '../redis/redis.module.js';
 import { EnvService } from '../config/env.service.js';
-import type { CreateTaskDto, ListTasksQuery } from './tasks.dto.js';
+import type {
+  BatchTaskActionDto,
+  CreateTaskDto,
+  ListTasksQuery,
+  TransferToHumanDto,
+} from './tasks.dto.js';
 
 /**
  * 任务中心服务（接口 14 §3 / 技术方案 04 §2）：
@@ -18,6 +35,8 @@ import type { CreateTaskDto, ListTasksQuery } from './tasks.dto.js';
  *   且非未来定时 → 事务提交后即时入队（响应 status='running' 表示已投递待执行）；否则 scheduled
  *   排队由 Dispatcher 按序启动；
  * - retry = 新任务（retry_of 溯源，输入复制），日志不迁移（14 §3.5）；
+ * - 操作类（P1-X-30~33）：pause/resume/cancel/transfer-to-human 一律「事务内状态机写库 + 员工位联动
+ *   + 事务提交后 delayed job 清理/重新入队 + SSE status/done 推送」；批量处理复用单任务语义。
  * - 列表/详情/日志增量/步骤均为只读聚合（员工卡片轻量对象另在 02 接口）。
  */
 
@@ -44,6 +63,7 @@ export interface TaskListItem {
 @Injectable()
 export class TasksService implements OnModuleDestroy {
   private readonly enqueuer: TaskEnqueuer;
+  private readonly publisher: TaskEventPublisher;
 
   constructor(
     @Inject(DB) private readonly db: Db,
@@ -52,6 +72,7 @@ export class TasksService implements OnModuleDestroy {
     @Inject(EnvService) env: EnvService,
   ) {
     this.enqueuer = new TaskEnqueuer(env.env.REDIS_URL);
+    this.publisher = new TaskEventPublisher(redis);
   }
 
   /** Nest 生命周期：关闭 BullMQ 队列连接（应用退出/模块销毁时释放） */
@@ -337,5 +358,363 @@ export class TasksService implements OnModuleDestroy {
       },
       source.id,
     );
+  }
+
+  // ===== 任务中心操作（P1-X-30~33，04 §5.4 / 14 §3.6~3.7） =====
+
+  /**
+   * 14 §3.6 暂停（P1-X-30）：running/scheduled → paused。
+   * paused 不占并发 → 释放员工位；执行中任务在下个节点探测到离开 running 后中止（PauseAbortError），
+   * checkpointer 保留检查点；事务提交后清理 delayed job（removeTask）并推 SSE status=paused。
+   */
+  async pause(orgId: string, taskId: string): Promise<{ taskId: string; status: TaskStatus }> {
+    const result = await withOrg(this.db, orgId, async (tx) => {
+      const [task] = await tx
+        .select({
+          id: schema.aiTask.id,
+          type: schema.aiTask.type,
+          status: schema.aiTask.status,
+          employeeId: schema.aiTask.employeeId,
+        })
+        .from(schema.aiTask)
+        .where(and(eq(schema.aiTask.id, taskId), eq(schema.aiTask.orgId, orgId)))
+        .limit(1);
+      if (!task) {
+        throw BizException.notFound(`任务不存在: ${taskId}`);
+      }
+      if (task.status === TASK_STATUS.PAUSED) {
+        return { type: task.type as TaskType, changed: false }; // 幂等：已暂停直接返回
+      }
+      if (task.status !== TASK_STATUS.RUNNING && task.status !== TASK_STATUS.SCHEDULED) {
+        throw BizException.conflict('仅执行中/已排期任务可暂停（14 §3.6）');
+      }
+      const now = new Date();
+      const rows = await tx
+        .update(schema.aiTask)
+        .set({ status: TASK_STATUS.PAUSED, updatedAt: now })
+        .where(
+          and(
+            eq(schema.aiTask.id, taskId),
+            inArray(schema.aiTask.status, [TASK_STATUS.RUNNING, TASK_STATUS.SCHEDULED]),
+          ),
+        )
+        .returning({ id: schema.aiTask.id });
+      if (rows.length === 0) {
+        throw BizException.conflict('任务状态已变更，请刷新后重试');
+      }
+      await tx.insert(schema.aiTaskLog).values({
+        id: createId('tlog'),
+        orgId,
+        taskId,
+        occurredAt: now,
+        type: 'error',
+        content: '任务已暂停（恢复后从最近检查点续跑当前节点）',
+        leadId: null,
+      });
+      await releaseEmployeeIdle(tx, { employeeId: task.employeeId, excludeTaskId: taskId, now });
+      return { type: task.type as TaskType, changed: true };
+    });
+    if (result.changed) {
+      await this.enqueuer.removeTask(taskId, result.type);
+      await this.publisher.publish(taskId, buildStatusEvent({ status: TASK_STATUS.PAUSED }));
+    }
+    return { taskId, status: TASK_STATUS.PAUSED };
+  }
+
+  /**
+   * 14 §3.6 恢复（P1-X-30 / 04 §5.4）：paused → 续跑。
+   * - 已产生检查点（started_at 非空）：paused → running + 员工 working，事务提交后按 jobId 重投并携带
+   *   fromPause（Runner invoke(null) 从最近检查点续跑当前节点，工具按 taskId+nodeId 幂等防重复）；
+   * - 从未执行（暂停于 scheduled）：paused → scheduled，由 Dispatcher 全新投递。
+   */
+  async resume(
+    orgId: string,
+    taskId: string,
+  ): Promise<{ taskId: string; status: TaskStatus; fromCheckpoint: boolean }> {
+    const result = await withOrg(this.db, orgId, async (tx) => {
+      const [task] = await tx
+        .select({
+          id: schema.aiTask.id,
+          type: schema.aiTask.type,
+          status: schema.aiTask.status,
+          title: schema.aiTask.title,
+          employeeId: schema.aiTask.employeeId,
+          startedAt: schema.aiTask.startedAt,
+        })
+        .from(schema.aiTask)
+        .where(and(eq(schema.aiTask.id, taskId), eq(schema.aiTask.orgId, orgId)))
+        .limit(1);
+      if (!task) {
+        throw BizException.notFound(`任务不存在: ${taskId}`);
+      }
+      if (task.status !== TASK_STATUS.PAUSED) {
+        throw BizException.conflict('仅已暂停任务可恢复（14 §3.6）');
+      }
+      const now = new Date();
+      const fromCheckpoint = task.startedAt !== null;
+      const nextStatus: TaskStatus = fromCheckpoint ? TASK_STATUS.RUNNING : TASK_STATUS.SCHEDULED;
+      const rows = fromCheckpoint
+        ? await tx
+            .update(schema.aiTask)
+            .set({
+              status: TASK_STATUS.RUNNING,
+              startedAt: sql`coalesce(${schema.aiTask.startedAt}, ${now})`,
+              updatedAt: now,
+            })
+            .where(and(eq(schema.aiTask.id, taskId), eq(schema.aiTask.status, TASK_STATUS.PAUSED)))
+            .returning({ id: schema.aiTask.id })
+        : await tx
+            .update(schema.aiTask)
+            .set({ status: TASK_STATUS.SCHEDULED, updatedAt: now })
+            .where(and(eq(schema.aiTask.id, taskId), eq(schema.aiTask.status, TASK_STATUS.PAUSED)))
+            .returning({ id: schema.aiTask.id });
+      if (rows.length === 0) {
+        throw BizException.conflict('任务状态已变更，请刷新后重试');
+      }
+      if (fromCheckpoint) {
+        // 对齐审批 resume 伴生状态：员工回 working（Runner 领取时再幂等确认）
+        await tx
+          .update(schema.aiEmployee)
+          .set({ status: EMPLOYEE_STATUS.WORKING, statusDetail: task.title, updatedAt: now })
+          .where(eq(schema.aiEmployee.id, task.employeeId));
+      }
+      await tx.insert(schema.aiTaskLog).values({
+        id: createId('tlog'),
+        orgId,
+        taskId,
+        occurredAt: now,
+        type: 'error',
+        content: fromCheckpoint ? '任务已恢复（从最近检查点续跑）' : '任务已恢复（重新排队执行）',
+        leadId: null,
+      });
+      return { type: task.type as TaskType, fromCheckpoint, status: nextStatus };
+    });
+    if (result.fromCheckpoint) {
+      await this.enqueuer.enqueueResumeFromPause(taskId, result.type);
+      await this.publisher.publish(taskId, buildStatusEvent({ status: TASK_STATUS.RUNNING }));
+    }
+    return { taskId, status: result.status, fromCheckpoint: result.fromCheckpoint };
+  }
+
+  /**
+   * 14 §3.6 取消（P1-X-30 / 04 §5.4）：running/scheduled/paused → canceled（终态）。
+   * 释放员工位 → 清理 delayed job → 推 SSE status + done（收口流）。
+   * waiting_approval 由审核中心处置，不在取消范围（避免审批单悬挂）。
+   */
+  async cancel(
+    orgId: string,
+    taskId: string,
+  ): Promise<{ taskId: string; status: TaskStatus; outputs: Record<string, unknown>[] }> {
+    const result = await withOrg(this.db, orgId, async (tx) => {
+      const [task] = await tx
+        .select({
+          id: schema.aiTask.id,
+          type: schema.aiTask.type,
+          status: schema.aiTask.status,
+          employeeId: schema.aiTask.employeeId,
+          outputs: schema.aiTask.outputs,
+        })
+        .from(schema.aiTask)
+        .where(and(eq(schema.aiTask.id, taskId), eq(schema.aiTask.orgId, orgId)))
+        .limit(1);
+      if (!task) {
+        throw BizException.notFound(`任务不存在: ${taskId}`);
+      }
+      const outputs = (task.outputs ?? []) as Record<string, unknown>[];
+      if (task.status === TASK_STATUS.CANCELED) {
+        return { type: task.type as TaskType, changed: false, outputs }; // 幂等
+      }
+      const isCancellable =
+        task.status === TASK_STATUS.RUNNING ||
+        task.status === TASK_STATUS.SCHEDULED ||
+        task.status === TASK_STATUS.PAUSED;
+      if (!isCancellable) {
+        throw BizException.conflict('仅执行中/已排队/已暂停任务可取消（14 §3.6）');
+      }
+      const now = new Date();
+      const rows = await tx
+        .update(schema.aiTask)
+        .set({ status: TASK_STATUS.CANCELED, finishedAt: now, updatedAt: now })
+        .where(
+          and(
+            eq(schema.aiTask.id, taskId),
+            inArray(schema.aiTask.status, [
+              TASK_STATUS.RUNNING,
+              TASK_STATUS.SCHEDULED,
+              TASK_STATUS.PAUSED,
+            ]),
+          ),
+        )
+        .returning({ id: schema.aiTask.id });
+      if (rows.length === 0) {
+        throw BizException.conflict('任务状态已变更，请刷新后重试');
+      }
+      await tx.insert(schema.aiTaskLog).values({
+        id: createId('tlog'),
+        orgId,
+        taskId,
+        occurredAt: now,
+        type: 'error',
+        content: '任务已取消',
+        leadId: null,
+      });
+      await releaseEmployeeIdle(tx, { employeeId: task.employeeId, excludeTaskId: taskId, now });
+      return { type: task.type as TaskType, changed: true, outputs };
+    });
+    if (result.changed) {
+      await this.enqueuer.removeTask(taskId, result.type);
+      await this.publisher.publish(taskId, buildStatusEvent({ status: TASK_STATUS.CANCELED }));
+      await this.publisher.publish(
+        taskId,
+        buildDoneEvent({ status: TASK_STATUS.CANCELED, outputs: result.outputs }),
+      );
+    }
+    return { taskId, status: TASK_STATUS.CANCELED, outputs: result.outputs };
+  }
+
+  /**
+   * 14 §3.6 转人工（P1-X-31 / 04 §5.4）：暂停图 + 写 outputs 交接摘要（type='handoff'）。
+   * - running：置 paused（图在下个节点中止）+ 释放员工位 + 清理 delayed job + 推 SSE status=paused；
+   * - paused：仅追加交接摘要（图已停）；
+   * - failed：保持 failed，仅追加交接摘要（人工接管失败任务）。
+   * 摘要 append 语义：outputs = [...既有, { type:'handoff', payload }]。
+   */
+  async transferToHuman(
+    orgId: string,
+    userId: string,
+    taskId: string,
+    dto: TransferToHumanDto,
+  ): Promise<{ taskId: string; status: TaskStatus; handoff: Record<string, unknown> }> {
+    const result = await withOrg(this.db, orgId, async (tx) => {
+      const [task] = await tx
+        .select({
+          id: schema.aiTask.id,
+          type: schema.aiTask.type,
+          status: schema.aiTask.status,
+          title: schema.aiTask.title,
+          employeeId: schema.aiTask.employeeId,
+          outputs: schema.aiTask.outputs,
+        })
+        .from(schema.aiTask)
+        .where(and(eq(schema.aiTask.id, taskId), eq(schema.aiTask.orgId, orgId)))
+        .limit(1);
+      if (!task) {
+        throw BizException.notFound(`任务不存在: ${taskId}`);
+      }
+      const isTransferable =
+        task.status === TASK_STATUS.RUNNING ||
+        task.status === TASK_STATUS.PAUSED ||
+        task.status === TASK_STATUS.FAILED;
+      if (!isTransferable) {
+        throw BizException.conflict('仅执行中/已暂停/失败任务可转人工（14 §3.6）');
+      }
+      const now = new Date();
+      const wasRunning = task.status === TASK_STATUS.RUNNING;
+      const nextStatus = (wasRunning ? TASK_STATUS.PAUSED : task.status) as TaskStatus;
+      const handoff = {
+        type: 'handoff',
+        payload: {
+          fromStatus: task.status,
+          reason: dto.reason ?? null,
+          summary:
+            dto.summary ??
+            `任务「${task.title}」转人工接管（原状态 ${task.status}），请人工继续跟进。`,
+          assignee: dto.assignee ?? null,
+          transferredAt: now.toISOString(),
+          transferredBy: userId,
+        },
+      };
+      const outputs = [...((task.outputs ?? []) as Record<string, unknown>[]), handoff];
+      const rows = await tx
+        .update(schema.aiTask)
+        .set({ status: nextStatus, outputs, updatedAt: now })
+        .where(
+          and(
+            eq(schema.aiTask.id, taskId),
+            inArray(schema.aiTask.status, [
+              TASK_STATUS.RUNNING,
+              TASK_STATUS.PAUSED,
+              TASK_STATUS.FAILED,
+            ]),
+          ),
+        )
+        .returning({ id: schema.aiTask.id });
+      if (rows.length === 0) {
+        throw BizException.conflict('任务状态已变更，请刷新后重试');
+      }
+      await tx.insert(schema.aiTaskLog).values({
+        id: createId('tlog'),
+        orgId,
+        taskId,
+        occurredAt: now,
+        type: 'error',
+        content: `任务转人工接管${dto.assignee ? `（承接：${dto.assignee}）` : ''}`,
+        leadId: null,
+      });
+      if (wasRunning) {
+        await releaseEmployeeIdle(tx, { employeeId: task.employeeId, excludeTaskId: taskId, now });
+      }
+      return { type: task.type as TaskType, status: nextStatus, wasRunning, handoff };
+    });
+    if (result.wasRunning) {
+      await this.enqueuer.removeTask(taskId, result.type);
+      await this.publisher.publish(taskId, buildStatusEvent({ status: TASK_STATUS.PAUSED }));
+    }
+    return { taskId, status: result.status, handoff: result.handoff };
+  }
+
+  /**
+   * 14 §3.7 失败批量处理（P1-X-33）：多选重试 / 转人工（并发语义由 create 的排队判定保证）。
+   * 逐条复用单任务语义；单条失败不阻断其余（结果逐条回传 ok/error）。
+   */
+  async batch(
+    orgId: string,
+    userId: string,
+    dto: BatchTaskActionDto,
+  ): Promise<{
+    action: string;
+    total: number;
+    succeeded: number;
+    failed: number;
+    results: Array<{
+      taskId: string;
+      ok: boolean;
+      status?: string;
+      newTaskId?: string;
+      error?: string;
+    }>;
+  }> {
+    const results: Array<{
+      taskId: string;
+      ok: boolean;
+      status?: string;
+      newTaskId?: string;
+      error?: string;
+    }> = [];
+    for (const taskId of dto.taskIds) {
+      try {
+        if (dto.action === 'retry') {
+          const r = await this.retry(orgId, userId, taskId);
+          results.push({ taskId, ok: true, status: r.status, newTaskId: r.taskId });
+        } else {
+          const r = await this.transferToHuman(orgId, userId, taskId, { reason: dto.reason });
+          results.push({ taskId, ok: true, status: r.status });
+        }
+      } catch (err) {
+        results.push({
+          taskId,
+          ok: false,
+          error: err instanceof BizException ? err.message : String(err),
+        });
+      }
+    }
+    const succeeded = results.filter((r) => r.ok).length;
+    return {
+      action: dto.action,
+      total: results.length,
+      succeeded,
+      failed: results.length - succeeded,
+      results,
+    };
   }
 }

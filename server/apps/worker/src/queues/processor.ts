@@ -29,7 +29,8 @@ export interface WorkerRuntime {
  * 各自的系统处理器。避免全队列复用 runner.run——系统队列 job.id 不是任务 id，
  * 走 runner 只会误查落空（missing/skipped 静默吞掉载荷）。
  *
- * task job：job.data = { taskId, taskType }（enqueue.ts 投递契约）；审批 resume 场景随 job.data.resume 携带。
+ * task job：job.data = { taskId, taskType }（enqueue.ts 投递契约）；审批 resume 场景随 job.data.resume 携带，
+ * 手动恢复场景随 job.data.fromPause 携带（P1-X-30）。
  * 返回 RunTaskResult（skipped/missing 亦为正常完成——痕迹在 DB，job 侧不重投，attempts=1）。
  */
 export function createProcessor(rt: WorkerRuntime): Processor {
@@ -54,7 +55,19 @@ export function createProcessor(rt: WorkerRuntime): Processor {
     const taskId = String(job.id);
     const resumeRaw: unknown = job.data?.['resume'];
     const resume = isResumeHint(resumeRaw) ? (resumeRaw as unknown as ResumeHint) : undefined;
-    const result = await rt.runner.run(taskId, resume ? { resume } : undefined);
+    // 手动恢复（P1-X-30 / 04 §5.4）：job.data.fromPause=true → Runner 从最近检查点续跑
+    const fromPause = job.data?.['fromPause'] === true;
+    const runOpts: { resume?: ResumeHint; fromPause?: boolean } = {};
+    if (resume) {
+      runOpts.resume = resume;
+    }
+    if (fromPause) {
+      runOpts.fromPause = true;
+    }
+    const result = await rt.runner.run(
+      taskId,
+      Object.keys(runOpts).length > 0 ? runOpts : undefined,
+    );
     rt.logger.info(
       { queue: job.queueName, taskId, status: result.status, error: result.error },
       '任务 job 处理结束',

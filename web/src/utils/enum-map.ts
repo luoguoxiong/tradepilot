@@ -120,6 +120,17 @@ export const ENUMS = {
     { value: 'paused', labelKey: 'enums.taskStatus.paused', color: 'var(--ai-idle)' },
     { value: 'canceled', labelKey: 'enums.taskStatus.canceled', color: 'var(--ai-idle)' },
   ],
+  /** 任务类型（14 §1.1，决定 SOP 与队列归属） */
+  taskType: [
+    { value: 'lead_hunting', labelKey: 'enums.taskType.leadHunting' },
+    { value: 'email_reply', labelKey: 'enums.taskType.emailReply' },
+    { value: 'follow_up', labelKey: 'enums.taskType.followUp' },
+    { value: 'order_monitor', labelKey: 'enums.taskType.orderMonitor' },
+    { value: 'business_analysis', labelKey: 'enums.taskType.businessAnalysis' },
+    { value: 'knowledge_index', labelKey: 'enums.taskType.knowledgeIndex' },
+    { value: 'product_analysis', labelKey: 'enums.taskType.productAnalysis' },
+    { value: 'product_knowledge', labelKey: 'enums.taskType.productKnowledge' },
+  ],
   /** 发现客户价值档（03 §1.6 leadValue） */
   leadValue: [
     { value: 'high', labelKey: 'enums.leadValue.high', color: 'var(--ai-working)' },

@@ -25,6 +25,7 @@ import { ProductsModule } from './products/products.module.js';
 import { QuotesModule } from './quotes/quotes.module.js';
 import { OrdersModule } from './orders/orders.module.js';
 import { OpenApiModule } from './open-api/open-api.module.js';
+import { AnalyticsModule } from './analytics/analytics.module.js';
 
 /**
  * API 根模块（后端技术方案 01 §4）。
@@ -55,6 +56,7 @@ import { OpenApiModule } from './open-api/open-api.module.js';
     ProductsModule,
     QuotesModule,
     OrdersModule,
+    AnalyticsModule,
     OpenApiModule,
   ],
   providers: [

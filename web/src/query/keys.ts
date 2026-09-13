@@ -21,9 +21,10 @@ export const qk = {
     summary: () => [...qk.leads.all, 'summary'] as const,
   },
 
-  /** 任务（14）：detail / logs(after 增量) / steps */
+  /** 任务（14）：list(filters 全量) / detail / logs(after 增量) */
   tasks: {
     all: ['tasks'] as const,
+    list: (filters: unknown) => [...qk.tasks.all, 'list', filters] as const,
     detail: (taskId: string) => [...qk.tasks.all, 'detail', taskId] as const,
     logs: (taskId: string, after: string) => [...qk.tasks.all, 'logs', taskId, after] as const,
   },
@@ -127,6 +128,16 @@ export const qk = {
     list: (filters: unknown) => [...qk.orders.all, 'list', filters] as const,
     detail: (orderId: string) => [...qk.orders.all, 'detail', orderId] as const,
     summary: () => [...qk.orders.all, 'summary'] as const,
+  },
+
+  /** 数据中心（15）：trend / distribution / contribution / drilldown（筛选全量进 key） */
+  analytics: {
+    all: ['analytics'] as const,
+    trend: (filters: unknown) => [...qk.analytics.all, 'trend', filters] as const,
+    distribution: (filters: unknown) => [...qk.analytics.all, 'distribution', filters] as const,
+    contribution: (filters: unknown) => [...qk.analytics.all, 'contribution', filters] as const,
+    drilldown: (metric: string, filters: unknown, page: number) =>
+      [...qk.analytics.all, 'drilldown', metric, filters, page] as const,
   },
 
   /** 工作台（01）：首屏只读聚合 */

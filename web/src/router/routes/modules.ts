@@ -177,11 +177,19 @@ export const appRoutes: RouteRecordRaw[] = [
       },
 
       // ===== P1（features.ts 控制，p0 构建期剔除） =====
+      // 14 AI 任务中心（P1）：状态 Tab 列表 + 详情（步骤/日志/产出物 + 操作/审批联动）
       {
         path: 'tasks',
         name: 'tasks',
-        component: placeholder,
+        component: () => import('@/features/tasks/views/TasksListView.vue'),
         meta: { title: 'menu.tasks', icon: 'List', menu: true, order: 20, feature: 'taskCenter' },
+      },
+      // 详情类路由（不进菜单，与 04 customers/:id 同构：列表视图不含内层 router-view）
+      {
+        path: 'tasks/:id',
+        name: 'task-detail',
+        component: () => import('@/features/tasks/views/TaskDetailView.vue'),
+        meta: { title: 'menu.tasks', feature: 'taskCenter' },
       },
       // 08 产品中心（P1）：列表 + 详情（5 页签，?tab= 同步）
       {
@@ -237,7 +245,7 @@ export const appRoutes: RouteRecordRaw[] = [
       {
         path: 'data-center',
         name: 'data-center',
-        component: placeholder,
+        component: () => import('@/features/data-center/views/DataCenterView.vue'),
         meta: {
           title: 'menu.dataCenter',
           icon: 'DataAnalysis',

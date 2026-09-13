@@ -117,7 +117,7 @@ export class ManagerService {
       const risk = buildRiskDiscovery(staleCustomers);
       const drafts = risk ? [...opportunities, risk] : opportunities;
 
-      // 幂等写回：命中同 (type,title) 只刷新证据，执行状态保留；本轮未检出的 new 行置 expired
+      // 幂等写回：命中同 (type,title) 只刷新证据，执行状态保留；本轮未检出的 new 行置 dismissed
       await upsertDiscoveries(tx, ctx.orgId, drafts);
 
       const rows = await listDiscoveries(tx, { type: query.type });

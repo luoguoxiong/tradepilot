@@ -29,11 +29,14 @@ export const MANAGER_OPPORTUNITY_MIN_INQUIRIES = 3;
 /** 每类发现最多返回条数（机会取增长最高者） */
 export const MANAGER_OPPORTUNITY_MAX_ITEMS = 3;
 
-/** 发现状态（ai_discovery.status） */
+/**
+ * 发现状态（ai_discovery.status，CHECK IN ('new','executed','dismissed')，ER 08 §3）：
+ * DISMISSED = 本轮未重检出的历史发现（自动置为终态，列表不再展示）。
+ */
 export const DISCOVERY_STATUS = {
   NEW: 'new',
   EXECUTED: 'executed',
-  EXPIRED: 'expired',
+  DISMISSED: 'dismissed',
 } as const;
 
 /** 一键动作白名单（13 §7；后续新增 action 必须遵守「可撤销、不对外」原则） */

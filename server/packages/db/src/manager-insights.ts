@@ -127,7 +127,7 @@ export async function fetchStaleHighValueCustomers(
   }));
 }
 
-/** 读列表（status != expired；executed 仍展示，供页面显示已执行状态） */
+/** 读列表（status != dismissed；executed 仍展示，供页面显示已执行状态） */
 export async function listDiscoveries(
   tx: Tx,
   opts: { type?: DiscoveryType | 'all' } = {},
@@ -161,8 +161,8 @@ export async function listDiscoveries(
     .from(aiDiscovery)
     .where(
       opts.type && opts.type !== 'all'
-        ? and(ne(aiDiscovery.status, DISCOVERY_STATUS.EXPIRED), eq(aiDiscovery.type, opts.type))
-        : ne(aiDiscovery.status, DISCOVERY_STATUS.EXPIRED),
+        ? and(ne(aiDiscovery.status, DISCOVERY_STATUS.DISMISSED), eq(aiDiscovery.type, opts.type))
+        : ne(aiDiscovery.status, DISCOVERY_STATUS.DISMISSED),
     )
     .orderBy(desc(aiDiscovery.createdAt))
     .limit(DISCOVERY_LIST_LIMIT);
@@ -173,7 +173,7 @@ export async function listDiscoveries(
  * 幂等落库（键 = type + title）：
  * - 已存在 → 仅刷新 detail/evidence/suggestion/updatedAt，**保留** status/executedRef（已执行动作不因刷新而丢失）；
  * - 不存在 → 以 status='new' 插入；
- * - 本轮未检出的历史 'new' 行 → 标记 expired（页面只呈现当前有效发现，避免陈旧结论堆积）。
+ * - 本轮未检出的历史 'new' 行 → 置 dismissed（页面只呈现当前有效发现，避免陈旧结论堆积）。
  */
 export async function upsertDiscoveries(
   tx: Tx,
@@ -230,7 +230,7 @@ export async function upsertDiscoveries(
   if (staleIds.length > 0) {
     await tx
       .update(aiDiscovery)
-      .set({ status: DISCOVERY_STATUS.EXPIRED, updatedAt: new Date() })
+      .set({ status: DISCOVERY_STATUS.DISMISSED, updatedAt: new Date() })
       .where(inArray(aiDiscovery.id, staleIds));
   }
 

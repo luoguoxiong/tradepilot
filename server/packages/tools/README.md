@@ -178,7 +178,7 @@ src/
 
 | 导出                                | 说明                                                                                                     |
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `getOrgTimezone(orgId, tx)`         | 读 `org.timezone`（缺省 UTC），**60s 进程内 memo**                                                       |
+| `getOrgTimezone(orgId, tx)`         | 读 `org.timezone`（缺省 `Asia/Shanghai`），**60s 进程内 memo**                                           |
 | `configureOrgSearchQuota(limit)`    | 注入 org 级日额度上限（worker 启动由 env 传入；缺省 2000）                                               |
 | `assertOrgSearchQuota(ctx, weight)` | org 级搜索/抓取日额度令牌桶，key `orgsearch:{orgId}:{day}`（org 时区日界，TTL 48h），超限 `RATE_LIMITED` |
 

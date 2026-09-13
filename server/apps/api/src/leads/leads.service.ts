@@ -1,6 +1,6 @@
 /**
  * 03 AI 获客服务（接口 03 §3，M5-B2）：
- * - lead-hunter/summary：员工状态 + 今日产出 + 当前任务
+ * - lead-hunter/summary：员工状态 + 今日产出（org 时区当地日，01 同口径）+ 当前任务
  * - lead-tasks/parse：LLM 解析目标文本 → 结构化字段
  * - lead-tasks：创建获客任务（复用 tasks 模块 lead_hunting）
  * - leads 列表/详情/summary：从 ai_lead 发现池查询
@@ -9,7 +9,13 @@
  */
 import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, ilike, inArray, sql, type SQL } from 'drizzle-orm';
-import { BizException, ErrorCode, createId } from '@tradepilot/core';
+import {
+  BizException,
+  ErrorCode,
+  createId,
+  getZonedWallTime,
+  zonedWallTimeToUtc,
+} from '@tradepilot/core';
 import { schema, withOrg, type Db, type Tx } from '@tradepilot/db';
 import { LlmGateway } from '@tradepilot/runtime';
 import { z } from 'zod';
@@ -29,6 +35,15 @@ import type {
   ParseLeadTaskDto,
 } from './leads.dto.js';
 import type { OrgScopeContext } from '@tradepilot/db';
+
+/** org 时区当地日历日的 00:00 → UTC（「今日」产出口径，与 01 Dashboard / 07 §4 同口径） */
+function localDayStartUtc(now: Date, timeZone: string): Date {
+  const wall = getZonedWallTime(now, timeZone);
+  return zonedWallTimeToUtc(
+    { year: wall.year, month: wall.month, day: wall.day, hour: 0, minute: 0, second: 0 },
+    timeZone,
+  );
+}
 
 export interface LeadHunterSummary {
   employee: { employeeId: string; name: string; status: string } | null;
@@ -191,10 +206,10 @@ export class LeadsService {
 
   /** B2 §1 工作台头部：员工状态 + 今日产出 + 当前任务 */
   async summary(ctx: OrgScopeContext): Promise<LeadHunterSummary> {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
     return withOrg(this.db, ctx.orgId, async (tx) => {
+      // 「今日」口径 = org 时区当地日历日 00:00（与 01 Dashboard / 07 §4 统一基准；16 FR-02 时区为「今天」统一依据）
+      const timeZone = await this.orgTimeZone(tx, ctx.orgId);
+      const today = localDayStartUtc(new Date(), timeZone);
       // 查找 lead_hunter 角色的 AI 员工
       const [employee] = await tx
         .select({
@@ -296,6 +311,16 @@ export class LeadsService {
           : null,
       };
     });
+  }
+
+  /** 读取 org 时区（缺省 Asia/Shanghai）——「今日」口径基准（01 Dashboard / 07 §4 同口径） */
+  private async orgTimeZone(tx: Tx, orgId: string): Promise<string> {
+    const [orgRow] = await tx
+      .select({ timezone: schema.org.timezone })
+      .from(schema.org)
+      .where(eq(schema.org.id, orgId))
+      .limit(1);
+    return orgRow?.timezone ?? 'Asia/Shanghai';
   }
 
   /**

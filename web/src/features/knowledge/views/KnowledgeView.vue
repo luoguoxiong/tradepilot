@@ -82,7 +82,13 @@ function invalidateAll() {
 }
 
 // ===== 批量上传（multipart，逐文件一条；42201 逐项反馈）=====
+// 分类人工选（11 §7：产品资料 P0 手动上传，默认「产品」）；选项取知识分类字典
 const uploadCategory = ref<KnowledgeCategory>('product')
+const categoryOptions = computed(() =>
+  dict
+    .options('knowledgeCategory')
+    .map((option) => ({ value: option.value, label: t(option.labelKey) })),
+)
 const uploading = ref(false)
 
 const ACCEPT_EXTS = ['pdf', 'docx', 'md', 'txt']
@@ -158,6 +164,15 @@ const searchVisible = ref(false)
       </div>
       <div class="knowledge__actions">
         <el-button @click="searchVisible = true">{{ t('knowledge.searchTitle') }}</el-button>
+        <span class="knowledge__upload-label">{{ t('knowledge.uploadCategoryLabel') }}</span>
+        <el-select v-model="uploadCategory" class="knowledge__upload-category">
+          <el-option
+            v-for="option in categoryOptions"
+            :key="option.value"
+            :label="option.label"
+            :value="option.value"
+          />
+        </el-select>
         <el-upload
           :show-file-list="false"
           :http-request="onUploadRequest"
@@ -279,6 +294,15 @@ const searchVisible = ref(false)
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+
+  &__upload-label {
+    font-size: 13px;
+    color: var(--tp-text-tertiary);
+  }
+
+  &__upload-category {
+    width: 120px;
   }
 
   &__tabs {

@@ -48,7 +48,6 @@ export default {
     crm: '客户中心',
     crmList: '客户列表',
     contacts: '联系人',
-    salesCenter: '销售中心',
     inbox: '收件箱',
     outreach: '开发信',
     followUp: '自动跟进',
@@ -623,6 +622,15 @@ export default {
     },
     waitingApprovalTip: '该邮件已提交，等待审核通过后发送',
     gotoApprovals: '去审核中心',
+    knowledge: {
+      action: '存入知识库',
+      title: '存入知识库',
+      context: '会话：{company}',
+      tip: '文件将以「邮件附件」来源（source=email_attachment）存入企业知识库，分类默认「客户」；P0 邮件附件不落库，请选择本地对应文件，自动转存列 P1。',
+      pickFile: '选择文件',
+      confirm: '存入',
+      noFile: '请先选择要入库的文件',
+    },
     composer: {
       generateDraft: 'AI 生成草稿',
       regenerate: '重新生成',

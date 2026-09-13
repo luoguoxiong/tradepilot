@@ -34,6 +34,8 @@ const props = withDefaults(
   defineProps<{
     tab: CustomerTab
     ownerOptions?: OwnerOption[]
+    /** 超期未联系天数筛选（01 §3.1 深链 /crm?overdue=7d） */
+    overdueDays?: number
   }>(),
   { ownerOptions: () => [] },
 )
@@ -68,6 +70,12 @@ const columns: ProColumn[] = [
 ]
 
 const fetchCustomers = (params: Record<string, unknown>) => getCustomers(params as CustomerListReq)
+
+// 01 §3.1 深链：/crm?overdue=7d → 超期未联系天数（Dashboard「高价值客户超期未联系」待办跳转）
+const externalQuery = computed<Record<string, unknown>>(() => ({
+  tab: props.tab,
+  ...(props.overdueDays ? { overdueDays: props.overdueDays } : {}),
+}))
 
 const tableRef = ref<{ clearSelection: () => void } | null>(null)
 
@@ -251,7 +259,7 @@ function submitReassign() {
       :filters="filters"
       :fetcher="fetchCustomers"
       :query-key-base="qk.customers.all"
-      :external-query="{ tab: props.tab }"
+      :external-query="externalQuery"
       row-key="customerId"
       selectable
       scopeable

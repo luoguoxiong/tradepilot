@@ -48,7 +48,6 @@ export default {
     crm: 'Customers',
     crmList: 'Customer List',
     contacts: 'Contacts',
-    salesCenter: 'Sales Center',
     inbox: 'Inbox',
     outreach: 'Outreach',
     followUp: 'Auto Follow-up',
@@ -643,6 +642,15 @@ export default {
     },
     waitingApprovalTip: 'Submitted — the email will be sent once the review is approved',
     gotoApprovals: 'Go to review center',
+    knowledge: {
+      action: 'Save to knowledge',
+      title: 'Save to knowledge base',
+      context: 'Conversation: {company}',
+      tip: 'Files are saved with source=email_attachment (category defaults to Customer). P0 does not persist email attachments, so pick the local copy; automatic transfer is planned for P1.',
+      pickFile: 'Choose files',
+      confirm: 'Save',
+      noFile: 'Select at least one file first',
+    },
     composer: {
       generateDraft: 'AI draft',
       regenerate: 'Regenerate',

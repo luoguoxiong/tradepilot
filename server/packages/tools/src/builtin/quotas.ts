@@ -13,7 +13,7 @@ import type { ToolContext } from '../registry.js';
 const TZ_CACHE_TTL_MS = 60_000;
 const tzCache = new Map<string, { tz: string; at: number }>();
 
-/** org.timezone（缺省 UTC）；缓存 60s（org 设置低频变更，进程多实例各自过期收敛） */
+/** org.timezone（缺省 Asia/Shanghai，对齐 16 §1.4 / DB 列注释 / Dashboard / 07 统一基准）；缓存 60s（org 设置低频变更，进程多实例各自过期收敛） */
 export async function getOrgTimezone(orgId: string, tx: Tx): Promise<string> {
   const hit = tzCache.get(orgId);
   const now = Date.now();
@@ -25,7 +25,7 @@ export async function getOrgTimezone(orgId: string, tx: Tx): Promise<string> {
     .from(schema.org)
     .where(eq(schema.org.id, orgId))
     .limit(1);
-  const tz = row?.timezone || 'UTC';
+  const tz = row?.timezone || 'Asia/Shanghai';
   tzCache.set(orgId, { tz, at: now });
   return tz;
 }

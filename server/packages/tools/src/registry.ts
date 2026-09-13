@@ -110,7 +110,7 @@ export class ToolRegistry {
     if (weight === 0) {
       return;
     }
-    const day = zonedDayKey(ctx.now, ctx.timezone || 'UTC');
+    const day = zonedDayKey(ctx.now, ctx.timezone || 'Asia/Shanghai');
     const key = `quota:${ctx.orgId}:${ctx.employeeId}:${day}`;
     const used = await ctx.redis.incrby(key, weight);
     if (used === weight) {

@@ -49,6 +49,13 @@ const auth = useAuthStore()
 
 const timezone = computed(() => auth.org?.timezone)
 
+// 01 §3.1 深链：/crm?overdue=7d → 客户列表超期未联系筛选（Dashboard「高价值客户超期未联系」待办跳转）
+const overdueDays = computed<number | undefined>(() => {
+  const raw = route.query.overdue
+  const parsed = typeof raw === 'string' ? Number.parseInt(raw.replace(/\D/g, ''), 10) : Number.NaN
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
+})
+
 // ===== 四页签 =====
 // /crm 与 /crm/contacts 为不同路由（keep-alive key 按 path 隔离为独立实例，02 §6），
 // 初始页签由 route.path 决定即可；无需 watch path —— keep-alive 返回时保留内部页签态。
@@ -190,11 +197,21 @@ const fetchActivities = (params: Record<string, unknown>) =>
       <el-tabs v-model="activeTab" class="crm__tabs">
         <el-tab-pane lazy name="potential">
           <template #label>{{ t('crm.tabPotential') }}</template>
-          <CustomerListTable tab="potential" :owner-options="ownerOptions" @edit="openEdit" />
+          <CustomerListTable
+            tab="potential"
+            :owner-options="ownerOptions"
+            :overdue-days="overdueDays"
+            @edit="openEdit"
+          />
         </el-tab-pane>
         <el-tab-pane lazy name="formal">
           <template #label>{{ t('crm.tabFormal') }}</template>
-          <CustomerListTable tab="formal" :owner-options="ownerOptions" @edit="openEdit" />
+          <CustomerListTable
+            tab="formal"
+            :owner-options="ownerOptions"
+            :overdue-days="overdueDays"
+            @edit="openEdit"
+          />
         </el-tab-pane>
         <el-tab-pane lazy name="contacts">
           <template #label>{{ t('crm.tabContacts') }}</template>

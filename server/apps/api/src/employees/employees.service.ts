@@ -1,6 +1,6 @@
 /**
  * 02 AI 数字员工中心服务（接口 02 §3，M5-C3）：
- * - list：员工卡片列表（status 语义 / todayStats 今日任务计数 / kpi / currentTask 只读聚合 ai_task / workspacePath）；
+ * - list：员工卡片列表（status 语义 / todayStats 今日任务计数（org 时区当地日，01 同口径）/ kpi / currentTask 只读聚合 ai_task / workspacePath）；
  * - roles：创建向导预填（sop_template is_preset=true + 预置 ai_employee 派生 RoleTemplate）；
  * - create：仅 admin/manager（sales 越权 40301）；role / kpiConfig.metric / approvalPolicy.quote
  *   业务校验（42201）；sopParams 合并进 org 级 sop_template 副本（is_preset=false）；
@@ -10,7 +10,13 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Redis } from 'ioredis';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
-import { BizException, ErrorCode, createId } from '@tradepilot/core';
+import {
+  BizException,
+  ErrorCode,
+  createId,
+  getZonedWallTime,
+  zonedWallTimeToUtc,
+} from '@tradepilot/core';
 import { schema, withOrg, type Db, type OrgScopeContext, type Tx } from '@tradepilot/db';
 import { buildStatusEvent, TaskEventPublisher } from '@tradepilot/runtime';
 import { DB } from '../db/db.module.js';
@@ -33,14 +39,17 @@ const WORKSPACE_PATH: Record<EmployeeRole, string | null> = {
   manager: null,
 };
 
-/** todayStats 文案（02 §1.1 今日工作量；MVP 口径 = 今日任务计数，02 §3 兜底） */
+/**
+ * todayStats 文案（02 §1.1 今日工作量；MVP 口径 = 今日任务计数，02 §3 兜底）。
+ * 与 01 Dashboard `TODAY_OUTPUT_LABEL` 保持同角色同文案同单位（同一数据口径，避免两页文案不一致）。
+ */
 const TODAY_STAT_LABEL: Record<EmployeeRole, { label: string; unit: string }> = {
-  lead_hunter: { label: '今日获客任务', unit: '个' },
-  customer_researcher: { label: '今日分析任务', unit: '个' },
-  sales: { label: '今日询盘任务', unit: '个' },
-  follow_up: { label: '今日跟进任务', unit: '个' },
-  merchandiser: { label: '今日跟单任务', unit: '个' },
-  manager: { label: '今日经营任务', unit: '个' },
+  lead_hunter: { label: '今日找到客户', unit: '个' },
+  customer_researcher: { label: '今日分析客户', unit: '个' },
+  sales: { label: '今日回复', unit: '封' },
+  follow_up: { label: '今日跟进', unit: '个' },
+  merchandiser: { label: '今日跟单', unit: '单' },
+  manager: { label: '今日经营', unit: '个' },
 };
 
 /** D4 占位角色（跟单/经理）：KPI 随 P1 模块启用后展示 → null */
@@ -139,8 +148,9 @@ export class EmployeesService {
         .where(eq(schema.aiEmployee.orgId, ctx.orgId))
         .orderBy(asc(schema.aiEmployee.createdAt));
 
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      // 「今日」口径 = org 时区当地日历日 00:00（与 01 Dashboard / 07 §4 统一基准；16 FR-02 时区为「今天」统一依据）
+      const timeZone = await this.orgTimeZone(tx, ctx.orgId);
+      const todayStart = localDayStartUtc(new Date(), timeZone);
 
       // 今日任务计数（按员工分组；02 §3.1 今日工作量 MVP 口径）
       const todayRows = await tx
@@ -152,7 +162,7 @@ export class EmployeesService {
         .where(
           and(
             eq(schema.aiTask.orgId, ctx.orgId),
-            sql`${schema.aiTask.createdAt} >= ${today.toISOString()}`,
+            sql`${schema.aiTask.createdAt} >= ${todayStart.toISOString()}`,
           ),
         )
         .groupBy(schema.aiTask.employeeId);
@@ -572,4 +582,23 @@ export class EmployeesService {
   private stripSopSuffix(name: string): string {
     return name.replace(/·预置SOP$/, '');
   }
+
+  /** 读取 org 时区（缺省 Asia/Shanghai）——「今日」口径基准（01 Dashboard / 07 §4 同口径） */
+  private async orgTimeZone(tx: Tx, orgId: string): Promise<string> {
+    const [orgRow] = await tx
+      .select({ timezone: schema.org.timezone })
+      .from(schema.org)
+      .where(eq(schema.org.id, orgId))
+      .limit(1);
+    return orgRow?.timezone ?? 'Asia/Shanghai';
+  }
+}
+
+/** org 时区当地日历日的 00:00 → UTC（「今日」任务计数口径，与 01 Dashboard / 07 §4 同口径） */
+function localDayStartUtc(now: Date, timeZone: string): Date {
+  const wall = getZonedWallTime(now, timeZone);
+  return zonedWallTimeToUtc(
+    { year: wall.year, month: wall.month, day: wall.day, hour: 0, minute: 0, second: 0 },
+    timeZone,
+  );
 }

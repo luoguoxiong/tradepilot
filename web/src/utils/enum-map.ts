@@ -146,6 +146,32 @@ export const ENUMS = {
     },
     { value: 'failed', labelKey: 'enums.knowledgeDocStatus.failed', color: 'var(--ai-risk)' },
   ],
+  /** 产品状态（08 §1.1 productStatus） */
+  productStatus: [
+    { value: 'active', labelKey: 'enums.productStatus.active', color: 'var(--ai-working)' },
+    { value: 'draft', labelKey: 'enums.productStatus.draft', color: 'var(--ai-waiting)' },
+    { value: 'archived', labelKey: 'enums.productStatus.archived', color: 'var(--ai-idle)' },
+  ],
+  /** 产品资料类型（08 §1.5 docType） */
+  productDocType: [
+    { value: 'catalog', labelKey: 'enums.productDocType.catalog' },
+    { value: 'certification', labelKey: 'enums.productDocType.certification' },
+    { value: 'test_report', labelKey: 'enums.productDocType.testReport' },
+    { value: 'other', labelKey: 'enums.productDocType.other' },
+  ],
+  /** 产品知识状态（08 §1.6：draft 待确认 / approved 已启用） */
+  productKnowledgeStatus: [
+    {
+      value: 'draft',
+      labelKey: 'enums.productKnowledgeStatus.draft',
+      color: 'var(--ai-waiting)',
+    },
+    {
+      value: 'approved',
+      labelKey: 'enums.productKnowledgeStatus.approved',
+      color: 'var(--ai-working)',
+    },
+  ],
   /** 跟进任务状态（07 §1.2） */
   followUpTaskStatus: [
     { value: 'ready', labelKey: 'enums.followUpTaskStatus.ready', color: 'var(--ai-working)' },

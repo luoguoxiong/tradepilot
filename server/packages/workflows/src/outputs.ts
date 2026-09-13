@@ -108,11 +108,32 @@ function productAnalysisOutputs(state: State): Record<string, unknown>[] {
   ];
 }
 
+/** product_knowledge（08）：insight（知识四类条目 + 引用溯源；analyze 预览 / generate 已落 draft） */
+function productKnowledgeOutputs(state: State): Record<string, unknown>[] {
+  const knowledge = obj(state, 'knowledge');
+  if (!knowledge) {
+    return [];
+  }
+  const productId = state['productId'];
+  const citations = arr(state, 'productCitations');
+  return [
+    {
+      type: 'insight',
+      payload: {
+        ...knowledge,
+        ...(typeof productId === 'string' && productId ? { productId } : {}),
+        ...(citations.length > 0 ? { citations } : {}),
+      },
+    },
+  ];
+}
+
 const BUILDERS: Record<string, (state: State) => Record<string, unknown>[]> = {
   lead_hunting: leadHuntingOutputs,
   email_reply: emailReplyOutputs,
   follow_up: followUpOutputs,
   product_analysis: productAnalysisOutputs,
+  product_knowledge: productKnowledgeOutputs,
 };
 
 /** 按 taskType 组装类型化 outputs；未注册类型返回 null（runner 回落通用 result 包裹） */

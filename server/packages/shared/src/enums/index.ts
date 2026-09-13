@@ -47,6 +47,8 @@ export const TASK_TYPE = {
   BUSINESS_ANALYSIS: 'business_analysis',
   KNOWLEDGE_INDEX: 'knowledge_index',
   PRODUCT_ANALYSIS: 'product_analysis',
+  /** 08 产品中心：产品资料解析 → 结构化入库 → 产品知识生成（与 M5-C4 product_analysis 客户分析区分） */
+  PRODUCT_KNOWLEDGE: 'product_knowledge',
 } as const;
 export type TaskType = (typeof TASK_TYPE)[keyof typeof TASK_TYPE];
 

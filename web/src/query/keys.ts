@@ -105,6 +105,13 @@ export const qk = {
     detail: (docId: string) => [...qk.knowledge.all, 'detail', docId] as const,
   },
 
+  /** 产品中心（08）：list(filters 全量) / detail(productId) */
+  products: {
+    all: ['products'] as const,
+    list: (filters: unknown) => [...qk.products.all, 'list', filters] as const,
+    detail: (productId: string) => [...qk.products.all, 'detail', productId] as const,
+  },
+
   /** 工作台（01）：首屏只读聚合 */
   dashboardSummary: ['dashboard', 'summary'] as const,
 } as const

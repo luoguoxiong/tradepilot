@@ -914,6 +914,210 @@ const writeCustomerInsight: FlowNodeFn = async (state, ctx) => {
   return { patch: {} };
 };
 
+/** ===== product_knowledge（08 产品中心：资料解析 → 结构化入库 → 知识生成） ===== */
+
+/** 产品生成上下文：结构化数据 + 已索引资料 chunk（CostPrice 红线：绝不进上下文/prompt，08 §7） */
+type ProductKnowledgePatch = {
+  productContext?: Record<string, unknown>;
+  productCitations?: { docId: string; docName?: string; chunkId?: string }[];
+};
+
+/** 单文档并入上下文的 chunk 数与单 chunk 截断（控 prompt 体积；保留开头高信息段） */
+const PRODUCT_DOC_MAX_CHUNKS = 8;
+const PRODUCT_CHUNK_MAX_CHARS = 1200;
+
+/**
+ * load_product_context（08 §4 产品资料解析）：按 sources 加载产品结构化数据 + 已索引资料，
+ * 组装 productContext 供 LLM 生成。CostPrice 永不进入 productContext（仅 Pricing 的
+ * suggestedPrice/priceTiers 可进，构成报价依据而非成本暴露）。
+ */
+const loadProductContext: FlowNodeFn = async (state, ctx) => {
+  const productId = str(state['productId']);
+  const rawSources = state['sources'];
+  const sources = new Set(
+    Array.isArray(rawSources) && rawSources.length > 0
+      ? rawSources.map((s) => String(s))
+      : ['specifications', 'pricing', 'documents'],
+  );
+  const wantSpecs = sources.has('specifications');
+  const wantPricing = sources.has('pricing');
+  const wantDocs = sources.has('documents');
+
+  const context: Record<string, unknown> = {};
+  const citations: ProductKnowledgePatch['productCitations'] = [];
+
+  await withOrg(ctx.db, ctx.orgId, async (tx) => {
+    const [p] = await tx
+      .select({
+        id: schema.product.id,
+        sku: schema.product.sku,
+        name: schema.product.name,
+        category: schema.product.category,
+        material: schema.product.material,
+        description: schema.product.description,
+        moq: schema.product.moq,
+        moqUnit: schema.product.moqUnit,
+        leadTimeDays: schema.product.leadTimeDays,
+        currency: schema.product.currency,
+        suggestedPrice: schema.product.suggestedPrice,
+        status: schema.product.status,
+      })
+      .from(schema.product)
+      .where(and(eq(schema.product.id, productId), eq(schema.product.orgId, ctx.orgId)))
+      .limit(1);
+    if (!p) {
+      return;
+    }
+    Object.assign(context, {
+      productId: p.id,
+      sku: p.sku,
+      name: p.name,
+      category: p.category,
+      material: p.material,
+      description: p.description,
+      moq: p.moq,
+      moqUnit: p.moqUnit,
+      leadTimeDays: p.leadTimeDays,
+      currency: p.currency,
+      status: p.status,
+    });
+
+    if (wantSpecs) {
+      const specs = await tx
+        .select({
+          name: schema.productSpec.name,
+          value: schema.productSpec.value,
+          unit: schema.productSpec.unit,
+        })
+        .from(schema.productSpec)
+        .where(eq(schema.productSpec.productId, productId))
+        .orderBy(schema.productSpec.seq);
+      context['specifications'] = specs.map((s) => ({
+        name: s.name,
+        value: s.value,
+        ...(s.unit ? { unit: s.unit } : {}),
+      }));
+    }
+
+    if (wantPricing) {
+      const tiers = await tx
+        .select({
+          minQty: schema.productPriceTier.minQty,
+          unitPrice: schema.productPriceTier.unitPrice,
+        })
+        .from(schema.productPriceTier)
+        .where(eq(schema.productPriceTier.productId, productId))
+        .orderBy(schema.productPriceTier.minQty);
+      context['pricing'] = {
+        currency: p.currency,
+        suggestedPrice: p.suggestedPrice ?? null,
+        priceTiers: tiers,
+      };
+    }
+
+    if (wantDocs) {
+      const docs = await tx
+        .select({ docId: schema.knowledgeDocument.id, docName: schema.knowledgeDocument.fileName })
+        .from(schema.knowledgeDocument)
+        .where(
+          and(
+            eq(schema.knowledgeDocument.orgId, ctx.orgId),
+            eq(schema.knowledgeDocument.productId, productId),
+            eq(schema.knowledgeDocument.source, 'product'),
+            eq(schema.knowledgeDocument.status, 'indexed'),
+            isNull(schema.knowledgeDocument.deletedAt),
+          ),
+        )
+        .orderBy(schema.knowledgeDocument.createdAt);
+      const documents: { docId: string; docName: string; content: string }[] = [];
+      for (const doc of docs) {
+        const chunks = await tx
+          .select({ id: schema.knowledgeChunk.id, content: schema.knowledgeChunk.content })
+          .from(schema.knowledgeChunk)
+          .where(eq(schema.knowledgeChunk.documentId, doc.docId))
+          .orderBy(schema.knowledgeChunk.chunkIndex)
+          .limit(PRODUCT_DOC_MAX_CHUNKS);
+        if (chunks.length === 0) {
+          continue;
+        }
+        documents.push({
+          docId: doc.docId,
+          docName: doc.docName,
+          content: chunks.map((c) => c.content.slice(0, PRODUCT_CHUNK_MAX_CHARS)).join('\n'),
+        });
+        citations.push({ docId: doc.docId, docName: doc.docName, chunkId: chunks[0]!.id });
+      }
+      context['documents'] = documents;
+    }
+  });
+
+  if (Object.keys(context).length === 0) {
+    return { patch: {} };
+  }
+  return { patch: { productContext: context, productCitations: citations } };
+};
+
+/**
+ * write_product_knowledge（08 §4 结构化入库）：仅 action='generate' 落 product_knowledge
+ * （draft + citations + taskId 溯源，按 productId upsert 并重置为待确认）；analyze 仅预览不落库。
+ */
+const writeProductKnowledge: FlowNodeFn = async (state, ctx) => {
+  const action = ctx.task.input['action'];
+  const productId = str(state['productId']);
+  const knowledge = state['knowledge'] as
+    | {
+        advantages?: string[];
+        faqs?: { question: string; answer: string }[];
+        scenarios?: string[];
+        salesScripts?: string[];
+      }
+    | undefined;
+  if (action !== 'generate' || !productId || !knowledge) {
+    return { patch: {} };
+  }
+  const citations = (state['productCitations'] as ProductKnowledgePatch['productCitations']) ?? [];
+  const advantages = knowledge.advantages ?? [];
+  const faqs = knowledge.faqs ?? [];
+  const scenarios = knowledge.scenarios ?? [];
+  const salesScripts = knowledge.salesScripts ?? [];
+  await withOrg(ctx.db, ctx.orgId, async (tx) => {
+    await tx
+      .insert(schema.productKnowledge)
+      .values({
+        id: createId('pknow'),
+        orgId: ctx.orgId,
+        productId,
+        advantages,
+        faqs,
+        scenarios,
+        salesScripts,
+        status: 'draft',
+        ...(citations.length > 0 ? { citations } : {}),
+        taskId: ctx.taskId,
+        generatedAt: ctx.now,
+        updatedAt: ctx.now,
+      })
+      .onConflictDoUpdate({
+        target: schema.productKnowledge.productId,
+        set: {
+          advantages,
+          faqs,
+          scenarios,
+          salesScripts,
+          status: 'draft',
+          ...(citations.length > 0 ? { citations } : {}),
+          // 重新生成视为推翻旧确认：回落 draft 待人工再确认（08 §3.2）
+          confirmedBy: null,
+          confirmedAt: null,
+          taskId: ctx.taskId,
+          generatedAt: ctx.now,
+          updatedAt: ctx.now,
+        },
+      });
+  });
+  return { patch: {} };
+};
+
 /** ===== 注册表装配 ===== */
 
 /** 注册到具体实现类（register 方法在 Simple 实现上，接口仅暴露 get/has） */
@@ -935,6 +1139,8 @@ export function registerFlows(registry: SimpleFlowRegistry): void {
   registry.register('schedule_next', scheduleNext);
   registry.register('load_analysis_context', loadAnalysisContext);
   registry.register('write_customer_insight', writeCustomerInsight);
+  registry.register('load_product_context', loadProductContext);
+  registry.register('write_product_knowledge', writeProductKnowledge);
 }
 
 /** 便捷装配：新建 SimpleFlowRegistry 并注入全部 flow */

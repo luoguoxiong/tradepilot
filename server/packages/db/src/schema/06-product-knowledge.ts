@@ -121,7 +121,8 @@ export const productKnowledge = pgTable(
     scenarios: text('scenarios').array(),
     salesScripts: text('sales_scripts').array(),
     status: text('status').notNull().default('draft'),
-    citations: jsonb('citations').$type<{ docId: string; chunkId?: string }[]>(),
+    /** 引用溯源（接口 08 §4：docName 即产品知识来源；chunkId 供 06/09 引用回跳） */
+    citations: jsonb('citations').$type<{ docId: string; chunkId?: string; docName?: string }[]>(),
     taskId: text('task_id').references(() => aiTask.id),
     generatedAt: timestamp('generated_at', { withTimezone: true }),
     confirmedBy: text('confirmed_by').references(() => userAccount.id),

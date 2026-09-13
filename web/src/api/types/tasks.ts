@@ -16,6 +16,7 @@ export type TaskType =
   | 'business_analysis'
   | 'knowledge_index'
   | 'product_analysis'
+  | 'product_knowledge'
 
 /** 任务列表行（14 §1.1） */
 export interface TaskItem {

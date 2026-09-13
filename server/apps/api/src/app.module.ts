@@ -21,6 +21,7 @@ import { LeadsModule } from './leads/leads.module.js';
 import { DashboardModule } from './dashboard/dashboard.module.js';
 import { EmployeesModule } from './employees/employees.module.js';
 import { FollowUpsModule } from './follow-ups/follow-ups.module.js';
+import { ProductsModule } from './products/products.module.js';
 import { OpenApiModule } from './open-api/open-api.module.js';
 
 /**
@@ -49,6 +50,7 @@ import { OpenApiModule } from './open-api/open-api.module.js';
     DashboardModule,
     EmployeesModule,
     FollowUpsModule,
+    ProductsModule,
     OpenApiModule,
   ],
   providers: [

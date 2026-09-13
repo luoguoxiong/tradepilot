@@ -18,6 +18,7 @@ export const createTaskSchema = z.object({
     'business_analysis',
     'knowledge_index',
     'product_analysis',
+    'product_knowledge',
   ]),
   title: z.string().trim().min(1, '任务名不能为空').max(200),
   input: z.record(z.unknown()).default({}),
@@ -41,6 +42,7 @@ export const listTasksQuerySchema = z.object({
       'business_analysis',
       'knowledge_index',
       'product_analysis',
+      'product_knowledge',
     ])
     .optional(),
 });

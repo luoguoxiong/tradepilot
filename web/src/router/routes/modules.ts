@@ -183,16 +183,17 @@ export const appRoutes: RouteRecordRaw[] = [
         component: placeholder,
         meta: { title: 'menu.tasks', icon: 'List', menu: true, order: 20, feature: 'taskCenter' },
       },
+      // 08 产品中心（P1）：列表 + 详情（5 页签，?tab= 同步）
       {
         path: 'products',
         name: 'products',
-        component: placeholder,
+        component: () => import('@/features/products/views/ProductsListView.vue'),
         meta: { title: 'menu.products', icon: 'Goods', menu: true, order: 21, feature: 'products' },
         children: [
           {
             path: ':id',
             name: 'product-detail',
-            component: placeholder,
+            component: () => import('@/features/products/views/ProductDetailView.vue'),
             meta: { title: 'menu.products' },
           },
         ],

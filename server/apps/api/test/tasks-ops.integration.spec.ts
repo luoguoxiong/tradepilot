@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { and, eq } from 'drizzle-orm';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { and, eq, inArray } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import { createId } from '@tradepilot/core';
 import { closeDb, createDb, schema, type Db } from '@tradepilot/db';
@@ -132,7 +132,7 @@ async function countLogs(taskId: string): Promise<number> {
 beforeAll(async () => {
   superDb = createDb(SUPER_URL, { max: 2 });
   appDb = createDb(APP_URL, { max: 5 });
-  redis = new Redis(process.env.REDIS_URL, { maxRetriesPerRequest: 2 });
+  redis = new Redis(process.env.REDIS_URL!, { maxRetriesPerRequest: 2 });
   const env = new EnvService();
   const tokens = new TokenService(env, redis);
   const auth = new AuthService(appDb, tokens, redis);
@@ -159,6 +159,23 @@ beforeAll(async () => {
   empId = emp.id;
 }, 30_000);
 
+/** 用例隔离：清空该员工上一用例残留的占用任务（如 resume 后保持 running）+ 员工回 idle */
+beforeEach(async () => {
+  await superDb
+    .update(schema.aiTask)
+    .set({ status: TASK_STATUS.CANCELED })
+    .where(
+      and(
+        eq(schema.aiTask.employeeId, empId),
+        inArray(schema.aiTask.status, [TASK_STATUS.RUNNING, TASK_STATUS.WAITING_APPROVAL]),
+      ),
+    );
+  await superDb
+    .update(schema.aiEmployee)
+    .set({ status: 'idle' })
+    .where(eq(schema.aiEmployee.id, empId));
+});
+
 afterAll(async () => {
   if (orgId) {
     await superDb.transaction(async (tx) => {
@@ -166,6 +183,10 @@ afterAll(async () => {
       await tx.delete(schema.aiTaskLog).where(eq(schema.aiTaskLog.orgId, orgId));
       await tx.delete(schema.aiTaskStep).where(eq(schema.aiTaskStep.orgId, orgId));
       await tx.delete(schema.aiTask).where(eq(schema.aiTask.orgId, orgId));
+      await tx.delete(schema.notification).where(eq(schema.notification.orgId, orgId));
+      await tx
+        .delete(schema.notificationSetting)
+        .where(eq(schema.notificationSetting.orgId, orgId));
       await tx.delete(schema.approvalLog).where(eq(schema.approvalLog.orgId, orgId));
       await tx.delete(schema.approvalRequest).where(eq(schema.approvalRequest.orgId, orgId));
       await tx.delete(schema.followUpExecution).where(eq(schema.followUpExecution.orgId, orgId));

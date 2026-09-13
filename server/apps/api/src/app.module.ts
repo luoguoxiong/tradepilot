@@ -22,6 +22,8 @@ import { DashboardModule } from './dashboard/dashboard.module.js';
 import { EmployeesModule } from './employees/employees.module.js';
 import { FollowUpsModule } from './follow-ups/follow-ups.module.js';
 import { ProductsModule } from './products/products.module.js';
+import { QuotesModule } from './quotes/quotes.module.js';
+import { OrdersModule } from './orders/orders.module.js';
 import { OpenApiModule } from './open-api/open-api.module.js';
 
 /**
@@ -51,6 +53,8 @@ import { OpenApiModule } from './open-api/open-api.module.js';
     EmployeesModule,
     FollowUpsModule,
     ProductsModule,
+    QuotesModule,
+    OrdersModule,
     OpenApiModule,
   ],
   providers: [

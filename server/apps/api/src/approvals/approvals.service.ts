@@ -2,7 +2,15 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, count, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
-import { BizException, createId } from '@tradepilot/core';
+import {
+  BizException,
+  createId,
+  normalizeAmount,
+  amountToScaledBigInt,
+  scaledToAmount,
+  COST_ITEM_KEYS,
+  type CostSnapshot,
+} from '@tradepilot/core';
 import { schema, withOrg, type Db, type Tx } from '@tradepilot/db';
 import type { MailboxDriverOptions } from '@tradepilot/integrations';
 import {
@@ -204,6 +212,11 @@ export class ApprovalsService {
             .set({ deletedAt: now, updatedAt: now })
             .where(and(eq(schema.customer.id, cid), eq(schema.customer.orgId, orgId)));
         }
+      }
+
+      if (row.approvalType === 'order_change' && row.bizType === 'sales_order') {
+        // 10 FR-03：订单变更审批通过 → 落库交期/金额/明细行 + order_progress_log 留痕
+        resultRef = await this.applyOrderChange(tx, orgId, row, mergedProposal, now);
       }
 
       if (row.approvalType === 'email_send' && row.bizType === 'message') {
@@ -521,6 +534,98 @@ export class ApprovalsService {
     return { messageId, status: 'sent' };
   }
 
+  /**
+   * order_change 审批通过落库（10 FR-03）：
+   * - context.changes 为订单服务生成的变更集（与 aiProposal 同源，审批人编辑结果优先生效）；
+   * - 落库交期/金额/明细行；进度四要素不动（状态由 progress 推导，决策 A3）；
+   * - 写 order_progress_log 留痕，保证详情页时间线可回溯变更审批。
+   */
+  private async applyOrderChange(
+    tx: Tx,
+    orgId: string,
+    row: typeof schema.approvalRequest.$inferSelect,
+    mergedProposal: Record<string, unknown>,
+    now: Date,
+  ): Promise<Record<string, unknown> | null> {
+    const ctx = (row.context ?? {}) as Record<string, unknown>;
+    const orderId =
+      typeof ctx.orderId === 'string' && ctx.orderId.length > 0 ? ctx.orderId : row.bizId;
+    if (typeof orderId !== 'string' || orderId.length === 0) {
+      return null;
+    }
+    const [order] = await tx
+      .select()
+      .from(schema.salesOrder)
+      .where(and(eq(schema.salesOrder.id, orderId), eq(schema.salesOrder.orgId, orgId)))
+      .limit(1);
+    if (!order) {
+      throw BizException.notFound(`订单不存在: ${orderId}（order_change 审批落库失败）`);
+    }
+
+    const contextChanges = (ctx.changes ?? {}) as Record<string, unknown>;
+    const changes: Record<string, unknown> = {
+      ...contextChanges,
+      ...pickOrderChanges(mergedProposal),
+    };
+    const patch: Record<string, unknown> = { updatedAt: now };
+    const applied: Record<string, unknown> = {};
+
+    if (
+      typeof changes.deliveryDate === 'string' &&
+      /^\d{4}-\d{2}-\d{2}$/.test(changes.deliveryDate)
+    ) {
+      patch.deliveryDate = changes.deliveryDate;
+      applied.deliveryDate = changes.deliveryDate;
+    }
+
+    const items = normalizeOrderChangeItems(changes.items);
+    if (items) {
+      patch.amount = scaledToAmount(
+        items.reduce((acc, item) => acc + amountToScaledBigInt(item.lineTotal, 2), 0n),
+        2,
+      );
+      applied.items = items.length;
+    } else if (changes.amount !== undefined && changes.amount !== null) {
+      patch.amount = normalizeAmount(String(changes.amount), 2);
+    }
+    if (patch.amount !== undefined) {
+      applied.amount = patch.amount;
+    }
+
+    await tx.update(schema.salesOrder).set(patch).where(eq(schema.salesOrder.id, orderId));
+
+    if (items) {
+      // 明细整体替换（seq 与 order 内唯一约束对齐，10 §3.2）
+      await tx.delete(schema.salesOrderItem).where(eq(schema.salesOrderItem.salesOrderId, orderId));
+      await tx.insert(schema.salesOrderItem).values(
+        items.map((item) => ({
+          id: createId('oitem'),
+          orgId,
+          salesOrderId: orderId,
+          seq: item.seq,
+          productId: item.productId,
+          productName: item.productName,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          lineTotal: item.lineTotal,
+          costSnapshot: item.costSnapshot,
+        })),
+      );
+    }
+
+    await tx.insert(schema.orderProgressLog).values({
+      id: createId('oplog'),
+      orgId,
+      salesOrderId: orderId,
+      productionPct: order.productionPct,
+      note: `变更审批通过：${describeOrderChange(applied)}`,
+      updatedBy: row.requestedByUserId ?? null,
+      createdAt: now,
+    });
+
+    return { orderId, orderNo: order.orderNo, applied };
+  }
+
   /** customer_delete 审批指向的客户 id（context.customerId 优先，兼容历史数据回退 bizId） */
   private customerIdOf(row: typeof schema.approvalRequest.$inferSelect): string | null {
     const cid = row.context?.['customerId'];
@@ -560,6 +665,88 @@ export class ApprovalsService {
 /** 读取字符串字段（非字符串 / 空串 → null） */
 function stringOf(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+/** 审批人编辑后的变更集（仅接受已知字段，避免编辑结果污染落库结构） */
+function pickOrderChanges(proposal: Record<string, unknown>): Record<string, unknown> {
+  const picked: Record<string, unknown> = {};
+  for (const key of ['deliveryDate', 'amount', 'items'] as const) {
+    if (proposal[key] !== undefined) {
+      picked[key] = proposal[key];
+    }
+  }
+  return picked;
+}
+
+/** 变更明细行归一（结构非法 → null，保持原明细不动） */
+function normalizeOrderChangeItems(raw: unknown):
+  | {
+      seq: number;
+      productId: string;
+      productName: string;
+      quantity: number;
+      unitPrice: string;
+      lineTotal: string;
+      costSnapshot: CostSnapshot;
+    }[]
+  | null {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return null;
+  }
+  const rows: {
+    seq: number;
+    productId: string;
+    productName: string;
+    quantity: number;
+    unitPrice: string;
+    lineTotal: string;
+    costSnapshot: CostSnapshot;
+  }[] = [];
+  raw.forEach((entry, index) => {
+    if (typeof entry !== 'object' || entry === null) {
+      return;
+    }
+    const item = entry as Record<string, unknown>;
+    const productId = stringOf(item.productId);
+    const quantity = Number(item.quantity);
+    if (!productId || !Number.isInteger(quantity) || quantity <= 0) {
+      return;
+    }
+    const unitPrice = normalizeAmount(String(item.unitPrice ?? 0), 4);
+    const lineTotal = stringOf(item.lineTotal)
+      ? normalizeAmount(String(item.lineTotal), 2)
+      : scaledToAmount((amountToScaledBigInt(unitPrice, 4) * BigInt(quantity) + 50n) / 100n, 2);
+    const snapshot: CostSnapshot = {};
+    const rawSnapshot = (item.costSnapshot ?? {}) as Record<string, unknown>;
+    for (const key of COST_ITEM_KEYS) {
+      snapshot[key] = Number(rawSnapshot[key] ?? 0);
+    }
+    rows.push({
+      seq: index + 1,
+      productId,
+      productName: stringOf(item.productName) ?? productId,
+      quantity,
+      unitPrice,
+      lineTotal,
+      costSnapshot: snapshot,
+    });
+  });
+  return rows.length > 0 ? rows : null;
+}
+
+/** 变更描述（order_progress_log.note） */
+function describeOrderChange(applied: Record<string, unknown>): string {
+  const parts: string[] = [];
+  if (applied.deliveryDate) {
+    parts.push(`交期调整为 ${String(applied.deliveryDate)}`);
+  }
+  if (applied.items) {
+    parts.push(`${String(applied.items)} 条明细行更新`);
+  }
+  if (applied.amount) {
+    parts.push(`金额更新为 ${String(applied.amount)}`);
+  }
+  return parts.length > 0 ? parts.join('，') : '变更内容已应用';
 }
 
 /**

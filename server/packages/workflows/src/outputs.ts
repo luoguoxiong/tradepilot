@@ -128,12 +128,51 @@ function productKnowledgeOutputs(state: State): Record<string, unknown>[] {
   ];
 }
 
+/**
+ * order_monitor（10 FR-04）：insight（规则引擎判定 + 订单标识 + 告警标记）。
+ * at_risk 的告警文案与任务日志同源（alert.content），normal 场景仅留存评估数值。
+ */
+function orderMonitorOutputs(state: State): Record<string, unknown>[] {
+  const assessment = obj(state, 'assessment');
+  if (!assessment) {
+    return [];
+  }
+  const order = obj(state, 'order');
+  const alert = obj(state, 'alert');
+  return [
+    {
+      type: 'insight',
+      payload: {
+        ...assessment,
+        ...(order
+          ? {
+              orderId: order['id'],
+              orderNo: order['orderNo'],
+              customerId: order['customerId'],
+              deliveryDate: order['deliveryDate'],
+            }
+          : {}),
+        ...(alert
+          ? {
+              alerted: alert['atRisk'] === true,
+              ...(typeof alert['content'] === 'string' ? { alertContent: alert['content'] } : {}),
+              ...(typeof alert['suggestionId'] === 'string'
+                ? { suggestionId: alert['suggestionId'] }
+                : {}),
+            }
+          : {}),
+      },
+    },
+  ];
+}
+
 const BUILDERS: Record<string, (state: State) => Record<string, unknown>[]> = {
   lead_hunting: leadHuntingOutputs,
   email_reply: emailReplyOutputs,
   follow_up: followUpOutputs,
   product_analysis: productAnalysisOutputs,
   product_knowledge: productKnowledgeOutputs,
+  order_monitor: orderMonitorOutputs,
 };
 
 /** 按 taskType 组装类型化 outputs；未注册类型返回 null（runner 回落通用 result 包裹） */

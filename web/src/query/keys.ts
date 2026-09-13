@@ -112,6 +112,23 @@ export const qk = {
     detail: (productId: string) => [...qk.products.all, 'detail', productId] as const,
   },
 
+  /** 报价中心（09）：list(filters 全量) / detail(quoteId) / summary(Tab 计数) / ladder(议价梯度) */
+  quotes: {
+    all: ['quotes'] as const,
+    list: (filters: unknown) => [...qk.quotes.all, 'list', filters] as const,
+    detail: (quoteId: string) => [...qk.quotes.all, 'detail', quoteId] as const,
+    summary: () => [...qk.quotes.all, 'summary'] as const,
+    ladder: (quoteId: string) => [...qk.quotes.all, 'ladder', quoteId] as const,
+  },
+
+  /** 订单中心（10）：list(filters 全量) / detail(orderId) / summary(Tab + 风险计数) */
+  orders: {
+    all: ['orders'] as const,
+    list: (filters: unknown) => [...qk.orders.all, 'list', filters] as const,
+    detail: (orderId: string) => [...qk.orders.all, 'detail', orderId] as const,
+    summary: () => [...qk.orders.all, 'summary'] as const,
+  },
+
   /** 工作台（01）：首屏只读聚合 */
   dashboardSummary: ['dashboard', 'summary'] as const,
 } as const

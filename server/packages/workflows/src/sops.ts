@@ -369,6 +369,38 @@ const PRODUCT_KNOWLEDGE_SOP: SopGraphDefinition = {
   ],
 };
 
+/**
+ * order_monitor（10 订单中心 FR-04/FR-05，LangGraph 工作流 P0 §276）：
+ * 订单状态轮询 → 履约风险规则判定（planSource=linear_by_time）→ 异常告警 outputs。
+ * 全 flow 图（无 LLM 节点）：风险数值与原因文案由规则引擎确定性产出（决策 A3/A4/A5），
+ * order_risk_insight 写回幂等（P1-10-12）；`order_change` 高危动作由审批中心接入（05 §193）。
+ */
+const ORDER_MONITOR_SOP: SopGraphDefinition = {
+  version: 1,
+  entry: 'load_order',
+  nodes: [
+    { id: 'load_order', kind: 'flow', route: 'load_order', title: '订单状态轮询', progress: 30 },
+    {
+      id: 'assess_risk',
+      kind: 'flow',
+      route: 'assess_risk',
+      title: '履约风险判定',
+      progress: 40,
+    },
+    {
+      id: 'alert_anomaly',
+      kind: 'flow',
+      route: 'alert_anomaly',
+      title: '异常告警',
+      progress: 30,
+    },
+  ],
+  edges: [
+    { from: 'load_order', to: 'assess_risk' },
+    { from: 'assess_risk', to: 'alert_anomaly' },
+  ],
+};
+
 /** taskType → SOP + State 通道键（文档字段 + 编排辅助键） */
 const TASK_SOPS: Record<string, { sop: SopGraphDefinition; stateKeys: string[] }> = {
   lead_hunting: {
@@ -457,6 +489,20 @@ const TASK_SOPS: Record<string, { sop: SopGraphDefinition; stateKeys: string[] }
       'knowledge',
     ],
   },
+  order_monitor: {
+    sop: ORDER_MONITOR_SOP,
+    stateKeys: [
+      ...BASE_KEYS,
+      // input 播种（orders.risk.execute internal 建议 → orders.create: orderId + orderNo + suggestionId）
+      'orderId',
+      'orderNo',
+      'suggestionId',
+      // 编排辅助
+      'order',
+      'assessment',
+      'alert',
+    ],
+  },
 };
 
 export const workflowSopProvider: TaskSopProvider = {
@@ -483,4 +529,5 @@ export const WORKFLOW_SOP_DEFINITIONS: Readonly<Record<string, SopGraphDefinitio
   follow_up: FOLLOW_UP_SOP,
   product_analysis: PRODUCT_ANALYSIS_SOP,
   product_knowledge: PRODUCT_KNOWLEDGE_SOP,
+  order_monitor: ORDER_MONITOR_SOP,
 };

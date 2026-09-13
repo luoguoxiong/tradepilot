@@ -166,6 +166,12 @@ export const ID_PREFIX = {
   product: 'prod',
   quotation: 'quote',
   salesOrder: 'order',
+  /** 销售订单明细行（sales_order_item，10 §3） */
+  salesOrderItem: 'oitem',
+  /** 订单进度流水（order_progress_log，10 FR-02） */
+  orderProgressLog: 'oplog',
+  /** 订单风险洞察（order_risk_insight，10 FR-04） */
+  orderRiskInsight: 'orisk',
   knowledgeDocument: 'doc',
   approval: 'appr',
   followUpStrategy: 'strat',

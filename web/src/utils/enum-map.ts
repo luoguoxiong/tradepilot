@@ -244,6 +244,63 @@ export const ENUMS = {
     { value: 'note', labelKey: 'enums.activityType.note', color: 'var(--ai-idle)' },
     { value: 'ai_action', labelKey: 'enums.activityType.aiAction', color: 'var(--ai-scheduled)' },
   ],
+  /** 报价状态（09 §1.2 quoteStatus；draft 草稿 / waiting_approval 待审 / sent 已发送 / won 成交 / lost 失效） */
+  quoteStatus: [
+    { value: 'draft', labelKey: 'enums.quoteStatus.draft', color: 'var(--ai-idle)' },
+    {
+      value: 'waiting_approval',
+      labelKey: 'enums.quoteStatus.waitingApproval',
+      color: 'var(--ai-waiting)',
+    },
+    { value: 'sent', labelKey: 'enums.quoteStatus.sent', color: 'var(--ai-working)' },
+    { value: 'won', labelKey: 'enums.quoteStatus.won', color: 'var(--ai-scheduled)' },
+    { value: 'lost', labelKey: 'enums.quoteStatus.lost', color: 'var(--ai-risk)' },
+  ],
+  /** 报价失效原因（09 §3.7 lostReason） */
+  quoteLostReason: [
+    { value: 'price', labelKey: 'enums.quoteLostReason.price' },
+    { value: 'no_response', labelKey: 'enums.quoteLostReason.noResponse' },
+    { value: 'competitor', labelKey: 'enums.quoteLostReason.competitor' },
+    { value: 'timing', labelKey: 'enums.quoteLostReason.timing' },
+    { value: 'other', labelKey: 'enums.quoteLostReason.other' },
+  ],
+  /** 订单状态（10 §1.2 sales_order.status；由进度四要素推导，决策 A3） */
+  orderStatus: [
+    {
+      value: 'pending_payment',
+      labelKey: 'enums.orderStatus.pendingPayment',
+      color: 'var(--ai-waiting)',
+    },
+    {
+      value: 'in_production',
+      labelKey: 'enums.orderStatus.inProduction',
+      color: 'var(--ai-working)',
+    },
+    {
+      value: 'ready_to_ship',
+      labelKey: 'enums.orderStatus.readyToShip',
+      color: 'var(--ai-scheduled)',
+    },
+    { value: 'completed', labelKey: 'enums.orderStatus.completed', color: 'var(--ai-idle)' },
+  ],
+  /** 履约风险徽标（10 §1.2 risk：normal 正常 / at_risk 异常） */
+  orderRisk: [
+    { value: 'normal', labelKey: 'enums.orderRisk.normal', color: 'var(--ai-working)' },
+    { value: 'at_risk', labelKey: 'enums.orderRisk.atRisk', color: 'var(--ai-risk)' },
+  ],
+  /** 风险建议类型（10 §3.5：internal 内部任务 / customer 客户沟通） */
+  orderSuggestionType: [
+    {
+      value: 'internal',
+      labelKey: 'enums.orderSuggestionType.internal',
+      color: 'var(--tp-primary)',
+    },
+    {
+      value: 'customer',
+      labelKey: 'enums.orderSuggestionType.customer',
+      color: 'var(--ai-scheduled)',
+    },
+  ],
   /** 国家/地区（05 §1.2 添加客户表单 + 筛选；值 = ISO 3166-1 alpha-2 大写代码） */
   country: [
     { value: 'US', labelKey: 'enums.country.us' },

@@ -189,42 +189,38 @@ export const appRoutes: RouteRecordRaw[] = [
         name: 'products',
         component: () => import('@/features/products/views/ProductsListView.vue'),
         meta: { title: 'menu.products', icon: 'Goods', menu: true, order: 21, feature: 'products' },
-        children: [
-          {
-            path: ':id',
-            name: 'product-detail',
-            component: () => import('@/features/products/views/ProductDetailView.vue'),
-            meta: { title: 'menu.products' },
-          },
-        ],
+      },
+      // 详情类路由（不进菜单；列表视图不含内层 router-view，故与 04 customers/:id 同构平铺）
+      {
+        path: 'products/:id',
+        name: 'product-detail',
+        component: () => import('@/features/products/views/ProductDetailView.vue'),
+        meta: { title: 'menu.products', feature: 'products' },
       },
       {
         path: 'quotes',
         name: 'quotes',
-        component: placeholder,
+        component: () => import('@/features/quotes/views/QuotesListView.vue'),
         meta: { title: 'menu.quotes', icon: 'Ticket', menu: true, order: 22, feature: 'quotes' },
-        children: [
-          {
-            path: ':id',
-            name: 'quote-detail',
-            component: placeholder,
-            meta: { title: 'menu.quotes' },
-          },
-        ],
+      },
+      {
+        path: 'quotes/:id',
+        name: 'quote-detail',
+        component: () => import('@/features/quotes/views/QuoteDetailView.vue'),
+        meta: { title: 'menu.quotes', feature: 'quotes' },
       },
       {
         path: 'orders',
         name: 'orders',
-        component: placeholder,
+        component: () => import('@/features/orders/views/OrdersListView.vue'),
         meta: { title: 'menu.orders', icon: 'Tickets', menu: true, order: 23, feature: 'orders' },
-        children: [
-          {
-            path: ':id',
-            name: 'order-detail',
-            component: placeholder,
-            meta: { title: 'menu.orders' },
-          },
-        ],
+      },
+      // 详情类路由（不进菜单，与 04 customers/:id 同构：列表视图不含内层 router-view）
+      {
+        path: 'orders/:id',
+        name: 'order-detail',
+        component: () => import('@/features/orders/views/OrderDetailView.vue'),
+        meta: { title: 'menu.orders', feature: 'orders' },
       },
       {
         path: 'manager',

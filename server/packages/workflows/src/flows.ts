@@ -11,6 +11,12 @@
 import { and, desc, eq, gt, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { createId } from '@tradepilot/core';
 import { computeDeferredNextRunAt, type SendWindow } from '@tradepilot/core';
+import {
+  ORDER_RISK_SUGGESTIONS,
+  computeOrderRisk,
+  normalizeOrderProgress,
+  type OrderRiskAssessment,
+} from '@tradepilot/core';
 import { schema, withOrg } from '@tradepilot/db';
 import {
   boundExternal,
@@ -1118,10 +1124,230 @@ const writeProductKnowledge: FlowNodeFn = async (state, ctx) => {
   return { patch: {} };
 };
 
+/** ===== order_monitor（10 订单中心 FR-04/FR-05） ===== */
+
+/** 订单监控快照（load_order 落 State，供规则引擎与告警节点消费） */
+interface MonitoredOrder {
+  id: string;
+  orderNo: string;
+  customerId: string;
+  customerName: string;
+  deliveryDate: string;
+  status: string;
+  risk: string;
+  poConfirmed: boolean;
+  payment: boolean;
+  productionPct: number;
+  shipping: boolean;
+  createdAt: string;
+}
+
+/**
+ * load_order：订单状态轮询（10 FR-04 数据源）。
+ * 订单不存在（已删除/越权）→ 落 error 日志并结束任务，避免静默空跑。
+ */
+const loadOrder: FlowNodeFn = async (state, ctx) => {
+  const orderId = str(state['orderId']) || str(ctx.task.input['orderId']);
+  if (!orderId) {
+    await writeTaskLog(ctx, TASK_LOG_TYPE.ERROR, '订单监控缺少 orderId，任务结束');
+    return { done: true };
+  }
+  const row = await withOrg(ctx.db, ctx.orgId, async (tx) => {
+    const [r] = await tx
+      .select({
+        id: schema.salesOrder.id,
+        orderNo: schema.salesOrder.orderNo,
+        customerId: schema.salesOrder.customerId,
+        customerName: schema.customer.companyName,
+        deliveryDate: schema.salesOrder.deliveryDate,
+        status: schema.salesOrder.status,
+        risk: schema.salesOrder.risk,
+        poConfirmed: schema.salesOrder.progressPoConfirmed,
+        payment: schema.salesOrder.progressPayment,
+        productionPct: schema.salesOrder.productionPct,
+        shipping: schema.salesOrder.progressShipping,
+        createdAt: schema.salesOrder.createdAt,
+      })
+      .from(schema.salesOrder)
+      .leftJoin(schema.customer, eq(schema.customer.id, schema.salesOrder.customerId))
+      .where(and(eq(schema.salesOrder.id, orderId), eq(schema.salesOrder.orgId, ctx.orgId)))
+      .limit(1);
+    return r ?? null;
+  });
+  if (!row) {
+    await writeTaskLog(ctx, TASK_LOG_TYPE.ERROR, `订单监控目标不存在: ${orderId}`);
+    return { done: true };
+  }
+  const order: MonitoredOrder = {
+    id: row.id,
+    orderNo: row.orderNo,
+    customerId: row.customerId,
+    customerName: row.customerName ?? '—',
+    deliveryDate: row.deliveryDate,
+    status: row.status,
+    risk: row.risk,
+    poConfirmed: Boolean(row.poConfirmed),
+    payment: Boolean(row.payment),
+    productionPct: row.productionPct ?? 0,
+    shipping: Boolean(row.shipping),
+    createdAt: row.createdAt.toISOString(),
+  };
+  return { patch: { orderId: order.id, orderNo: order.orderNo, order } };
+};
+
+/**
+ * assess_risk：规则引擎判定（planSource=linear_by_time，决策 A4）+ order_risk_insight 幂等写回（P1-10-12）。
+ * at_risk → 复用/新建 active 洞察；normal → 关闭 active 洞察；sales_order.risk 同步为列表徽标口径。
+ */
+const assessRisk: FlowNodeFn = async (state, ctx) => {
+  const order = state['order'] as MonitoredOrder | undefined;
+  if (!order) {
+    return { done: true };
+  }
+  const progress = normalizeOrderProgress({
+    poConfirmed: order.poConfirmed,
+    payment: order.payment,
+    productionPct: order.productionPct,
+    shipping: order.shipping,
+  });
+  const assessment = computeOrderRisk({
+    createdAt: new Date(order.createdAt),
+    deliveryDate: order.deliveryDate,
+    progress,
+    now: ctx.now,
+  });
+
+  await withOrg(ctx.db, ctx.orgId, async (tx) => {
+    const [active] = await tx
+      .select({ id: schema.orderRiskInsight.id })
+      .from(schema.orderRiskInsight)
+      .where(
+        and(
+          eq(schema.orderRiskInsight.salesOrderId, order.id),
+          eq(schema.orderRiskInsight.status, 'active'),
+        ),
+      )
+      .limit(1);
+
+    if (assessment.status === 'normal') {
+      if (active) {
+        await tx
+          .update(schema.orderRiskInsight)
+          .set({ status: 'resolved', resolvedAt: ctx.now, updatedAt: ctx.now })
+          .where(eq(schema.orderRiskInsight.id, active.id));
+      }
+    } else {
+      const payload = {
+        delayDays: assessment.delayDays,
+        reason: assessment.reason,
+        evidence: assessment.evidence as unknown as Record<string, unknown>,
+        suggestions: assessment.suggestions.map((s) => ({ ...s })),
+        generatedAt: ctx.now,
+        updatedAt: ctx.now,
+        status: 'active',
+        resolvedAt: null,
+      };
+      if (active) {
+        await tx
+          .update(schema.orderRiskInsight)
+          .set(payload)
+          .where(eq(schema.orderRiskInsight.id, active.id));
+      } else {
+        await tx.insert(schema.orderRiskInsight).values({
+          id: createId('orisk'),
+          orgId: ctx.orgId,
+          salesOrderId: order.id,
+          ...payload,
+          createdAt: ctx.now,
+        });
+      }
+    }
+
+    if (order.risk !== assessment.status) {
+      await tx
+        .update(schema.salesOrder)
+        .set({ risk: assessment.status, updatedAt: ctx.now })
+        .where(eq(schema.salesOrder.id, order.id));
+    }
+  });
+
+  return {
+    patch: {
+      assessment: {
+        status: assessment.status,
+        plannedPct: assessment.plannedPct,
+        actualPct: assessment.actualPct,
+        lagPct: assessment.lagPct,
+        delayDays: assessment.delayDays,
+        reason: assessment.reason,
+        evidence: assessment.evidence as unknown as Record<string, unknown>,
+        suggestions: assessment.suggestions.map((s) => ({ ...s })),
+      } satisfies Record<string, unknown>,
+    },
+  };
+};
+
+/**
+ * alert_anomaly：异常告警（10 FR-04）。
+ * at_risk → ai_task_log(error) + log 事件 + outputs 告警（前端任务详情可追溯）；
+ * normal → 不落告警日志（任务以 outputs 正常收尾）。
+ * 若任务由「执行建议」创建（input.suggestionId），把该建议一并写入告警文案形成闭环。
+ */
+const alertAnomaly: FlowNodeFn = async (state, ctx) => {
+  const order = state['order'] as MonitoredOrder | undefined;
+  const assessment = state['assessment'] as
+    (OrderRiskAssessment & { suggestions: { suggestionId: string; label: string }[] }) | undefined;
+  if (!order || !assessment) {
+    return { done: true };
+  }
+  const suggestionId = str(state['suggestionId']) || str(ctx.task.input['suggestionId']);
+  const suggestion =
+    ORDER_RISK_SUGGESTIONS.find((s) => s.suggestionId === suggestionId)?.label ?? null;
+
+  if (assessment.status !== 'at_risk') {
+    return {
+      patch: { alert: { atRisk: false, content: null, suggestionId: suggestionId || null } },
+    };
+  }
+  const content = `订单 ${order.orderNo} 履约异常：${assessment.reason}${
+    suggestion ? `；已执行建议：${suggestion}` : ''
+  }`;
+  await writeTaskLog(ctx, TASK_LOG_TYPE.ERROR, content);
+  return { patch: { alert: { atRisk: true, content, suggestionId: suggestionId || null } } };
+};
+
+/** 任务日志落库 + 推实时事件（先落库再推事件，保证断线回放同构，03 §6.2） */
+async function writeTaskLog(
+  ctx: TaskRunContext,
+  type: (typeof TASK_LOG_TYPE)[keyof typeof TASK_LOG_TYPE],
+  content: string,
+): Promise<void> {
+  const logId = createId('tlog');
+  const occurredAt = ctx.now;
+  await withOrg(ctx.db, ctx.orgId, async (tx) => {
+    await tx.insert(schema.aiTaskLog).values({
+      id: logId,
+      orgId: ctx.orgId,
+      taskId: ctx.taskId,
+      occurredAt,
+      type,
+      content,
+      leadId: null,
+    });
+  });
+  ctx.events.push({
+    type: 'log',
+    payload: { logId, time: occurredAt.toISOString(), type, content },
+  });
+}
+
 /** ===== 注册表装配 ===== */
 
 /** 注册到具体实现类（register 方法在 Simple 实现上，接口仅暴露 get/has） */
 export function registerFlows(registry: SimpleFlowRegistry): void {
+  registry.register('load_order', loadOrder);
+  registry.register('assess_risk', assessRisk);
+  registry.register('alert_anomaly', alertAnomaly);
   registry.register('dedup_check', dedupCheck);
   registry.register('record_score', recordScore);
   registry.register('target_reached', targetReached);

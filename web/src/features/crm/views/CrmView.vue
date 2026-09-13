@@ -58,9 +58,19 @@ const overdueDays = computed<number | undefined>(() => {
 
 // ===== 四页签 =====
 // /crm 与 /crm/contacts 为不同路由（keep-alive key 按 path 隔离为独立实例，02 §6），
-// 初始页签由 route.path 决定即可；无需 watch path —— keep-alive 返回时保留内部页签态。
+// 初始页签优先读 ?tab=（侧边栏「潜在客户 / 客户列表 / 客户活动」深链），其次按 path，回落 潜在客户；
+// 无需 watch —— keep-alive key 含 query.tab，各深链各自独立缓存，返回时保留内部页签态。
+const VALID_TABS: readonly CrmTab[] = ['potential', 'formal', 'contacts', 'activities']
+
+function initialTab(): CrmTab {
+  const tab = route.query.tab
+  if (typeof tab === 'string' && (VALID_TABS as readonly string[]).includes(tab))
+    return tab as CrmTab
+  return route.path.endsWith('/crm/contacts') ? 'contacts' : 'potential'
+}
+
 const isCustomerTab = (tab: CrmTab) => tab === 'potential' || tab === 'formal'
-const activeTab = ref<CrmTab>(route.path.endsWith('/crm/contacts') ? 'contacts' : 'potential')
+const activeTab = ref<CrmTab>(initialTab())
 
 // ===== owner 候选（当前用户 + 团队活跃成员，05 §4） =====
 const membersQuery = useQuery({

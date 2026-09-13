@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { computed, type Component } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
 import { useSiderCollapsed } from '@/composables/useSiderCollapsed'
+import { features } from '@/features'
 import {
   Aim,
   Avatar,
+  Box,
+  ChatDotRound,
   Checked,
+  Clock,
   Collection,
   DataAnalysis,
   Document,
@@ -16,7 +20,9 @@ import {
   Message,
   Odometer,
   Promotion,
+  Search,
   Setting,
+  Star,
   Ticket,
   Tickets,
   Timer,
@@ -27,30 +33,37 @@ import {
 import { useNotifyStore } from '@/stores/notify'
 import { useAuthStore } from '@/stores/auth'
 
+import { MENU_TREE, type MenuNode } from '../menu'
+
 /**
- * Sider 菜单由路由表自动生成（02 §1.1）：meta.menu !== false，按 features.ts 过滤、meta.order 排序，
- * 并按 meta.roles 做角色裁剪（UX 层与守卫一致，服务端 40301 为权威；如 /manager 仅经理及以上可见）。
- * 1280px 以下自动折叠为图标栏（04 §4 响应式约定）；折叠状态与用户手动开关取并集。
- * /approvals 菜单项挂待审数角标（M5-B5，notifyStore 15s 轮询驱动，折叠/展开两态均可见）。
+ * Sider 菜单（00 §2 全局信息架构）：由 menu.ts 静态菜单树渲染，支持二级分组（el-sub-menu）。
+ * 渲染前按 features.ts（编译期特性开关）与 roles（角色裁剪，口径同路由守卫，服务端 40301 为权威）整枝过滤；
+ * 分组默认展开以完整呈现信息架构。1280px 以下自动折叠为图标栏（04 §4）；
+ * /approvals 菜单项挂待审数角标（notifyStore 15s 轮询驱动，折叠/展开两态均可见）。
  */
 const ICONS: Record<string, Component> = {
   Odometer,
   Avatar,
-  Aim,
   User,
   Message,
-  Promotion,
-  Timer,
-  Document,
-  Collection,
-  Checked,
-  Setting,
-  List,
   Goods,
   Ticket,
   Tickets,
-  UserFilled,
+  Collection,
   DataAnalysis,
+  Checked,
+  Setting,
+  Aim,
+  Search,
+  ChatDotRound,
+  Timer,
+  Box,
+  UserFilled,
+  Star,
+  List,
+  Document,
+  Clock,
+  Promotion,
 }
 
 const router = useRouter()
@@ -63,24 +76,66 @@ const pendingCount = computed(() => notifyStore.pendingCount)
 
 const { siderCollapsed: collapsed } = useSiderCollapsed()
 
-/** 角色裁剪（13 §1.2 经理页专属等）：meta.roles 存在且当前角色不在其中 → 不进菜单 */
-const canAccess = (roles?: string[]): boolean =>
-  !roles || (auth.user?.role !== undefined && roles.includes(auth.user.role))
+/** 角色裁剪：roles 存在且当前角色不在其中 → 不进菜单 */
+function canAccess(roles?: MenuNode['roles']): boolean {
+  return !roles || (auth.user?.role !== undefined && roles.includes(auth.user.role))
+}
 
-const menuItems = computed(() =>
-  router
-    .getRoutes()
-    .filter((r) => r.meta.menu && canAccess(r.meta.roles))
-    .sort((a, b) => (a.meta.order ?? 99) - (b.meta.order ?? 99))
-    .map((r) => ({ path: r.path, titleKey: r.meta.title ?? '', icon: r.meta.icon })),
+/** 特性开关：未启用整枝剔除（与路由 filterByFeatures 同口径） */
+function isEnabled(feature?: MenuNode['feature']): boolean {
+  return !feature || features[feature]
+}
+
+/** 整枝过滤：分组子项全被剔除且自身无跳转目标时，分组一并剔除 */
+function filterTree(nodes: MenuNode[]): MenuNode[] {
+  return nodes
+    .filter((node) => isEnabled(node.feature) && canAccess(node.roles))
+    .map((node) => (node.children ? { ...node, children: filterTree(node.children) } : node))
+    .filter((node) => !node.children || node.children.length > 0 || Boolean(node.to))
+}
+
+const menuTree = computed(() => filterTree(MENU_TREE))
+
+/** 分组默认展开（完整呈现信息架构，仍可手动收起） */
+const defaultOpeneds = computed(() =>
+  menuTree.value.filter((node) => node.children?.length).map((node) => node.key),
 )
 
-/** 父级路由高亮：/settings/org 等子路由仍点亮菜单父项 */
-const activePath = computed(() => {
-  const match = menuItems.value.find(
-    (item) => item.path !== '/' && route.path.startsWith(`${item.path}/`),
-  )
-  return match?.path ?? route.path
+function findNode(nodes: MenuNode[], key: string): MenuNode | undefined {
+  for (const node of nodes) {
+    if (node.key === key) return node
+    if (node.children) {
+      const hit = findNode(node.children, key)
+      if (hit) return hit
+    }
+  }
+  return undefined
+}
+
+/** 点击叶子：按 key 定位节点并跳转（含 ?tab= 页签深链） */
+function onSelect(key: string) {
+  const node = findNode(menuTree.value, key)
+  if (node?.to) void router.push(node.to)
+}
+
+/** 路由 → 菜单项匹配：path + query.tab 全匹配，同一 /crm 不同页签各自高亮 */
+function isActive(to: RouteLocationRaw): boolean {
+  const resolved = router.resolve(to)
+  if (resolved.path !== route.path) return false
+  const targetTab = resolved.query.tab
+  const currentTab = route.query.tab
+  return String(targetTab ?? '') === String(currentTab ?? '')
+}
+
+/** 当前激活菜单 key：先匹配分组内子项，再匹配分组/一级节点自身 */
+const activeKey = computed(() => {
+  for (const node of menuTree.value) {
+    const candidates = node.children?.length ? node.children : [node]
+    const hit = candidates.find((item) => item.to && isActive(item.to))
+    if (hit) return hit.key
+    if (node.to && isActive(node.to)) return node.key
+  }
+  return route.path
 })
 
 function iconOf(name?: string): Component | undefined {
@@ -92,32 +147,55 @@ function iconOf(name?: string): Component | undefined {
   <el-menu
     class="global-sider"
     :collapse="collapsed"
-    :default-active="activePath"
+    :default-active="activeKey"
+    :default-openeds="defaultOpeneds"
     :collapse-transition="false"
-    router
   >
-    <el-menu-item v-for="item in menuItems" :key="item.path" :index="item.path">
-      <el-badge
-        v-if="item.path === '/approvals' && pendingCount > 0"
-        :value="pendingCount"
-        :max="99"
-        class="global-sider__badge"
-      >
-        <el-icon v-if="iconOf(item.icon)">
-          <component :is="iconOf(item.icon)" />
+    <template v-for="node in menuTree" :key="node.key">
+      <el-sub-menu v-if="node.children?.length" :index="node.key">
+        <template #title>
+          <el-icon v-if="iconOf(node.icon)">
+            <component :is="iconOf(node.icon)" />
+          </el-icon>
+          <span>{{ t(node.titleKey) }}</span>
+        </template>
+        <el-menu-item
+          v-for="child in node.children"
+          :key="child.key"
+          :index="child.key"
+          @click="onSelect(child.key)"
+        >
+          <el-icon v-if="iconOf(child.icon)">
+            <component :is="iconOf(child.icon)" />
+          </el-icon>
+          <template #title>{{ t(child.titleKey) }}</template>
+        </el-menu-item>
+      </el-sub-menu>
+
+      <el-menu-item v-else :index="node.key" @click="onSelect(node.key)">
+        <el-badge
+          v-if="node.badge === 'approvals' && pendingCount > 0"
+          :value="pendingCount"
+          :max="99"
+          class="global-sider__badge"
+        >
+          <el-icon v-if="iconOf(node.icon)">
+            <component :is="iconOf(node.icon)" />
+          </el-icon>
+        </el-badge>
+        <el-icon v-else-if="iconOf(node.icon)">
+          <component :is="iconOf(node.icon)" />
         </el-icon>
-      </el-badge>
-      <el-icon v-else-if="iconOf(item.icon)">
-        <component :is="iconOf(item.icon)" />
-      </el-icon>
-      <template #title>{{ t(item.titleKey) }}</template>
-    </el-menu-item>
+        <template #title>{{ t(node.titleKey) }}</template>
+      </el-menu-item>
+    </template>
   </el-menu>
 </template>
 
 <style scoped lang="scss">
 .global-sider {
   height: 100%;
+  overflow-y: auto;
   border-right: 1px solid var(--tp-border-color);
 
   &:not(.el-menu--collapse) {

@@ -137,18 +137,20 @@ export const appRoutes: RouteRecordRaw[] = [
             component: () => import('@/features/settings/views/AiEmployeesEntryView.vue'),
             meta: { title: 'settings.aiEmployees' },
           },
-          // ===== P1 占位（FR-06/07/10/11，菜单占位先例）=====
+          // ===== P1 设置页（FR-06/07/10/11 全量交付）=====
           {
             path: 'crm-integration',
             name: 'settings-crm-integration',
-            component: () => import('@/features/settings/views/SettingsPlaceholderView.vue'),
-            meta: { title: 'settings.crmIntegration' },
+            component: () => import('@/features/settings/views/CrmIntegrationView.vue'),
+            // 读取 admin+manager、写入仅 admin（与后端 @Roles 一致）
+            meta: { title: 'settings.crmIntegration', roles: ['admin', 'manager'] },
           },
           {
             path: 'pricing-rules',
             name: 'settings-pricing-rules',
-            component: () => import('@/features/settings/views/SettingsPlaceholderView.vue'),
-            meta: { title: 'settings.pricingRules' },
+            component: () => import('@/features/settings/views/PricingRulesView.vue'),
+            // 读取 admin+manager、写入仅 admin（与后端 @Roles 一致）
+            meta: { title: 'settings.pricingRules', roles: ['admin', 'manager'] },
           },
           {
             path: 'ai-models',
@@ -160,8 +162,9 @@ export const appRoutes: RouteRecordRaw[] = [
           {
             path: 'api-keys',
             name: 'settings-api-keys',
-            component: () => import('@/features/settings/views/SettingsPlaceholderView.vue'),
-            meta: { title: 'settings.apiKeys' },
+            component: () => import('@/features/settings/views/ApiKeysView.vue'),
+            // API Key / Webhook 凭证属敏感配置，仅 admin 可见（与后端 @Roles('admin') 一致）
+            meta: { title: 'settings.apiKeys', roles: ['admin'] },
           },
         ],
       },

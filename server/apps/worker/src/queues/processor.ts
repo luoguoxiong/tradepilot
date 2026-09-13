@@ -1,10 +1,11 @@
 import type { Job, Processor } from 'bullmq';
 import type { ResumeHint, TaskRunner } from '@tradepilot/runtime';
-import { notifyJobSchema, QUEUE_NAME, TASK_TYPE_QUEUE } from '@tradepilot/shared';
+import { notifyJobSchema, QUEUE_NAME, TASK_TYPE_QUEUE, webhookJobSchema } from '@tradepilot/shared';
 import type { Logger } from 'pino';
 import type { EmailSyncProcessor } from './email-sync.js';
 import type { KnowledgeIndexProcessor } from './knowledge-index.js';
 import type { NotifyProcessor } from './notify.js';
+import type { WebhookDeliveryProcessor } from './webhook.js';
 
 /** worker 内部装配依赖（index.ts 构建，避免循环 import queues/registry） */
 export interface WorkerRuntime {
@@ -16,6 +17,8 @@ export interface WorkerRuntime {
   knowledgeIndex?: KnowledgeIndexProcessor;
   /** q:notify 通知分发消费者（M5-A2 通知服务；缺省 = 降级留痕） */
   notify?: NotifyProcessor;
+  /** q:webhook 出站投递消费者（P1-X-21；缺省 = 降级留痕） */
+  webhook?: WebhookDeliveryProcessor;
 }
 
 /**
@@ -33,10 +36,7 @@ export function createProcessor(rt: WorkerRuntime): Processor {
   return async (job: Job) => {
     // q:knowledge_index 双语义分流（M4 #7）：job.data.docId → 知识索引流水线（jobId=`kidx.{docId}`）；
     // 其余（job.id=ai_task.id，14 接口创建的 knowledge_index/product_analysis 任务）→ TaskRunner。
-    if (
-      job.queueName === QUEUE_NAME.KNOWLEDGE_INDEX &&
-      typeof job.data?.['docId'] === 'string'
-    ) {
+    if (job.queueName === QUEUE_NAME.KNOWLEDGE_INDEX && typeof job.data?.['docId'] === 'string') {
       if (!rt.knowledgeIndex) {
         rt.logger.warn(
           { queue: job.queueName, jobId: job.id, docId: job.data?.['docId'] },
@@ -71,7 +71,9 @@ const TASK_QUEUES = new Set<string>(Object.values(TASK_TYPE_QUEUE));
  * - q:email_sync（M4 #4 实装）：job.data = { mailboxId }（enqueueEmailSync 投递契约）→
  *   EmailSyncProcessor 收信入库（conversation/message、跟进 pause、email_reply 任务派发）。
  * - q:notify（M5-A2 实装）：NotifyJob 载荷 → NotifyProcessor 按 notification_setting 分发
- *   （site 站内落库 / email 接邮箱驱动）；畸形载荷留痕跳过，不抛错重投。
+ *   （site 站内落库 / email 接邮箱驱动，另派生 q:webhook 出站）；畸形载荷留痕跳过，不抛错重投。
+ * - q:webhook（P1-X-21 实装）：WebhookJob 载荷 → 回库解密 secret → POST + HMAC 签名；
+ *   畸形载荷留痕跳过（不重投），投递失败**向外抛出**由 BullMQ 按 attempts=5 指数退避重投（06 §5.2）。
  */
 async function handleSystemJob(job: Job, rt: WorkerRuntime): Promise<void> {
   if (job.queueName === QUEUE_NAME.EMAIL_SYNC) {
@@ -92,6 +94,30 @@ async function handleSystemJob(job: Job, rt: WorkerRuntime): Promise<void> {
     }
     const outcome = await rt.emailSync.process(mailboxId);
     rt.logger.info({ queue: job.queueName, ...outcome }, '邮箱同步 job 处理结束');
+    return undefined;
+  }
+  if (job.queueName === QUEUE_NAME.WEBHOOK) {
+    if (!rt.webhook) {
+      rt.logger.warn(
+        { queue: job.queueName, jobId: job.id, data: job.data },
+        'q:webhook job 被消费但出站投递处理器未装配（降级留痕）',
+      );
+      return undefined;
+    }
+    const parsed = webhookJobSchema.safeParse(job.data);
+    if (!parsed.success) {
+      rt.logger.warn(
+        { queue: job.queueName, jobId: job.id, data: job.data, issues: parsed.error.issues },
+        'q:webhook 载荷畸形，留痕跳过',
+      );
+      return undefined;
+    }
+    // 投递失败不吞：抛出交由 BullMQ 按 attempts + exponential backoff 重投（末次失败在处理器内打死信标记）
+    const outcome = await rt.webhook.process(parsed.data, {
+      attemptsMade: job.attemptsMade,
+      attempts: job.opts?.attempts ?? 1,
+    });
+    rt.logger.info({ queue: job.queueName, ...outcome }, 'Webhook 投递 job 处理结束');
     return undefined;
   }
   if (job.queueName === QUEUE_NAME.NOTIFY) {

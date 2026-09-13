@@ -12,6 +12,8 @@ export const QUEUE_NAME = {
   ANALYSIS: 'q.analysis',
   EMAIL_SYNC: 'q.email_sync',
   NOTIFY: 'q.notify',
+  /** 出站 Webhook 投递（16 FR-11 / 06 §5.2；由 q:notify 派生，独立队列承载 5 次指数退避重投） */
+  WEBHOOK: 'q.webhook',
 } as const;
 export type QueueName = (typeof QUEUE_NAME)[keyof typeof QUEUE_NAME];
 
@@ -24,6 +26,7 @@ export const QUEUE_CONCURRENCY: Record<QueueName, number> = {
   [QUEUE_NAME.ANALYSIS]: 1,
   [QUEUE_NAME.EMAIL_SYNC]: 3,
   [QUEUE_NAME.NOTIFY]: 5,
+  [QUEUE_NAME.WEBHOOK]: 5,
 };
 
 /** task_type → 队列 一对一映射 */

@@ -88,6 +88,36 @@ export function zonedDayKey(date: Date, timeZone: string): string {
   return `${wall.year}${mm}${dd}`;
 }
 
+/** 按 org 时区切分的「当地日历日」区间（P1-X-40：分析 ETL 的 stat_date / 聚合区间） */
+export interface ZonedDayRange {
+  /** 当地日期 'YYYY-MM-DD'（对齐 `analytics_daily_summary.stat_date` date 列） */
+  statDate: string;
+  /** 当地 00:00 → UTC（含） */
+  start: Date;
+  /** 次日当地 00:00 → UTC（不含） */
+  end: Date;
+}
+
+/**
+ * 以 `date` 所在当地日为基准，回退 `daysAgo` 天，返回该当地日的 UTC 半开区间与日期串。
+ * 使用墙钟日算术（而非固定 86400000ms 步进），DST 切换日亦正确（时长可为 23/25h）。
+ */
+export function zonedDayRangeUtc(date: Date, timeZone: string, daysAgo = 0): ZonedDayRange {
+  if (daysAgo < 0) {
+    throw new BizException(40001, `daysAgo 不能为负: ${daysAgo}`);
+  }
+  const wall = getZonedWallTime(date, timeZone);
+  const base = shiftWallDays({ ...wall, hour: 0, minute: 0, second: 0 }, -daysAgo);
+  const next = shiftWallDays(base, 1);
+  const mm = String(base.month).padStart(2, '0');
+  const dd = String(base.day).padStart(2, '0');
+  return {
+    statDate: `${base.year}-${mm}-${dd}`,
+    start: zonedWallTimeToUtc(base, timeZone),
+    end: zonedWallTimeToUtc(next, timeZone),
+  };
+}
+
 function getTimeZoneOffsetMs(utcMs: number, timeZone: string): number {
   const wall = getZonedWallTime(new Date(utcMs), timeZone);
   const asUtc = Date.UTC(wall.year, wall.month - 1, wall.day, wall.hour, wall.minute, wall.second);

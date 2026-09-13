@@ -160,6 +160,15 @@ export const mailbox = pgTable(
   (t) => [uniqueIndex('uq_mailbox_org_account').on(t.orgId, sql`lower(${t.account})`)],
 );
 
+/**
+ * CRM 字段映射条目（16 FR-06 / ER 01 §2.5 `mapping` jsonb）：
+ * `local` 为 05 CRM 本地字段（如 `customer.companyName`），`remote` 为外部 CRM 字段名。
+ */
+export interface CrmFieldMapping {
+  local: string;
+  remote: string;
+}
+
 export const crmIntegration = pgTable('crm_integration', {
   id: text('id').primaryKey(),
   orgId: text('org_id')
@@ -168,7 +177,7 @@ export const crmIntegration = pgTable('crm_integration', {
   provider: text('provider').notNull(),
   status: text('status').notNull(),
   syncDirection: text('sync_direction').notNull(),
-  mapping: jsonb('mapping'),
+  mapping: jsonb('mapping').$type<CrmFieldMapping[]>(),
   lastSyncAt: timestamp('last_sync_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

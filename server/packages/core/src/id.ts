@@ -176,6 +176,10 @@ export const ID_PREFIX = {
   notificationSetting: 'ntf',
   /** 站内通知收件箱行（notification，M5-A2 增补表） */
   notification: 'ntfn',
+  /** 开放 API 密钥（api_key，ER 01 §2.9） */
+  apiKey: 'key',
+  /** 出站 Webhook 订阅（webhook，ER 01 §2.10） */
+  webhook: 'hook',
 } as const;
 
 export type IdPrefix = (typeof ID_PREFIX)[keyof typeof ID_PREFIX];

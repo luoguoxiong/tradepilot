@@ -168,3 +168,175 @@ export interface AiModelVerifyResult {
   message?: string
   latencyMs: number
 }
+
+// ===== 产品与报价规则（16 §1.6/§3.5 FR-07；org 单例）=====
+
+/** 成本项白名单（与后端 pricingCostItemKeys / @tradepilot/core COST_ITEM_KEYS 同源） */
+export const PRICING_COST_ITEM_KEYS = ['purchase', 'freight', 'insurance', 'tax', 'fx'] as const
+export type PricingCostItemKey = (typeof PRICING_COST_ITEM_KEYS)[number]
+
+/** 贸易条款白名单（Incoterms 2020，与后端 incotermsOptions 同源；MVP 默认 FOB） */
+export const INCOTERMS_OPTIONS = [
+  'EXW',
+  'FCA',
+  'FAS',
+  'FOB',
+  'CFR',
+  'CIF',
+  'CPT',
+  'CIP',
+  'DAP',
+  'DPU',
+  'DDP',
+] as const
+export type Incoterm = (typeof INCOTERMS_OPTIONS)[number]
+
+/** 产品与报价规则（GET/PUT /settings/pricing-rules，接口 16 §1.6/§3.5） */
+export interface PricingRules {
+  productCategories: string[]
+  costItems: PricingCostItemKey[]
+  /** 利润红线（%）：报价利润率低于该值 → 服务端 100% 拦截（42201） */
+  profitFloorPct: number
+  /** 让价梯度（如 [3,2,1]）：每轮一个正整数百分比 */
+  discountLadder: number[]
+  defaultIncoterms: Incoterm
+  /** 默认币种：ISO 4217 三位大写字母 */
+  defaultCurrency: string
+  /** 汇率源：MVP 固定 manual */
+  exchangeRateSource: 'manual'
+}
+export type UpdatePricingRulesReq = PricingRules
+
+// ===== 开放 API Key（16 FR-11 / 后端技术方案 06 §5.1）=====
+
+export type ApiKeyStatus = 'active' | 'revoked'
+
+/** API Key scope 白名单（与后端 API_SCOPE_LIST 同源） */
+export const API_SCOPES = [
+  'customers:read',
+  'customers:write',
+  'tasks:read',
+  'tasks:write',
+  'quotes:read',
+  'quotes:write',
+  'orders:read',
+  'orders:write',
+  'analytics:read',
+] as const
+export type ApiScope = (typeof API_SCOPES)[number]
+
+/** API Key 列表项（永不回显明文/哈希） */
+export interface ApiKey {
+  id: string
+  name: string
+  keyPrefix: string
+  scopes: string[]
+  status: ApiKeyStatus
+  createdBy: string | null
+  lastUsedAt: string | null
+  createdAt: string
+}
+
+/** 创建响应：`key` 为明文密钥，仅本次返回一次 */
+export interface ApiKeyCreated extends ApiKey {
+  key: string
+}
+
+export interface CreateApiKeyReq {
+  name: string
+  scopes: ApiScope[]
+}
+
+// ===== 出站 Webhook 订阅（16 FR-11 / 后端技术方案 06 §5.2）=====
+
+export type WebhookStatus = 'active' | 'disabled'
+
+/** 可订阅事件白名单（与后端 WEBHOOK_EVENT_LIST 同源） */
+export const WEBHOOK_EVENTS = [
+  'approval_pending',
+  'risk_alert',
+  'task_failed',
+  'task.completed',
+  'approval.decided',
+  'message.received',
+  'customer.created',
+] as const
+export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number]
+
+/** Webhook 订阅视图（不含 secret / secret_enc） */
+export interface Webhook {
+  id: string
+  url: string
+  events: string[]
+  status: WebhookStatus
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateWebhookReq {
+  url: string
+  events: WebhookEvent[]
+  /** 签名密钥（≥16 位），服务端加密入库、接口永不回显 */
+  secret: string
+}
+
+// ===== CRM 集成（16 FR-06 / ER 01 §2.5：GET/POST/PUT/DELETE /settings/integrations）=====
+
+/**
+ * 供应商白名单（与后端 `crmProviders` 同源）。
+ * MVP 仅落地「授权连接 + 字段映射 + 同步方向」配置（后端技术方案 06 §6：不做任何外呼），
+ * 实际拉取/推送由后续 CrmDriver 消费本配置。
+ */
+export const CRM_PROVIDERS = ['xiaoman', 'futong'] as const
+export type CrmProvider = (typeof CRM_PROVIDERS)[number]
+
+/** 同步方向（ER 01 §2.5）：pull=外部→本地 / push=本地→外部 / both=双向 */
+export const CRM_SYNC_DIRECTIONS = ['pull', 'push', 'both'] as const
+export type CrmSyncDirection = (typeof CRM_SYNC_DIRECTIONS)[number]
+
+export type CrmIntegrationStatus = 'connected' | 'disconnected'
+
+/** 可映射的本地字段白名单（与后端 `crmLocalFields` 同源，05 CRM 口径） */
+export const CRM_LOCAL_FIELDS = [
+  'customer.companyName',
+  'customer.country',
+  'customer.website',
+  'customer.industry',
+  'customer.remark',
+  'contact.name',
+  'contact.title',
+  'contact.email',
+  'contact.phone',
+] as const
+export type CrmLocalField = (typeof CRM_LOCAL_FIELDS)[number]
+
+/** 字段映射条目：本地字段 → 外部 CRM 字段名 */
+export interface CrmFieldMapping {
+  local: CrmLocalField
+  remote: string
+}
+
+/** CRM 集成视图（接口 16 §1.8；`lastSyncAt` 在外呼驱动接入前恒为 null） */
+export interface CrmIntegration {
+  id: string
+  provider: CrmProvider
+  status: CrmIntegrationStatus
+  syncDirection: CrmSyncDirection
+  mapping: CrmFieldMapping[] | null
+  lastSyncAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateCrmIntegrationReq {
+  provider: CrmProvider
+  syncDirection: CrmSyncDirection
+  mapping?: CrmFieldMapping[]
+}
+
+export interface UpdateCrmIntegrationReq {
+  syncDirection?: CrmSyncDirection
+  /** 显式 null = 清空映射 */
+  mapping?: CrmFieldMapping[] | null
+  status?: CrmIntegrationStatus
+}

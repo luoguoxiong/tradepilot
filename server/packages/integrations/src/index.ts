@@ -57,3 +57,17 @@ export type {
   SiteCrawlResult,
   HttpSearchOptions,
 } from './search/index.js';
+
+// ===== P1-X-21：出站 Webhook 投递（16 FR-11 / 06 §5.2）=====
+export {
+  deliverWebhook,
+  signWebhookPayload,
+  WebhookDeliveryError,
+  WEBHOOK_DELIVERY_TIMEOUT_MS,
+  WEBHOOK_SIGNATURE_HEADER,
+} from './webhook-out/index.js';
+export type {
+  DeliverWebhookOptions,
+  WebhookDeliveryResult,
+  WebhookPayloadLike,
+} from './webhook-out/index.js';

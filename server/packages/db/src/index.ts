@@ -1,7 +1,7 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import * as schema from './schema/index.js';
-import { withOrg, withLoginContext, type Db, type Tx } from './tenant.js';
+import { withOrg, withLoginContext, withApiKeyContext, type Db, type Tx } from './tenant.js';
 
 /**
  * @tradepilot/db —— Drizzle schema、迁移、RLS 策略、种子（后端技术方案 02）。
@@ -12,7 +12,7 @@ import { withOrg, withLoginContext, type Db, type Tx } from './tenant.js';
  */
 
 export type { Db, Tx };
-export { withOrg, withLoginContext };
+export { withOrg, withLoginContext, withApiKeyContext };
 export { schema };
 export type {
   OrgOnboarding,
@@ -33,6 +33,7 @@ export type {
   UserAccount,
   Mailbox,
   AiModel,
+  CrmFieldMapping,
 } from './schema/index.js';
 export * from './scope.js';
 export { seedOrg } from './seed/register-seed.js';

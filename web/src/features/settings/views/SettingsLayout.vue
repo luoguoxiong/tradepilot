@@ -8,13 +8,11 @@ import { usePermission } from '@/composables/usePermission'
 /**
  * 系统设置二级布局（16 FR-01~12）：左侧子导航 + 内容区。
  * 子路由不进全局 Sider（meta.menu 不设置），设置内导航承载 12 个子模块。
- * adminOnly 项按角色裁剪（AI 模型配置仅 admin，与后端 @Roles('admin') 一致）。
+ * adminOnly 项按角色裁剪（AI 模型 / API·Webhook 凭证仅 admin，与后端 @Roles('admin') 一致）。
  */
 interface SettingsNavItem {
   path: string
   titleKey: string
-  /** P1 占位模块（展示「即将上线」标签） */
-  p1?: boolean
   /** 仅 admin 可见 */
   adminOnly?: boolean
 }
@@ -30,10 +28,10 @@ const NAV: SettingsNavItem[] = [
   { path: '/settings/approval-rules', titleKey: 'settings.approvalRules' },
   { path: '/settings/notifications', titleKey: 'settings.notifications' },
   { path: '/settings/ai-employees', titleKey: 'settings.aiEmployees' },
-  { path: '/settings/crm-integration', titleKey: 'settings.crmIntegration', p1: true },
-  { path: '/settings/pricing-rules', titleKey: 'settings.pricingRules', p1: true },
+  { path: '/settings/crm-integration', titleKey: 'settings.crmIntegration' },
+  { path: '/settings/pricing-rules', titleKey: 'settings.pricingRules' },
   { path: '/settings/ai-models', titleKey: 'settings.aiModels', adminOnly: true },
-  { path: '/settings/api-keys', titleKey: 'settings.apiKeys', p1: true },
+  { path: '/settings/api-keys', titleKey: 'settings.apiKeys', adminOnly: true },
 ]
 
 const visibleNav = computed(() => NAV.filter((item) => !item.adminOnly || isAdmin.value))
@@ -50,15 +48,6 @@ const title = computed(() => {
       <el-menu :default-active="route.path" router>
         <el-menu-item v-for="item in visibleNav" :key="item.path" :index="item.path">
           <span>{{ t(item.titleKey) }}</span>
-          <el-tag
-            v-if="item.p1"
-            size="small"
-            type="info"
-            effect="plain"
-            class="settings-layout__tag"
-          >
-            {{ t('common.comingSoon') }}
-          </el-tag>
         </el-menu-item>
       </el-menu>
     </aside>
@@ -96,10 +85,6 @@ const title = computed(() => {
     margin: 0 0 calc(var(--tp-spacing-base) * 5);
     font-size: 16px;
     font-weight: 600;
-  }
-
-  &__tag {
-    margin-left: 8px;
   }
 }
 </style>

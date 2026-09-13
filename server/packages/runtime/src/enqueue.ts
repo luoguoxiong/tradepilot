@@ -9,8 +9,11 @@ import {
   ALL_QUEUES,
   QUEUE_NAME,
   TASK_TYPE_QUEUE,
+  WEBHOOK_BACKOFF_MS,
+  WEBHOOK_MAX_ATTEMPTS,
   type QueueName,
   type TaskType,
+  type WebhookJob,
 } from '@tradepilot/shared';
 import type { ResumeHint } from './runner.js';
 
@@ -98,6 +101,23 @@ export class TaskEnqueuer {
       return;
     }
     await queue.add('notify', payload);
+  }
+
+  /**
+   * webhook 队列（P1-X-21 出站投递，06 §5.2）：
+   * 由 q:notify 分发后按订阅逐条派生，job 级覆盖 attempts=5 + 指数退避 1m 起
+   * （队列默认 attempts=1「任务级不自动重投」不适用于出站投递）。
+   * job 名含 webhookId 以便同一事件多订阅并存。
+   */
+  async enqueueWebhook(payload: WebhookJob): Promise<void> {
+    const queue = this.queues.get(QUEUE_NAME.WEBHOOK);
+    if (!queue) {
+      return;
+    }
+    await queue.add(`webhook:${payload.webhookId}`, payload, {
+      attempts: WEBHOOK_MAX_ATTEMPTS,
+      backoff: { type: 'exponential', delay: WEBHOOK_BACKOFF_MS },
+    });
   }
 
   /**

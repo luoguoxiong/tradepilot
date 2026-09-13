@@ -69,10 +69,10 @@ const externalQuery = computed<Record<string, unknown>>(() => ({
   status: activeTab.value === 'all' ? undefined : activeTab.value,
 }))
 
-// ===== 客户筛选（提供 FilterBar 以启用内置关键词搜索）=====
+// ===== 客户筛选（提供 FilterBar 以启用内置关键词搜索；pageSize 上限 100，接口规范 §2.3）=====
 const { data: customers } = useQuery({
   queryKey: [...qk.quotes.all, 'customer-options'],
-  queryFn: () => getCustomers({ page: 1, pageSize: 200 } as CustomerListReq),
+  queryFn: () => getCustomers({ page: 1, pageSize: 100 } as CustomerListReq),
   staleTime: staleTime.DICT,
 })
 

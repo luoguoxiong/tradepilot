@@ -60,16 +60,16 @@ const form = reactive({
 
 const items = ref<ItemRow[]>([])
 
-// ===== 选项数据（客户 / 联系人 / 产品）=====
+// ===== 选项数据（客户 / 联系人 / 产品；pageSize 上限 100，接口规范 §2.3）=====
 const { data: customers } = useQuery({
   queryKey: [...qk.quotes.all, 'form-customers'],
-  queryFn: () => getCustomers({ page: 1, pageSize: 200 } as CustomerListReq),
+  queryFn: () => getCustomers({ page: 1, pageSize: 100 } as CustomerListReq),
   staleTime: staleTime.DICT,
 })
 
 const { data: products } = useQuery({
   queryKey: [...qk.quotes.all, 'form-products'],
-  queryFn: () => getProducts({ page: 1, pageSize: 200 } as ProductListQuery),
+  queryFn: () => getProducts({ page: 1, pageSize: 100 } as ProductListQuery),
   staleTime: staleTime.DICT,
 })
 

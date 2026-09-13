@@ -69,23 +69,23 @@ const items = ref<ItemRow[]>([])
 
 const isChange = computed(() => props.mode === 'change')
 
-// ===== 选项数据（已成交报价 / 客户 / 产品）=====
+// ===== 选项数据（已成交报价 / 客户 / 产品；pageSize 上限 100，接口规范 §2.3）=====
 const { data: wonQuotes } = useQuery({
   queryKey: [...qk.orders.all, 'form-won-quotes'],
-  queryFn: () => getQuotes({ status: 'won', page: 1, pageSize: 200 } as QuoteListReq),
+  queryFn: () => getQuotes({ status: 'won', page: 1, pageSize: 100 } as QuoteListReq),
   enabled: computed(() => props.mode === 'create'),
   staleTime: staleTime.DICT,
 })
 
 const { data: customers } = useQuery({
   queryKey: [...qk.orders.all, 'form-customers'],
-  queryFn: () => getCustomers({ page: 1, pageSize: 200 } as CustomerListReq),
+  queryFn: () => getCustomers({ page: 1, pageSize: 100 } as CustomerListReq),
   staleTime: staleTime.DICT,
 })
 
 const { data: products } = useQuery({
   queryKey: [...qk.orders.all, 'form-products'],
-  queryFn: () => getProducts({ page: 1, pageSize: 200 } as ProductListQuery),
+  queryFn: () => getProducts({ page: 1, pageSize: 100 } as ProductListQuery),
   staleTime: staleTime.DICT,
 })
 

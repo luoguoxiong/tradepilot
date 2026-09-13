@@ -360,7 +360,10 @@ export class EmployeesService {
     });
   }
 
-  /** 02 §3.2 创建 AI 员工（仅 admin/manager；sales 越权 40301） */
+  /**
+   * 02 §3.2 创建 AI 员工（仅 admin/manager；sales 越权 40301）。
+   * 严格一类一个（02 §2）：同 org 同角色已存在员工 → 42201（见 assertRoleVacant）。
+   */
   async create(ctx: OrgScopeContext, dto: CreateEmployeeDto): Promise<{ employeeId: string }> {
     // 创建/修改员工为高权限操作（02 §3.1：role ∈ {admin, manager}）
     this.assertManager(ctx);
@@ -396,6 +399,9 @@ export class EmployeesService {
           `sopParams 含模板未定义的参数键: ${unknownKeys.join(', ')}`,
         );
       }
+      // 严格一类一个（02 §2）：同 org 同角色仅允许一个 AI 员工（置于其它 42201 校验之后，保持错误语义可区分）
+      await this.assertRoleVacant(tx, ctx.orgId, role);
+
       const sopTemplateId = await this.copySopTemplate(tx, ctx.orgId, role, dto, source);
 
       const employeeId = createId('emp');
@@ -530,6 +536,30 @@ export class EmployeesService {
       .limit(1);
     if (!emp) {
       throw new BizException(ErrorCode.NOT_FOUND, `AI 员工不存在: ${employeeId}`);
+    }
+  }
+
+  /**
+   * 严格一类一个（02 §2）：同 org 同角色已存在 AI 员工 → 42201。
+   *
+   * 唯一性的判定点收敛在本方法（`create` 是 AI 员工的唯一产品写入路径），
+   * 未同时加 DB `UNIQUE(org_id, role)`：worker/runtime 侧的集成测试以「一个 org 内多员工」
+   * 构造调度/并发场景（单 org 最多 11 人，超 6 角色上限），该约束会与之冲突；
+   * 如需 DB 层兜底，须先重构这些 fixture（前后端之外的后续硬化项）。
+   * 残余并发窗口：两个 create 同时通过预检（TOCTOU）属理论边界——创建员工是 admin/manager
+   * 低频人工操作，且 UI 已对已占用角色置灰（02 §3.1）。
+   */
+  private async assertRoleVacant(tx: Tx, orgId: string, role: EmployeeRole): Promise<void> {
+    const [existing] = await tx
+      .select({ name: schema.aiEmployee.name })
+      .from(schema.aiEmployee)
+      .where(and(eq(schema.aiEmployee.orgId, orgId), eq(schema.aiEmployee.role, role)))
+      .limit(1);
+    if (existing) {
+      throw new BizException(
+        ErrorCode.BIZ_VALIDATION,
+        `角色 ${role} 已存在 AI 员工（${existing.name}），同一角色仅允许创建一个`,
+      );
     }
   }
 

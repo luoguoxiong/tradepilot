@@ -15,7 +15,16 @@ import type { CreateEmployeeReq, EmployeeRole, RoleTemplate } from '@/api/types/
 const props = defineProps<{
   visible: boolean
   roles: RoleTemplate[]
+  /** 严格一类一个（02 §2）：已被占用的角色（该角色已存在 AI 员工），向导内置灰不可选 */
+  occupiedRoles?: EmployeeRole[]
 }>()
+
+/** 已被占用的角色集合（严格一类一个，02 §2） */
+const occupiedRoleSet = computed(() => new Set(props.occupiedRoles ?? []))
+
+function isRoleOccupied(role: EmployeeRole): boolean {
+  return occupiedRoleSet.value.has(role)
+}
 
 const emit = defineEmits<{
   'update:visible': [value: boolean]
@@ -59,6 +68,10 @@ const form = reactive({
 
 /** 选中角色：预载模板预填 ②~④ 步（02 §3.1） */
 function pickRole(template: RoleTemplate) {
+  if (isRoleOccupied(template.role)) {
+    ElMessage.warning(t('employees.roleOccupiedHint'))
+    return
+  }
   selectedRole.value = template
   form.name = template.name
   form.goal = template.goal
@@ -116,9 +129,16 @@ const preloadedText = computed(() => {
 
 /** 逐步校验（02 §3.1：校验通过方可进入下一步） */
 function validateStep(current: number): boolean {
-  if (current === 1 && !selectedRole.value) {
-    ElMessage.warning(t('employees.roleHint'))
-    return false
+  if (current === 1) {
+    if (!selectedRole.value) {
+      ElMessage.warning(t('employees.roleHint'))
+      return false
+    }
+    // 严格一类一个（02 §2）：选中角色在向导打开期间被占用 → 阻止进入下一步
+    if (isRoleOccupied(selectedRole.value.role)) {
+      ElMessage.warning(t('employees.roleOccupiedHint'))
+      return false
+    }
   }
   if (current === 2 && (!form.name.trim() || !form.goal.trim())) {
     ElMessage.warning(`${t('employees.name')} / ${t('employees.goal')}`)
@@ -192,12 +212,19 @@ async function submit() {
           :key="template.role"
           type="button"
           class="wizard__role-card"
-          :class="{ 'is-active': selectedRole?.role === template.role }"
+          :class="{
+            'is-active': selectedRole?.role === template.role,
+            'is-occupied': isRoleOccupied(template.role),
+          }"
+          :disabled="isRoleOccupied(template.role)"
           @click="pickRole(template)"
         >
           <span class="wizard__role-icon">{{ ROLE_ICONS[template.role] }}</span>
           <span class="wizard__role-name">{{ template.name }}</span>
           <span class="wizard__role-en">{{ template.role }}</span>
+          <span v-if="isRoleOccupied(template.role)" class="wizard__role-tag">
+            {{ t('employees.roleOccupiedTag') }}
+          </span>
         </button>
       </div>
       <p v-if="selectedRole" class="wizard__preloaded">{{ preloadedText }}</p>
@@ -338,6 +365,21 @@ async function submit() {
       border-color: var(--el-color-primary);
       box-shadow: 0 0 0 1px var(--el-color-primary);
     }
+
+    // 严格一类一个（02 §2）：该角色已存在员工 → 置灰不可选
+    &.is-occupied {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+  }
+
+  &__role-tag {
+    padding: 0 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    line-height: 18px;
+    color: var(--tp-text-tertiary);
+    background: var(--tp-bg-tertiary, #f0f0f0);
   }
 
   &__role-icon {

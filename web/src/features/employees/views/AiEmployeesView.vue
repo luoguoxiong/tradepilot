@@ -51,6 +51,17 @@ const rolesQuery = useQuery({
 
 const cards = computed<EmployeeCard[]>(() => employeesQuery.data.value?.items ?? [])
 
+/** 严格一类一个（02 §2）：已被占用的角色（每个角色至多一名 AI 员工） */
+const occupiedRoles = computed(() => cards.value.map((card) => card.role))
+
+/** 创建入口可用性：仍有空闲角色才可创建；六角色全部占用 → 置灰并提示原因 */
+const canCreateEmployee = computed(() => {
+  if (!canManage.value) return false
+  const total = rolesQuery.data.value?.length ?? 0
+  // 角色字典未就绪/拉取失败时不阻断（保持原行为），仅当明确「已占满」才禁用
+  return total === 0 || occupiedRoles.value.length < total
+})
+
 const ROLE_ICONS: Record<string, string> = {
   lead_hunter: '🤖',
   customer_researcher: '🔍',
@@ -138,9 +149,22 @@ async function onResume(card: EmployeeCard) {
         <h3 class="ai-employees__title">{{ t('employees.title') }}</h3>
         <span class="ai-employees__legend">{{ t('employees.statusLegend') }}</span>
       </div>
-      <el-button v-permission="['admin', 'manager']" type="primary" @click="wizardVisible = true">
-        + {{ t('employees.create') }}
-      </el-button>
+      <el-tooltip
+        :content="t('employees.allRolesOccupied')"
+        :disabled="canCreateEmployee"
+        placement="top"
+      >
+        <span>
+          <el-button
+            v-permission="['admin', 'manager']"
+            type="primary"
+            :disabled="!canCreateEmployee"
+            @click="wizardVisible = true"
+          >
+            + {{ t('employees.create') }}
+          </el-button>
+        </span>
+      </el-tooltip>
     </div>
 
     <div v-loading="employeesQuery.isLoading.value">
@@ -284,6 +308,7 @@ async function onResume(card: EmployeeCard) {
       v-if="canManage"
       :visible="wizardVisible"
       :roles="rolesQuery.data.value ?? []"
+      :occupied-roles="occupiedRoles"
       @update:visible="wizardVisible = $event"
       @created="onCreated"
     />

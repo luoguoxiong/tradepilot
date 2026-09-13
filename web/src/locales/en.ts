@@ -19,6 +19,7 @@ export default {
     unsavedTitle: 'Unsaved changes',
     unsavedConfirm: 'You have unsaved changes. Are you sure you want to leave?',
     discard: 'Discard changes',
+    actions: 'Actions',
   },
   auth: {
     loginTitle: 'Sign in to TradePilot AI',
@@ -1284,6 +1285,9 @@ export default {
     step4: 'Permissions & KPI',
     roleHint: 'Pick a role; its preset template (SOP / skills / tools / KPI) will be preloaded',
     preloaded: 'Preloaded: SOP × {sop} · Skills × {skills} · Tools × {tools} · KPI {kpi}/day',
+    roleOccupiedTag: 'Created',
+    roleOccupiedHint: 'This role already has an AI employee; only one is allowed per role',
+    allRolesOccupied: 'All six roles already have an AI employee; only one is allowed per role',
     name: 'Name',
     goal: 'Goal',
     sopTemplate: 'SOP template',

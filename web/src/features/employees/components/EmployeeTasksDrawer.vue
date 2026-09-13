@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { useQueryClient } from '@tanstack/vue-query'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -34,6 +35,7 @@ const props = defineProps<{
 const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
 
 const { t } = useI18n()
+const router = useRouter()
 const queryClient = useQueryClient()
 
 const columns: ProColumn[] = [
@@ -143,6 +145,16 @@ function onTransfer(row: TaskItem) {
   transferVisible.value = true
 }
 
+/**
+ * 跳转任务详情。
+ * 注意：el-table 列探测（TableColumnRenderer）会用空对象 row 调一次列插槽，
+ * 因此这里必须做 taskId 兜底，避免 router.push 抛 "Missing required param id"。
+ */
+function onDetail(row: TaskItem) {
+  if (!row.taskId) return
+  void router.push({ name: 'task-detail', params: { id: row.taskId } })
+}
+
 function onTransferSaved() {
   transferTaskId.value = null
   invalidate()
@@ -235,13 +247,9 @@ function onTransferSaved() {
           >
             {{ t('tasks.transferToHuman') }}
           </el-button>
-          <RouterLink
-            class="employee-tasks__link"
-            :to="{ name: 'task-detail', params: { id: row.taskId } }"
-            @click.stop
-          >
+          <el-button v-if="row.taskId" link type="primary" size="small" @click.stop="onDetail(row)">
             {{ t('tasks.detailTitle') }}
-          </RouterLink>
+          </el-button>
         </template>
       </ProTable>
     </template>
@@ -260,17 +268,6 @@ function onTransferSaved() {
     display: flex;
     flex-direction: column;
     gap: 12px;
-  }
-
-  &__link {
-    margin-left: 8px;
-    font-size: 12px;
-    color: var(--tp-primary);
-    text-decoration: none;
-
-    &:hover {
-      text-decoration: underline;
-    }
   }
 }
 </style>

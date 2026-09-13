@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>layout check</title>
+  </head>
+  <body>
+    <script>
+      const p = new URLSearchParams(location.search)
+      localStorage.setItem('tradepilot.token', p.get('t'))
+      localStorage.setItem('tradepilot.session', p.get('s'))
+      location.replace(p.get('to'))
+    </script>
+  </body>
+</html>

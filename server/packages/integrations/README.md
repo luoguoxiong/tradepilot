@@ -174,17 +174,18 @@ Gmail 收信与 SMTP-IMAP 收信共用，保证解析口径一致。
 
 知识索引与检索 query 的向量化适配（07 §2 ④ / 06 §4）。
 
-| 导出                                                           | 说明                                                                   |
-| -------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `EmbeddingProvider`                                            | 接口：`dimensions` / `model` / `embed(texts)`（调用方保证 ≤100 条/批） |
-| `OpenAiEmbeddingProvider`                                      | OpenAI 兼容 `/embeddings`（默认 `text-embedding-3-small`，1536 维）    |
-| `MOCK_EMBEDDING_DIMENSIONS` / `KNOWLEDGE_EMBEDDING_DIMENSIONS` | 均为 `1536`（对齐 `knowledge_chunk.embedding vector(1536)`）           |
-| `createEmbeddingProvider(options)`                             | 按 `provider: 'openai'` 构造（其他值编译期穷尽校验）                   |
-| `setEmbeddingProviderFactory(factory)`                         | 进程级注入（按 org 解析）                                              |
-| `getEmbeddingProvider(orgId?)`                                 | 读取 provider；未注入明确报错（不再回落 mock）                         |
+| 导出                                   | 说明                                                                                |
+| -------------------------------------- | ----------------------------------------------------------------------------------- |
+| `EmbeddingProvider`                    | 接口：`dimensions` / `model` / `embed(texts)`（调用方保证 ≤100 条/批）              |
+| `OpenAiEmbeddingProvider`              | OpenAI 兼容 `/embeddings`（`dimensions` 随请求下发；默认 `text-embedding-3-small`） |
+| `KNOWLEDGE_EMBEDDING_DIMENSIONS`       | `2048`（对齐 `knowledge_chunk.embedding vector(2048)`，迁移 0005 由 1536 调整）     |
+| `createEmbeddingProvider(options)`     | 按 `provider: 'openai'` 构造（其他值编译期穷尽校验）                                |
+| `setEmbeddingProviderFactory(factory)` | 进程级注入（按 org 解析）                                                           |
+| `getEmbeddingProvider(orgId?)`         | 读取 provider；未注入明确报错（不再回落 mock）                                      |
 
-> **维度硬约束**：`knowledge_chunk.embedding` 为 `vector(1536)`，选用模型维度必须一致，
-> 否则入库报维度不匹配；**换维度 = 换模型**，需全量重建索引（07 §5）。
+> **维度硬约束**：`knowledge_chunk.embedding` 为 `vector(2048)`，选用模型维度必须一致，
+> 否则请求层即报「返回 N 维与配置维度不一致」；**换维度 = 换模型 + 迁移向量列**，
+> 且需全量重建索引（07 §5）。
 
 ### storage/ — 对象存储
 
@@ -272,7 +273,7 @@ const search = await getSearchProvider(orgId);
 const hits = await search.webSearch('steel fastener importer germany', 1);
 const site = await search.crawlSite('acme-industries.com');
 
-// 3) 嵌入：知识 chunk / 检索 query 向量化（维度 1536）
+// 3) 嵌入：知识 chunk / 检索 query 向量化（维度须与向量列一致，当前 2048）
 const embedding = await getEmbeddingProvider(orgId);
 const vectors = await embedding.embed(['...chunk text...']);
 

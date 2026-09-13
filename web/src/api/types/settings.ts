@@ -96,10 +96,11 @@ export const AI_MODEL_PROVIDERS: Record<AiModelType, readonly AiModelProvider[]>
 }
 
 /**
- * 知识索引向量维度硬约束：`knowledge_chunk.embedding` 为 `vector(1536)`（ER 06），
+ * 知识索引向量维度硬约束：与 `knowledge_chunk.embedding` 的列维度一致
+ * （ER 06 原为 vector(1536)；P1 迁移 0005 调整为 vector(2048)：所选模型原生 2048 维且不支持截断），
  * 选用模型维度必须一致，否则入库报维度不匹配 —— 后端同值校验，表单固定不可改。
  */
-export const KNOWLEDGE_EMBEDDING_DIMENSIONS = 1536
+export const KNOWLEDGE_EMBEDDING_DIMENSIONS = 2048
 
 export interface AiModel {
   id: string

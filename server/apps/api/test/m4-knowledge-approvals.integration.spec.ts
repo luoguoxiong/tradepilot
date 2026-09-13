@@ -552,7 +552,10 @@ describe('M4 #10 · 12 审核中心', () => {
 
     const result = await approvals.summary(ORG_A);
     expect(result.tabs.some((t) => t.type === 'bulk_marketing' && t.count === 1)).toBe(true);
-    expect(result.tabs.find((t) => t.type === 'all')?.count).toBe(5);
+    // all 口径 = 该 org 下 status='pending' 的合计数（12 §3.1）。本用例位于文件末尾：
+    // APR_APPROVE/APR_EDIT/APR_REJECT 已被前序用例处置、APR_EXPIRED 为 expired，
+    // 故此刻仅剩 APR_CD（customer_delete）+ 本次新增的 bulk_marketing → 2。
+    expect(result.tabs.find((t) => t.type === 'all')?.count).toBe(2);
 
     await superDb.delete(schema.approvalRequest).where(eq(schema.approvalRequest.id, approvalId));
   });

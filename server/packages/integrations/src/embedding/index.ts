@@ -1,6 +1,6 @@
 /**
  * 嵌入服务适配（后端技术方案 07 §2 ④ / 06 §4）：
- * - openai：OpenAI 兼容 /embeddings 接口（text-embedding-3-small，1536 维，ER 06 vector(1536)）。
+ * - openai：OpenAI 兼容 /embeddings 接口（返回维度须等于 KNOWLEDGE_EMBEDDING_DIMENSIONS）。
  * 进程级注入（同 email-send-config 模式）：api/worker 启动时 setEmbeddingProviderFactory 一次，
  * 未注入即明确报错（无 mock 兜底）。
  */
@@ -22,10 +22,12 @@ export interface EmbeddingOptions {
 }
 
 /**
- * 知识索引向量维度硬约束：`knowledge_chunk.embedding` 为 `vector(1536)`（ER 06），
+ * 知识索引向量维度硬约束：须与 `knowledge_chunk.embedding` 的列维度一致
+ * （ER 06 原为 vector(1536)；P1 因所选模型 doubao-embedding-vision 原生 2048 维
+ * 且不支持 dimensions 截断，迁移 0005 将列调整为 vector(2048)）。
  * 选用的 embedding 模型维度必须一致，否则入库时报维度不匹配。
  */
-export const KNOWLEDGE_EMBEDDING_DIMENSIONS = 1536;
+export const KNOWLEDGE_EMBEDDING_DIMENSIONS = 2048;
 
 export class OpenAiEmbeddingProvider implements EmbeddingProvider {
   readonly dimensions: number;
@@ -40,7 +42,7 @@ export class OpenAiEmbeddingProvider implements EmbeddingProvider {
     },
   ) {
     this.model = options.model;
-    this.dimensions = options.dimensions ?? 1536;
+    this.dimensions = options.dimensions ?? KNOWLEDGE_EMBEDDING_DIMENSIONS;
   }
 
   async embed(texts: string[]): Promise<number[][]> {

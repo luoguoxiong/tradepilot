@@ -1,7 +1,9 @@
 /**
  * knowledge_search 混合检索实装（M4 #8，后端技术方案 07 §4）：
  * 三路召回 + RRF 融合（k=60）——
- *   ① 向量：query 嵌入 → HNSW（vector_cosine_ops）Top-20（idx_kchunk_embedding；含距离阈值）；
+ *   ① 向量：query 嵌入 → 余弦最近邻 Top-20（含距离阈值）。P1 起 embed 维度为 2048，
+ *      超出 pgvector 对 vector 的 hnsw 上限（2000 维）→ 暂为精确扫描（MVP 量级可接受）；
+ *      需要 ANN 时以 halfvec(2048) + hnsw(halfvec_cosine_ops) 启用（见迁移 0005 说明）；
  *   ② 全文：to_tsvector('simple') @@ websearch_to_tsquery Top-20；
  *   ③ 相似：pg_trgm similarity Top-20（trgm gin 索引，manual 迁移交付）；
  * 融合排序取 Top-K，score 归一 0~1（相对三路满分 3/(k+1)）。

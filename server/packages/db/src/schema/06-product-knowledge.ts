@@ -177,7 +177,9 @@ export const knowledgeChunk = pgTable(
     chunkIndex: integer('chunk_index').notNull(),
     content: text('content').notNull(),
     tokenCount: integer('token_count'),
-    embedding: vector('embedding', { dimensions: 1536 }),
+    // 维度须与 KNOWLEDGE_EMBEDDING_DIMENSIONS 常量 / 选用 embedding 模型一致；
+    // P1 迁移 0005 由 vector(1536) 调整为 vector(2048)（原模型不支持 dimensions 截断）
+    embedding: vector('embedding', { dimensions: 2048 }),
     metadata: jsonb('metadata').$type<Record<string, unknown>>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },

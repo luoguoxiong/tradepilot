@@ -19,6 +19,7 @@ export default {
     unsavedTitle: '未保存的更改',
     unsavedConfirm: '当前页面有未保存的更改，确定要离开吗？',
     discard: '放弃更改',
+    actions: '操作',
   },
   auth: {
     loginTitle: '登录 TradePilot AI',
@@ -1261,6 +1262,9 @@ export default {
     step4: '权限与 KPI',
     roleHint: '选择一个角色，系统将预载该角色预置模板（SOP / 技能 / 工具 / KPI 建议）',
     preloaded: '已预载：SOP 模板 × {sop} · 技能 × {skills} · 工具 × {tools} · KPI 建议 {kpi}/日',
+    roleOccupiedTag: '已创建',
+    roleOccupiedHint: '该角色已创建 AI 员工，同一角色仅允许一个',
+    allRolesOccupied: '六个角色均已创建 AI 员工，同一角色仅允许一个',
     name: '员工名称',
     goal: '目标描述',
     sopTemplate: 'SOP 模板',

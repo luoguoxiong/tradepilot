@@ -340,7 +340,7 @@ function back() {
 
       <div class="task-detail__grid">
         <!-- 执行步骤 -->
-        <div class="task-detail__card">
+        <div class="task-detail__card task-detail__card--steps">
           <div class="task-detail__section-title">{{ t('tasks.steps') }}</div>
           <EmptyState v-if="steps.length === 0" :description="t('tasks.noSteps')" />
           <el-steps v-else direction="vertical" :active="activeStepIndex">
@@ -445,6 +445,17 @@ function back() {
     padding: calc(var(--tp-spacing-base) * 1.5);
     border: 1px solid var(--tp-border-color);
     border-radius: var(--tp-radius-base, 8px);
+
+    // 步骤卡：ElPlus 垂直步骤容器默认 height:100%，与 grid 等高拉伸叠加时会被压扁，
+    // 导致末步（含时间）溢出到卡片外。
+    // 解法：卡片按内容撑高（align-self: start 不参与拉伸）+ 步骤容器取消 height:100%。
+    &--steps {
+      align-self: start;
+
+      :deep(.el-steps--vertical) {
+        height: auto;
+      }
+    }
   }
 
   &__outputs {

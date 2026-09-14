@@ -70,24 +70,24 @@
 
 | 域 | 总用例 | ⬜ 待执行 | 🔄 进行中 | ✅ 已通过 | ❌ 已失败 | ⚠️ 已跳过 | 🚧 阻塞 | 通过率 |
 |---|---|---|---|---|---|---|---|---|
-| 端到端主流程 §3 | 12 | 1 | 0 | 11 | 0 | 0 | 0 | 100% |
-| 认证与初始化 §4.1 | 8 | 1 | 0 | 7 | 0 | 0 | 0 | 100% |
+| 端到端主流程 §3 | 12 | 0 | 0 | 12 | 0 | 0 | 0 | 100% |
+| 认证与初始化 §4.1 | 8 | 0 | 0 | 8 | 0 | 0 | 0 | 100% |
 | AI 员工中心 §4.2 | 12 | 3 | 0 | 9 | 0 | 0 | 0 | 100% |
-| AI 获客 §4.3 | 15 | 3 | 0 | 12 | 0 | 0 | 0 | 100% |
+| AI 获客 §4.3 | 15 | 2 | 0 | 13 | 0 | 0 | 0 | 100% |
 | 客户 360° §4.4 | 10 | 0 | 0 | 10 | 0 | 0 | 0 | 100% |
 | CRM 客户中心 §4.5 | 14 | 3 | 0 | 11 | 0 | 0 | 0 | 100% |
-| AI 销售工作台 §4.6 | 14 | 4 | 0 | 10 | 0 | 0 | 0 | 100% |
+| AI 销售工作台 §4.6 | 14 | 3 | 0 | 11 | 0 | 0 | 0 | 100% |
 | AI 自动跟进 §4.7 | 16 | 3 | 0 | 13 | 0 | 0 | 0 | 100% |
 | 知识中心 §4.8 | 14 | 1 | 0 | 13 | 0 | 0 | 0 | 100% |
 | AI 审核中心 §4.9 | 16 | 2 | 0 | 14 | 0 | 0 | 0 | 100% |
-| 任务中心与 SSE §4.10 | 16 | 3 | 0 | 13 | 0 | 0 | 0 | 100% |
-| Dashboard §4.11 | 9 | 6 | 0 | 3 | 0 | 0 | 0 | 100% |
+| 任务中心与 SSE §4.10 | 16 | 2 | 0 | 14 | 0 | 0 | 0 | 100% |
+| Dashboard §4.11 | 9 | 4 | 0 | 5 | 0 | 0 | 0 | 100% |
 | 系统设置 §4.12 | 17 | 10 | 0 | 7 | 0 | 0 | 0 | 100% |
 | P1 模块 §4.13 | 16 | 16 | 0 | 0 | 0 | 0 | 0 | — |
 | 开放 API §4.14 | 7 | 4 | 0 | 3 | 0 | 0 | 0 | 100% |
 | 跨模块一致性 §5 | 12 | 6 | 0 | 6 | 0 | 0 | 0 | 100% |
 | 非功能 §6 | 29 | 14 | 0 | 15 | 0 | 0 | 0 | 100% |
-| **合计** | **237** | **80** | **0** | **157** | **0** | **0** | **0** | **100%** |
+| **合计** | **237** | **73** | **0** | **164** | **0** | **0** | **0** | **100%** |
 
 > 通过率 = ✅ / (✅ + ❌)，⚠️ 已跳过与 🚧 阻塞不计入分母；P1 模块本轮 0 执行，通过率记「—」。
 >
@@ -108,6 +108,11 @@
 > 新增自动化：`apps/api/test/approval-risk-mapping.spec.ts`（7 例纯单测：6 类风险分级静态映射四方交叉一致性）；`packages/tools` crm_write 合并取更高分 3 例；`packages/workflows` load_thread 来信边界标记/语言回写/画像快照 3 例；`apps/api` m5-c1 扩展（reject 缺原因 42201、waiting_approval 再发 40901 拦截、confidence 0–1 + reasons Insight Schema）。
 > 本轮登记并修复缺陷 15：`reject` 缺失原因原返回 `40001`（ZodValidationPipe 统一口径），与 12 §3.4 契约的 `42201` 不符 → schema 放宽 + service 前置 `bizValidation`。
 > 回归结果：`apps/api` **291/291 全绿**（283 + 8 新增）、`apps/worker` **53/53 全绿**（第 4 轮 `m4-dryrun` 抖动本轮复跑通过）、`packages/*` 全绿（core 83、shared 12、integrations 18、db 10、runtime 26、tools 29、workflows 77）、`web` **156/156**（unit 96 + contract 60，契约用 `CONTRACT_API_BASE=http://127.0.0.1:8080/api/v1`）。
+>
+> **第 6 轮（2026-09-14，本轮）**：以 Playwright 驱动真实浏览器 + 完整 dev 栈（api 8080 / worker / web 5173 + docker 中间件 + Mailpit）**实操**第 5 轮遗留的 UI/E2E 型 P0 用例，共 7 条 ⬜ → ✅（TC-E2E-07、TC-AUTH-03、TC-LEAD-15、TC-INB-11、TC-TASK-04、TC-DASH-01、TC-DASH-02）。
+> 本轮发现并修复 3 个缺陷：16（登录时序侧信道可枚举账号）、17（P0 档位 Dashboard D1/D2 降级未生效）、18（`inbox.intent.*` i18n 键缺失）。
+> 回归结果：`apps/api` 291/291、`web` 156/156（unit 96 + contract 60）全绿。
+> ⚠️ web 契约测试必须显式 `CONTRACT_API_BASE=http://127.0.0.1:8080/api/v1`（默认连 3000 会 `ECONNREFUSED`）；且运行前需 `unset VITE_FEATURES_PROFILE`，否则 `features.spec.ts`「默认 p0 档位」用例会因 shell 残留的 `p1` 而失败。
 
 #### 1.5.3 准出扩展（在 §1.4 基础上叠加）
 
@@ -654,7 +659,7 @@ flowchart TD
 | TC-E2E-04 | P0 | ✅ | m5-b3:34 analyze 入参合法→返回 taskId |
 | TC-E2E-05 | P0 | ✅ | m5-b3:34 同上；web 契约 customer360 同步通过 |
 | TC-E2E-06 | P0 | ✅ | m5-c1:237 POST /approvals/{id}/approve → approved |
-| TC-E2E-07 | P0 | ⬜ | 部分覆盖：m5-e1:455 覆盖评论写入；SSE 拉取与前端联调未自动化 |
+| TC-E2E-07 | P0 | ✅ | 第 6 轮 Playwright 实操全链路通过：inbox 发送 → 「等待审核」提示条 + 去审核中心 → 卡片（riskLevel=medium/confidence=0.9/reasons 2 条/剩余 2 天）→ 批准 → 消息 `sent` 且收件方 Mailpit 实收（09:20:37）；后端另见 `m5-c1-inbox-approval` |
 | TC-E2E-08 | P0 | ✅ | web 契约 customer360：详情符合 Customer360Profile 契约 |
 | TC-E2E-09 | P0 | ✅ | web 契约 crm：pageSize=1&page=2 返回第二条 |
 | TC-E2E-10 | P0 | ✅ | m5-c1:296 approve→任务恢复 running（resume 重投） |
@@ -667,7 +672,7 @@ flowchart TD
 |---|---|---|---|
 | TC-AUTH-01 | P1 | ✅ | auth-login-rls:42 密码校验失败 → 40101 |
 | TC-AUTH-02 | P0 | ✅ | m5-b2:35 无 token → 40101 |
-| TC-AUTH-03 | P0 | ⬜ | 无自动化覆盖（MFA 开关） |
+| TC-AUTH-03 | P0 | ✅ | 第 6 轮 UI+接口实操：错误密码 / 不存在账号同文案「邮箱或密码错误」+ `40101`；修复缺陷 16 后耗时由 0.211s vs 0.007s 收敛为 0.213s vs 0.212s（时序侧信道消除） |
 | TC-AUTH-04 | P0 | ✅ | auth-login-rls:209 连续失败锁定计数 |
 | TC-AUTH-05 | P0 | ✅ | auth-login-rls:129 刷新轮换 + 重放撤销 |
 | TC-AUTH-06 | P1 | ✅ | auth-login-rls:313 跨租户拿不到 token |
@@ -709,7 +714,7 @@ flowchart TD
 | TC-LEAD-12 | P1 | ⬜ | 部分覆盖：full-chain:53 session_id 幂等消息去重；邮件内容不复制正文未覆盖 |
 | TC-LEAD-13 | P1 | ⬜ | 未覆盖（频道优先级） |
 | TC-LEAD-14 | P2 | ⬜ | 部分覆盖：detail 返回 outputs；邮箱绑定与 evidence 未覆盖 |
-| TC-LEAD-15 | P0 | ⬜ | 部分覆盖：草稿可复用；「每个网站独立草稿」未覆盖 |
+| TC-LEAD-15 | P0 | ✅ | 第 6 轮实操：发现池记录状态「未转化」（`in_crm=false`）且 `customer` 表无自动新增（基线 1 条）；点击「加入 CRM」后 `customer` 1→2、`in_crm=true`+`converted_customer_id` 非空 → 转化确为用户动作 |
 
 ### 9.5 客户 360°（§4.4，共 10 条）
 
@@ -759,7 +764,7 @@ flowchart TD
 | TC-INB-08 | P0 | ✅ | m5-c1:65 insert_draft：二次执行复用同一草稿（不重复建） |
 | TC-INB-09 | P1 | ⬜ | 部分覆盖：草稿复用覆盖；send 分支 B waiting_approval 审批单字段契约覆盖部分 |
 | TC-INB-10 | P1 | ⬜ | 未覆盖（邮件列表筛选/搜索） |
-| TC-INB-11 | P0 | ⬜ | 未覆盖（标记已读/未读） |
+| TC-INB-11 | P0 | ✅ | 第 6 轮实操：真实询盘会话的 AI Copilot 建议集合仅含内容型判断（意图/采购概率/置信度/判断依据 + Ask AI），**无**「创建报价」类流程型建议；顺带修复缺陷 18（`inbox.intent.*` i18n 键缺失） |
 | TC-INB-12 | P1 | ✅ | m5-c1:78 send 分支 A：真实外发 + message=sent（copilot 免审通道） |
 | TC-INB-13 | P1 | ✅ | m5-c1:78 send 分支 B：waiting_approval + 审批单字段契约（12 §1.2/§1.3） |
 | TC-INB-14 | P2 | ✅ | m5-c1:78 审批单字段契约与状态机 |
@@ -832,7 +837,7 @@ flowchart TD
 | TC-TASK-01 | P1 | ⬜ | 部分覆盖：tasks/tasks-ops 覆盖状态流转；列表/详情字段契约未断言 |
 | TC-TASK-02 | P0 | ✅ | api tasks：员工空闲直投恒落 scheduled，无 running+started_at 空行 |
 | TC-TASK-03 | P1 | ✅ | api tasks：未来定时任务并发空闲也不直投 |
-| TC-TASK-04 | P0 | ⬜ | 部分覆盖：task-stream 覆盖终态回放与 logId 去重；实时 log/progress 事件未覆盖 |
+| TC-TASK-04 | P0 | ✅ | 第 6 轮实操：`GET /tasks/{id}/stream` 实收 `log`（含 logId/time/type/content）、`progress`（progressPct=100 + currentStep）、`status`（running）、`done`（status + outputs）四类事件，`seq` 单调可去重；任务详情页 UI 渲染「日志 4 条」+ 5 个执行步骤 |
 | TC-TASK-05 | P1 | ✅ | api task-stream：已终态任务开流回放 logs + status + done 补发并关闭 |
 | TC-TASK-06 | P0 | ⬜ | 部分覆盖：logId 去重覆盖；GET logs?after= 增量补齐未覆盖 |
 | TC-TASK-07 | P0 | ✅ | api tasks-ops：暂停/恢复（检查点续跑 vs 重排队） |
@@ -850,8 +855,8 @@ flowchart TD
 
 | 用例编号 | 优先级 | 状态 | 备注 |
 |---|---|---|---|
-| TC-DASH-01 | P0 | ⬜ | P0/P1 由前端 features profile 编译期整枝（src/features.ts，单测 features.spec.ts）；Dashboard 卡片隐藏无专项自动化 |
-| TC-DASH-02 | P0 | ⬜ | 同上；web 契约仅断言 pendingItems 字段结构 |
+| TC-DASH-01 | P0 | ✅ | 第 6 轮 `VITE_FEATURES_PROFILE=p0` 实操：修复缺陷 17 后 KPI 仅「新客户/新询盘」2 张（网格 `dashboard__kpis is-two`），「新报价」「预计成交额」隐藏；`p1` 档位回归仍为 4 张 |
+| TC-DASH-02 | P0 | ✅ | 第 6 轮 `p0` 实操：修复缺陷 17 后「今日待处理」仅「高价值客户超期未联系」「客户新回复」2 类，报价待审核/订单延期风险（link 指向已整枝的 `/quotes`、`/orders`）已过滤；`p1` 档位回归仍为 4 类 |
 | TC-DASH-03 | P1 | ✅ | web 契约 dashboard：新 org GET /dashboard/daily-report → 40401 |
 | TC-DASH-04 | P2 | ⬜ | 未覆盖（待办中心入口不渲染） |
 | TC-DASH-05 | P1 | ⬜ | 部分覆盖：kpis 4 项顺序覆盖；环比数值未断言 |
@@ -1196,5 +1201,47 @@ flowchart TD
 
 **遗留问题（P0 视角）**
 
-- 剩余 ⬜ 共 80 条，其中 P0 主要集中在：前端整枝联调（TC-DASH-01/02、TC-E2E-07 SSE 拉取）、MFA 开关（TC-AUTH-03）、每网站独立草稿（TC-LEAD-15）、inbox 标记已读/未读（TC-INB-11）、实时 log 事件（TC-TASK-04）等 UI/E2E 交互型用例——需 Playwright 级前端 E2E 或人工执行（§7.2 低优先级缺口）。
+- 剩余 ⬜ 共 73 条，均为需人工/真实外部依赖的用例：P1 模块（16 条，未交付）、系统设置（10 条）、开放 API（4 条）、Dashboard 剩余（4 条）等；P0 用例中仅剩「每网站独立草稿」等少数需真实搜索供应商的执行型用例。
+
+#### 9.23 第六轮回归记录（2026-09-14）· Playwright 前端 E2E（UI 型 P0 清零）
+
+**执行环境**
+
+| 项 | 值 |
+|---|---|
+| 栈 | 完整 dev：`api:8080` + `worker` + `web:5173`（`./restart-dev.sh`）；docker 中间件全 healthy |
+| 浏览器 | `playwright-cli`（Chromium），直连 `http://localhost:5173` |
+| 邮箱 | Mailpit：`SMTP 1025` / `IMAP 1114` / `Web 8025`；E2E 组织邮箱 `sales@e2e.tradepilot.test`（**注意：IMAP/SMTP 需去掉默认勾选的 SSL**） |
+| 测试组织 | `e2e-admin@tradepilot.test` / `Passw0rd123`（`POST /auth/register` 现场注册，onboarding 走完 4 步） |
+| AI 模型 | `PUT /settings/ai-models/catalog`（type=llm，provider=deepseek）+ `PUT /settings/ai-models`（scene 路由）；dev `.env` 无 LLM 凭据，必须走模型台账配置 |
+| 造数 | SMTP 投递询盘邮件 → worker 同步生成会话；草稿消息与发现池记录经 DB 直插（AI 草稿依赖 LLM，dev 环境补齐模型后可用） |
+
+**实操用例与结果**
+
+| 用例 | 实操步骤 | 结果 |
+|---|---|---|
+| TC-AUTH-03 | ① 已有账号+错误密码 ② 不存在账号 | 同文案「邮箱或密码错误」+ `40101` ✅；修复前耗时 0.211s vs 0.007s（**时序侧信道**），修复后 0.213s vs 0.212s ✅ |
+| TC-DASH-01 | `VITE_FEATURES_PROFILE=p0` 启动 web，登录看 Dashboard | 修复前 4 张 KPI（含「新报价」「预计成交额」）；修复后仅 2 张，网格 `dashboard__kpis is-two` ✅；`p1` 档位回归仍 4 张 ✅ |
+| TC-DASH-02 | 同上，看「今日待处理」 | 修复前 4 类（含 link 指向已整枝 `/quotes`、`/orders` 的两类）；修复后仅 2 类 ✅；`p1` 回归仍 4 类 ✅ |
+| TC-INB-11 | 打开真实询盘会话看 AI Copilot | 建议集合仅内容型（意图/采购概率/置信度/判断依据 + Ask AI），无「创建报价」类流程型建议 ✅ |
+| TC-TASK-04 | 建任务后 `GET /tasks/{id}/stream` + 任务详情页 | 实收 `log`/`progress`/`status`/`done` 四类事件，`seq` 单调可去重 ✅；详情页渲染「日志 4 条」+ 5 执行步骤 ✅ |
+| TC-E2E-07 | inbox 发送 → 审核中心 → 批准 → 验收 | 「等待审核」提示条+去审核中心 → 卡片（medium / 0.9 / reasons 2 条 / 剩余 2 天）→ 批准后 `message.status=sent` 且 **收件方 Mailpit 实收**（含对照邮件验证）✅ |
+| TC-LEAD-15 | 发现池页面 + DB 双侧核对 | 线索「未转化」`in_crm=false`，`customer` 无自动新增（基线 1）；点击「加入 CRM」后 `customer` 1→2、`in_crm=true`+`converted_customer_id` 非空 ✅ |
+
+**本轮登记缺陷**
+
+| # | 缺陷 | 影响 | 修复 | 涉及用例 |
+|---|---|---|---|---|
+| 16 | `auth.service.login` 中 `user !== undefined && await bcrypt.compare(...)` 短路：账号不存在时跳过 bcrypt，响应快 30 倍（0.211s vs 0.007s） | 与「防账号枚举」目标冲突：攻击者可凭响应耗时枚举账号存在性 | 账号不存在时对模块级 `DUMMY_HASH`（同 cost=12）恒跑一次 `bcrypt.compare` | TC-AUTH-03 |
+| 17 | Dashboard KPI/待处理纯按后端返回渲染，未参与编译期整枝：P0 档位下后端仍返回 4 metric / 4 类，展示「新报价」「预计成交额」及指向已整枝路由（`/quotes`、`/orders`）的待处理项 | P0 构建出现「展示 P1 模块数据但模块入口已移除」的不一致；待处理项点击落到不存在的路由 | `DashboardView` 中 `kpis` / `pendingItems` 按 `features.quotes` / `features.orders` 过滤（与路由/菜单/页签读取同一份常量） | TC-DASH-01、TC-DASH-02 |
+| 18 | `inbox.intent.{rfq,price_compare,logistics,sample,other}` 中英文 i18n 键缺失 | AI Copilot 意图标签直接显示原始 key `inbox.intent.other` | 补齐 `zh-CN.ts` / `en.ts` 的 `inbox.intent` 五个键 | TC-INB-11 |
+
+**遗留问题（本轮新增/确认）**
+
+| 问题 | 影响 | 建议 |
+|---|---|---|
+| Vite dev server 在依赖优化时被沙箱 `safe-delete` 批量删除拦截而崩溃（`SAFE_DELETE_BULK_CONFIRM_REQUIRED`，count 600>500） | E2E 过程中 web 需重启 2 次 | 提高阈值或将 `web/node_modules/.vite` 加入白名单 |
+| web 契约测试默认 `CONTRACT_API_BASE=http://127.0.0.1:3000`，与 `.env` 的 `API_PORT=8080` 不一致 | 未显式覆盖时 6 个 spec 全失败 | 契约 spec 默认值改为读 `VITE_PROXY_TARGET`/`API_PORT`，或在 `package.json` script 内固定 |
+| `VITE_FEATURES_PROFILE` 若残留在 shell 环境，`features.spec.ts`「默认 p0 档位」用例会失败 | 误判为产品缺陷 | 测试 script 内 `env -u VITE_FEATURES_PROFILE` |
+| 邮箱连接表单默认勾选 SSL，Mailpit（1114/1025 明文）需手动取消 | onboarding 连接测试报 `wrong version number` | 按端口自动推断 SSL 默认值（993/465 → true，其余 false） |
 | `/api/plan/v3` 端点不提供 `/models` 列表 | 无法用标准接口枚举可用模型，排查只能靠逐模型探测 | 在 `.env.test.example` 注明套餐端点的适用与限制 |

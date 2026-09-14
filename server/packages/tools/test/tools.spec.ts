@@ -26,6 +26,7 @@ import {
   withIdempotency,
 } from '../src/index.js';
 import { leadScoringTool, siteCrawlTool, webSearchTool } from '../src/builtin/search-tools.js';
+import { crmWriteTool } from '../src/builtin/crm-tools.js';
 import { setSearchProviderFactory } from '@tradepilot/integrations';
 
 /** 最小 fake 事务：满足工具节点的 insert/select 链（org 时区读取回落默认） */
@@ -370,5 +371,108 @@ describe('web_search 轮次换词（TC-LEAD-04）', () => {
     expect(queries).toEqual(['q1', 'q2']);
     expect(first.companies[0]?.domain).toBe('acme.com');
     expect(second.companies[0]?.companyName).toBe('Acme Inc');
+  });
+});
+
+describe('crm_write 跨任务去重合并取更高分（TC-LEAD-06，03 §3.6）', () => {
+  /** crm_write 专用 fake tx：捕获 update/insert，select 命中既有 lead（org+domain 查重） */
+  function crmWriteTx(existing: { id: string; matchPct: number }[]) {
+    const updates: Record<string, unknown>[] = [];
+    const inserts: Record<string, unknown>[] = [];
+    const tx = {
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: async () => existing,
+          }),
+        }),
+      }),
+      update: () => ({
+        set: (vals: Record<string, unknown>) => {
+          updates.push(vals);
+          return { where: async () => undefined };
+        },
+      }),
+      insert: () => ({
+        values: (v: Record<string, unknown>) => {
+          inserts.push(v);
+          // 兼容两种链式：await insert().values(...) 与 insert().values(...).returning(...)
+          const q = {
+            returning: async () => [{ id: v['id'] }],
+            then: (res: unknown, rej: unknown) =>
+              Promise.resolve([{ id: v['id'] }]).then(res as never, rej as never),
+          };
+          return q;
+        },
+      }),
+      execute: async () => undefined,
+    } as unknown as Tx;
+    return { tx, updates, inserts };
+  }
+
+  const REASONS = [{ text: '产品高度匹配', evidence: '官网产品页', source: 'site_crawl' }];
+
+  function lead(over: { matchPct: number; scoreLevel: 'high' | 'medium' | 'low'; domain: string }) {
+    return {
+      companyName: 'Acme',
+      country: 'US',
+      domain: over.domain,
+      matchPct: over.matchPct,
+      scoreLevel: over.scoreLevel,
+      reasons: REASONS,
+    };
+  }
+
+  it('跨任务命中同域名且新分更高 → 合并更新取更高分，不新建记录', async () => {
+    const { tx, updates, inserts } = crmWriteTx([{ id: 'lead_exist', matchPct: 60 }]);
+    const ctx = makeCtx();
+    (ctx as { tx: Tx }).tx = tx;
+    const res = await crmWriteTool.execute(ctx, {
+      leads: [lead({ matchPct: 85, scoreLevel: 'high', domain: 'acme.com' })],
+    });
+    expect(res).toEqual({ saved: 0, merged: 1, leadIds: ['lead_exist'] });
+    // 取更高分：matchPct/scoreLevel/insight 以新分覆写
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toMatchObject({ matchPct: 85, scoreLevel: 'high' });
+    expect((updates[0]['insight'] as { value: number }).value).toBe(85);
+    // 未新建 lead 行（唯一 insert 为收尾的 ai_task_log）
+    expect(inserts.every((v) => typeof v['content'] === 'string')).toBe(true);
+  });
+
+  it('新分不高于既有分 → 仅合并计数，不覆写分数', async () => {
+    for (const matchPct of [50, 60]) {
+      const { tx, updates } = crmWriteTx([{ id: 'lead_exist', matchPct: 60 }]);
+      const ctx = makeCtx();
+      (ctx as { tx: Tx }).tx = tx;
+      const res = await crmWriteTool.execute(ctx, {
+        leads: [lead({ matchPct, scoreLevel: 'medium', domain: 'acme.com' })],
+      });
+      expect(res).toEqual({ saved: 0, merged: 1, leadIds: ['lead_exist'] });
+      expect(updates).toHaveLength(0);
+    }
+  });
+
+  it('发现池无同域名 → 新建 lead（inCrm=false + 域名归一化 + 联系人随迁）', async () => {
+    const { tx, updates, inserts } = crmWriteTx([]);
+    const ctx = makeCtx();
+    (ctx as { tx: Tx }).tx = tx;
+    const res = await crmWriteTool.execute(ctx, {
+      leads: [
+        {
+          ...lead({ matchPct: 70, scoreLevel: 'medium', domain: 'acme.com' }),
+          contacts: [{ name: 'Tom', title: 'Buyer', email: 'Tom@Acme.com' }],
+        },
+      ],
+    });
+    expect(res.saved).toBe(1);
+    expect(res.merged).toBe(0);
+    expect(updates).toHaveLength(0);
+    const leadRow = inserts.find((v) => v['companyDomain'] === 'acme.com');
+    expect(leadRow).toMatchObject({ companyName: 'Acme', inCrm: false, matchPct: 70 });
+    expect(leadRow && typeof leadRow['id'] === 'string' && res.leadIds[0]).toBeTruthy();
+    // 联系人邮箱小写归一 + 决策影响力缺省 null
+    const contactRow = inserts.find((v) => v['name'] === 'Tom');
+    expect(contactRow).toMatchObject({ email: 'tom@acme.com', source: 'ai_discovery' });
+    expect(contactRow && contactRow['decisionInfluencePct']).toBeNull();
   });
 });

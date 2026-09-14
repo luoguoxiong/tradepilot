@@ -296,6 +296,20 @@ describe('M5-C1 · 06 #11 ↔ 12 #12 联动', () => {
       .from(schema.message)
       .where(eq(schema.message.id, MSG_SEND));
     expect(msg?.status).toBe('waiting_approval');
+
+    // TC-APV-15：confidence 0–1 禁止虚构 + reasons 逐条 Insight Schema（text/evidence/source）
+    const confidence = Number(apr?.confidence);
+    expect(confidence).toBeGreaterThanOrEqual(0);
+    expect(confidence).toBeLessThanOrEqual(1);
+    for (const r of apr?.reasons ?? []) {
+      const reason = r as { text?: unknown; evidence?: unknown; source?: unknown };
+      expect(typeof reason.text).toBe('string');
+      expect(reason.text!.length).toBeGreaterThan(0);
+      expect(typeof reason.source).toBe('string');
+    }
+
+    // TC-APV-12：waiting_approval 期间绕过审批直接再发 → 40901 拦截（未批准执行拦截）
+    await expectBizError(conversations.send(ctx, CONV, { messageId: MSG_SEND }), 40901);
   });
 
   it('insert_draft：返回合并后全文 + 草稿消息 id，二次执行复用同一草稿', async () => {
@@ -432,6 +446,17 @@ describe('M5-C1 · 06 #11 ↔ 12 #12 联动', () => {
     expect(logs[0]?.editedDiff).toEqual([
       { field: 'aiProposal.emailContent', before: '原稿正文 B', after: '编辑后正文 B' },
     ]);
+  });
+
+  it('reject 缺失/空白原因 → 42201（12 §3.4 必填原因，TC-APV-06）', async () => {
+    await expectBizError(approvals.reject(ORG, ADMIN, APR_REJECT, {} as never), 42201);
+    await expectBizError(approvals.reject(ORG, ADMIN, APR_REJECT, { reason: '   ' }), 42201);
+    // 校验前置：审批单仍 pending，未被处置
+    const [apr] = await superDb
+      .select({ status: schema.approvalRequest.status })
+      .from(schema.approvalRequest)
+      .where(eq(schema.approvalRequest.id, APR_REJECT));
+    expect(apr?.status).toBe('pending');
   });
 
   it('reject：message 回退 draft（可重编辑重发）+ rejectReason 留痕', async () => {

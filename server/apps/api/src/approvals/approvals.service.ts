@@ -308,6 +308,10 @@ export class ApprovalsService {
 
   /** 12 §3.4 拒绝（必填原因；级联任务失败转人工，reason 回流 AI 员工反馈闭环） */
   async reject(orgId: string, userId: string, approvalId: string, dto: RejectApprovalDto) {
+    // 必填原因前置校验（12 §3.4：缺失/空白 → 42201，非 40001 参数形状错误）
+    if (!dto.reason || dto.reason.trim().length === 0) {
+      throw BizException.bizValidation('拒绝原因必填（12 §3.4）');
+    }
     const decided = await withOrg(this.db, orgId, async (tx) => {
       const [row] = await tx
         .select()

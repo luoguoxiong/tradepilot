@@ -73,21 +73,21 @@
 | 端到端主流程 §3 | 12 | 1 | 0 | 11 | 0 | 0 | 0 | 100% |
 | 认证与初始化 §4.1 | 8 | 1 | 0 | 7 | 0 | 0 | 0 | 100% |
 | AI 员工中心 §4.2 | 12 | 3 | 0 | 9 | 0 | 0 | 0 | 100% |
-| AI 获客 §4.3 | 15 | 4 | 0 | 11 | 0 | 0 | 0 | 100% |
+| AI 获客 §4.3 | 15 | 3 | 0 | 12 | 0 | 0 | 0 | 100% |
 | 客户 360° §4.4 | 10 | 0 | 0 | 10 | 0 | 0 | 0 | 100% |
 | CRM 客户中心 §4.5 | 14 | 3 | 0 | 11 | 0 | 0 | 0 | 100% |
 | AI 销售工作台 §4.6 | 14 | 4 | 0 | 10 | 0 | 0 | 0 | 100% |
 | AI 自动跟进 §4.7 | 16 | 3 | 0 | 13 | 0 | 0 | 0 | 100% |
 | 知识中心 §4.8 | 14 | 1 | 0 | 13 | 0 | 0 | 0 | 100% |
-| AI 审核中心 §4.9 | 16 | 8 | 0 | 8 | 0 | 0 | 0 | 100% |
+| AI 审核中心 §4.9 | 16 | 2 | 0 | 14 | 0 | 0 | 0 | 100% |
 | 任务中心与 SSE §4.10 | 16 | 3 | 0 | 13 | 0 | 0 | 0 | 100% |
 | Dashboard §4.11 | 9 | 6 | 0 | 3 | 0 | 0 | 0 | 100% |
 | 系统设置 §4.12 | 17 | 10 | 0 | 7 | 0 | 0 | 0 | 100% |
 | P1 模块 §4.13 | 16 | 16 | 0 | 0 | 0 | 0 | 0 | — |
 | 开放 API §4.14 | 7 | 4 | 0 | 3 | 0 | 0 | 0 | 100% |
 | 跨模块一致性 §5 | 12 | 6 | 0 | 6 | 0 | 0 | 0 | 100% |
-| 非功能 §6 | 29 | 16 | 0 | 13 | 0 | 0 | 0 | 100% |
-| **合计** | **237** | **89** | **0** | **148** | **0** | **0** | **0** | **100%** |
+| 非功能 §6 | 29 | 14 | 0 | 15 | 0 | 0 | 0 | 100% |
+| **合计** | **237** | **80** | **0** | **157** | **0** | **0** | **0** | **100%** |
 
 > 通过率 = ✅ / (✅ + ❌)，⚠️ 已跳过与 🚧 阻塞不计入分母；P1 模块本轮 0 执行，通过率记「—」。
 >
@@ -103,6 +103,11 @@
 > 本轮新增 ✅ 9 条：TC-KN-04/05/06/07/08/11/14、TC-APV-07/08；新增缺陷 14（本地 dev worker 抢占测试队列导致用例 flaky）。
 > ⚠️ **回归前置（重要）**：先执行 `./restart-dev.sh --stop worker`，否则本地 worker 会消费测试入队的任务并篡改测试数据（dev 用 `tradepilot-local` 桶，测试用 `tradepilot-test`）。
 > ⬜ 表示「无自动化覆盖、本轮未实际执行」，需人工或补充自动化后回填，不等于通过。
+>
+> **第 5 轮（2026-09-14，本轮）**：主攻审批中心与安全的 P0 缺口，共 9 条 ⬜ → ✅（TC-APV-02/06/12/13/14/15、TC-LEAD-06、TC-NFR-22/23）。
+> 新增自动化：`apps/api/test/approval-risk-mapping.spec.ts`（7 例纯单测：6 类风险分级静态映射四方交叉一致性）；`packages/tools` crm_write 合并取更高分 3 例；`packages/workflows` load_thread 来信边界标记/语言回写/画像快照 3 例；`apps/api` m5-c1 扩展（reject 缺原因 42201、waiting_approval 再发 40901 拦截、confidence 0–1 + reasons Insight Schema）。
+> 本轮登记并修复缺陷 15：`reject` 缺失原因原返回 `40001`（ZodValidationPipe 统一口径），与 12 §3.4 契约的 `42201` 不符 → schema 放宽 + service 前置 `bizValidation`。
+> 回归结果：`apps/api` **291/291 全绿**（283 + 8 新增）、`apps/worker` **53/53 全绿**（第 4 轮 `m4-dryrun` 抖动本轮复跑通过）、`packages/*` 全绿（core 83、shared 12、integrations 18、db 10、runtime 26、tools 29、workflows 77）、`web` **156/156**（unit 96 + contract 60，契约用 `CONTRACT_API_BASE=http://127.0.0.1:8080/api/v1`）。
 
 #### 1.5.3 准出扩展（在 §1.4 基础上叠加）
 
@@ -535,7 +540,7 @@ flowchart TD
 
 ## 7. 自动化映射与缺口
 
-### 7.1 现有自动化覆盖（74 个 spec）
+### 7.1 现有自动化覆盖（75 个 spec）
 
 | 域 | 现有覆盖 | 代表 spec |
 |---|---|---|
@@ -548,7 +553,8 @@ flowchart TD
 | 跟进/知识/工作台 | ✅ 完善 | `api/m5-d1`、`m5-e1`、`worker/m4-knowledge-index`、`web/contract/knowledge` |
 | 核心纯函数 | ✅ 完善 | `packages/core/*`（money/pricing/time-window/rrf/text-chunk/id） |
 | 工作流图（flow/SOP/提示词/outputs） | ✅ 新增（第 3 轮） | `packages/workflows/flows.spec.ts`（74 例：去重/评分/额度/输出契约/SOP↔注册表一致性） |
-| 内置工具（10 个） | ✅ 新增（第 3 轮） | `packages/tools/tools.spec.ts`（26 例：决策影响力/降级/幂等/配额/合规校验链） |
+| 内置工具（10 个） | ✅ 新增（第 3 轮） | `packages/tools/tools.spec.ts`（29 例：决策影响力/降级/幂等/配额/合规校验链/跨任务合并取更高分） |
+| 审批风险分级静态映射 | ✅ 新增（第 5 轮） | `api/approval-risk-mapping.spec.ts`（7 例：6 类白名单 ↔ 枚举 ↔ 工具 riskLevel 四方交叉一致） |
 | 前端组件单测 | ✅ 较好 | `web/tests/unit/*`（17 个） |
 
 ### 7.2 待补自动化缺口（按优先级）
@@ -560,7 +566,7 @@ flowchart TD
 | **高** | 报价(09)/订单(10)/经理(13)/数据中心(15) 服务层 | TC-QUO-*、TC-ORD-*、TC-MGR-*、TC-DC-* |
 | **高** | Webhook 队列消费与退避（`worker/queues/webhook.ts`） | TC-WH-03/04 |
 | **高** | 跟进 SOP 行为（`schedule_next` 时区发送窗/频控顺延、Break-up 强制人工、策略走完） | TC-FU-05/06/07/09/10/11 |
-| **中** | 跨任务去重「合并更新取更高分」的 DB upsert 断言（现仅覆盖 duplicate 分支） | TC-LEAD-06 |
+| ~~**中**~~ | ~~跨任务去重「合并更新取更高分」的 DB upsert 断言（现仅覆盖 duplicate 分支）~~ → **已补齐（第 5 轮）**：`tools.spec.ts` crm_write 3 例（新分更高覆写 / 不高于不覆写 / 无命中新建） | TC-LEAD-06 |
 | **中** | 开放 API 鉴权与 API Key 通道 | TC-AUTH-07、TC-OA-* |
 | **中** | 系统化的「角色 × 资源 × 动作」权限矩阵 | TC-SET-10、TC-NFR-* |
 | **中** | Web 契约补全：auth / 员工 / leads / 会话 / 审批 / 任务 / 设置 | §4 各模块 |
@@ -694,7 +700,7 @@ flowchart TD
 | TC-LEAD-03 | P0 | ✅ | m5-fr10-draft-sources:27 客户/产品下拉强制 withOrg（org 隔离） |
 | TC-LEAD-04 | P1 | ✅ | 新增（第 3 轮）：workflows 单测覆盖 target_reached 三分支（达量 → save / 轮次耗尽 → save / 未达 → continue）；端到端「执行至达量」未覆盖 |
 | TC-LEAD-05 | P0 | ✅ | 新增（第 3 轮）workflows 单测：归一化域名（去协议/去 www/小写）任务内命中 → duplicate，跳过抓站与评分；本轮修复缺陷 13（normDomain 口径不一致） |
-| TC-LEAD-06 | P0 | ⬜ | 新增部分证据：发现池/CRM 已存在同域名 → duplicate 不新建（workflows 单测）；**合并更新取更高分未覆盖**；发现池完整字段契约未断言 |
+| TC-LEAD-06 | P0 | ✅ | 第 5 轮补齐「合并更新取更高分」：`tools` 单测 crm_write 3 例（跨任务命中同域名且新分 85>60 → 合并覆写不新建、新分不高于既有仅计数、无同域名新建含联系人邮箱归一）；duplicate 分支见 `workflows/flows.spec.ts` |
 | TC-LEAD-07 | P0 | ✅ | 新增（第 3 轮）workflows 单测：mapScoreLevel 分档 + record_score 以 matchPct 覆写 LLM 回显 scoreLevel（85/60 边界、自定义阈值） |
 | TC-LEAD-08 | P1 | ✅ | 新增（第 3 轮）workflows 单测：低分 → record_score 走 low 分支，不进入 find_contact |
 | TC-LEAD-09 | P0 | ✅ | 新增（第 3 轮）tools 单测：mapDecisionInfluence 覆盖 90/75/40/null 全档与大小写不敏感 |
@@ -803,20 +809,20 @@ flowchart TD
 | 用例编号 | 优先级 | 状态 | 备注 |
 |---|---|---|---|
 | TC-APV-01 | P0 | ✅ | m5-c1:567 summary：email_send / customer_delete 常驻 Tab（count=0 也返回） |
-| TC-APV-02 | P0 | ⬜ | 未覆盖（6 类风险分级静态映射） |
+| TC-APV-02 | P0 | ✅ | 第 5 轮新增 `api/approval-risk-mapping.spec.ts` 7 例：6 类白名单 ↔ shared 枚举 ↔ 审核中心枚举 ↔ 工具 riskLevel 四方交叉一致；high={quote,contract,customer_delete} 永远人工审，medium={email_send,order_change,bulk_marketing}；low（无 approvalType）不进审批中心 |
 | TC-APV-03 | P0 | ✅ | org-settings：high 风险类型（quote）禁 autoApprove → 42201 |
 | TC-APV-04 | P0 | ✅ | m5-c1:237 approve 回调原业务动作 —— mailbox 真实外发 + resultRef |
 | TC-APV-05 | P1 | ✅ | m5-c1:237 edited_approved：以编辑稿外发 + editedDiff 留痕 |
-| TC-APV-06 | P0 | ⬜ | 未覆盖（reject 必填原因 42201） |
+| TC-APV-06 | P0 | ✅ | 第 5 轮修复缺陷 15 后覆盖：api `m5-c1`「reject 缺失/空白原因 → 42201 且审批单仍 pending」（原实现经 ZodValidationPipe 返回 40001，与 12 §3.4 契约不符） |
 | TC-APV-07 | P1 | ✅ | 第 4 轮解除 🚧：Embedding 恢复后 api `m4-knowledge-approvals` 13/13 |
 | TC-APV-08 | P0 | ✅ | 第 4 轮解除 🚧：api `m4-knowledge-approvals` 13/13（审批中心用例与知识用例同 spec） |
 | TC-APV-09 | P0 | ✅ | worker approval-expiry:544 过期 → expired 终态 + 系统代理留痕 + 通知一次 |
 | TC-APV-10 | P0 | ✅ | worker approval-expiry:544 级联 failed + 员工回 idle + outputs 留存 |
 | TC-APV-11 | P1 | ⬜ | 未覆盖（expireHours 1~720 边界） |
-| TC-APV-12 | P0 | ⬜ | 未覆盖（未批准执行拦截 40901） |
-| TC-APV-13 | P1 | ⬜ | 未覆盖（auto_approved 留痕） |
-| TC-APV-14 | P0 | ⬜ | 未覆盖（强制人工优先于 autoApprove） |
-| TC-APV-15 | P0 | ⬜ | 未覆盖（confidence 与证据链） |
+| TC-APV-12 | P0 | ✅ | 第 5 轮覆盖：api `m5-c1` send 分支 B 扩展断言「waiting_approval 期间绕过审批直接再发 → 40901」，实现见 `conversations.service` CONFLICT 拦截 |
+| TC-APV-13 | P1 | ✅ | 第 5 轮确认既有覆盖：worker `m4-email-followup`「autoApprove + autoExecute 命中：直发留痕（auto_approved 单 + approval_log），不挂起」 |
+| TC-APV-14 | P0 | ✅ | 第 5 轮确认既有覆盖：`runtime/approval-gate.test.ts` ② Break-up Email 与 `always` 类型在 autoApprove+autoExecute 已开时仍 `interrupt`；worker `m4-email-followup`「Break-up 强制人工：autoApprove 已开仍挂起」 |
+| TC-APV-15 | P0 | ✅ | 第 5 轮覆盖：api `m5-c1` send 分支 B 扩展断言「confidence 0–1（`Number(apr.confidence)` 落于 [0,1]）+ reasons 逐条 Insight Schema（text 非空/source 为 string）」；知识卡片见 `m4-knowledge-approvals` |
 | TC-APV-16 | P2 | ⬜ | 未覆盖（站内徽标 15s 轮询，前端） |
 
 ### 9.11 任务中心与 SSE（§4.10，共 16 条）
@@ -937,8 +943,8 @@ flowchart TD
 | TC-NFR-15 | P1 | ✅ | 用 .env 的 tradepilot_sched 角色实测：仅白名单表可访问，customer/org/user_account 均 permission denied |
 | TC-NFR-16 | P0 | ✅ | auth-login-rls:313 + 实测：创建客户时传入伪造 orgId 被忽略，B 租户访问 → 40401 |
 | TC-NFR-21 | P0 | ✅ | org-settings：凭据 AES-256-GCM 落库 + 接口不回显 + 配置与凭据可分开更新 |
-| TC-NFR-22 | P0 | ⬜ | 未覆盖（提示词注入防护 boundExternal/stripSensitiveFields） |
-| TC-NFR-23 | P0 | ⬜ | 未覆盖（XSS 净化 DOMPurify） |
+| TC-NFR-22 | P0 | ✅ | 第 5 轮覆盖：`runtime/prompt-guard.test.ts`（boundExternal 包裹/stripSensitiveFields 剥离）+ 新增 `workflows/flows.spec.ts` load_thread 3 例（来信 body 包边界标记、外发正文不包裹、检测语言 zh 并回写 message.language、画像快照注入） |
+| TC-NFR-23 | P0 | ✅ | 既有覆盖回填：`web/tests/unit/sanitize.spec.ts` 7 例（邮件 HTML / 草稿片段 DOMPurify 白名单净化），第 2 轮已随 web 单测执行通过 |
 | TC-NFR-24 | P1 | ⬜ | 未能构造出真实 50001（DTO 校验严密，超长/非法/超上限均返回 40001）；已确认各 4xx 均带 traceId 且不含堆栈 |
 | TC-NFR-25 | P1 | ✅ | 缺陷 11 修复后实测：第 600 次请求触发 42901（Redis 固定窗口 60s） |
 | TC-NFR-26 | P1 | ✅ | 实测 api.log 最近 600 行内 password/authorization/token 均已脱敏 |
@@ -1145,4 +1151,50 @@ flowchart TD
 |---|---|---|
 | 测试与 dev 共用 Redis/DB（缺陷 14） | 任何依赖队列的用例都可能被本地 worker 篡改数据 | 短期：回归前置停 worker；根治：测试独立 `REDIS_DB` + PG 库 |
 | `worker/m4-dryrun` lead_hunting 耗时持续走高（43.7s → 127.7s → 180s 超时；第 4 轮单跑 3/3 通过、耗时仍在 100s+ 量级） | 该用例 flaky，已触及默认超时 | 提高到 300s 或标记为外部依赖用例（`describe.skipIf`） |
+
+#### 9.22 第五轮回归记录（2026-09-14）· 审批中心与安全 P0 缺口清零
+
+**执行环境**：docker 中间件全 healthy（pg/redis/minio/mailpit）；dev worker 已停止（回归前置，见缺陷 14）；新增纯单测不依赖 docker / 外部凭据。
+
+**新增自动化（14 例）**
+
+| 位置 | 内容 | 覆盖用例 |
+|---|---|---|
+| `apps/api/test/approval-risk-mapping.spec.ts`（新增 spec，7 例） | 6 类审批白名单 ↔ `APPROVAL_TYPE` 枚举 ↔ 审核中心 zod 枚举 ↔ 内置工具 `riskLevel/approvalType` 四方交叉一致性；high/medium/low 分级与互斥并集 | TC-APV-02 |
+| `packages/tools/test/tools.spec.ts`（+3 例） | crm_write 跨任务命中同域名：新分 85>60 → 合并覆写（matchPct/scoreLevel/insight.value）不新建；新分不高于既有 → 仅合并计数；无同域名 → 新建（inCrm=false、域名归一、联系人邮箱小写 + decisionInfluencePct 缺省 null） | TC-LEAD-06 |
+| `packages/workflows/test/flows.spec.ts`（+3 例） | load_thread 来信（direction=in）body 包 `UNTRUSTED_BOUNDARY` 标记且标记在注入文本之前、外发正文不包裹；来信无 language → 确定性检测 zh 并回写 `message.language`；客户画像快照注入（companyName/tier） | TC-NFR-22 |
+| `apps/api/test/m5-c1-inbox-approval.integration.spec.ts`（+1 例、扩展 1 例） | 「reject 缺失/空白原因 → 42201 且审批单仍 pending」新用例；send 分支 B 追加「confidence ∈ [0,1] + reasons Insight Schema」与「waiting_approval 期间直接再发 → 40901」断言 | TC-APV-06 / TC-APV-15 / TC-APV-12 |
+
+**执行结果**
+
+| 套件 | 通过 | 说明 |
+|---|---|---|
+| `apps/api` | **291/291** | 283 原有 + 8 新增（risk-mapping 7 + m5-c1 1），全绿 |
+| `apps/worker` | **53/53** | 第 4 轮唯一 ❌（`m4-dryrun` 外部供应商抖动）本轮复跑通过 |
+| `packages/*` | 全绿 | core 83、shared 12、integrations 18、db 10、runtime 26、tools 29、workflows 77 |
+| `web` | **156/156** | unit 96 + contract 60（临时启动 dev api 于 8080，跑毕即 `--stop api`） |
+
+**本轮登记缺陷**
+
+| # | 缺陷 | 影响 | 修复 | 涉及用例 |
+|---|---|---|---|---|
+| 15 | `POST /approvals/{id}/reject` 缺失 `reason` 时经 `ZodValidationPipe` 返回 **40001**，与 12 §3.4 契约的 **42201**（BIZ_VALIDATION）不符；DTO 注释自称 42201 | 前端无法按契约区分「参数形状错误」与「业务必填校验失败」 | `rejectApprovalSchema.reason` 放宽为 `trim().max(500).optional()`；`ApprovalsService.reject` 前置 `BizException.bizValidation('拒绝原因必填（12 §3.4）')`；超长（>500）仍走 40001 | TC-APV-06 |
+
+**新增覆盖与状态变更（9 条 ⬜ → ✅）**
+
+| 用例 | 依据 |
+|---|---|
+| TC-APV-02 | 新增 risk-mapping 7 例（四方交叉一致性） |
+| TC-APV-06 | 修复缺陷 15 + m5-c1 新用例（42201、审批单不被处置） |
+| TC-APV-12 | m5-c1 扩展断言（waiting_approval 再发 40901） |
+| TC-APV-13 | 确认 worker `m4-email-followup` 既有覆盖（auto_approved 单 + approval_log 留痕） |
+| TC-APV-14 | 确认 runtime approval-gate ② + worker m4-email-followup 既有覆盖（Break-up/always 优先于 autoApprove） |
+| TC-APV-15 | m5-c1 扩展断言（confidence ∈ [0,1]、reasons Insight Schema） |
+| TC-LEAD-06 | tools 新增 3 例（合并取更高分 + 新建字段契约） |
+| TC-NFR-22 | runtime prompt-guard 既有 + workflows load_thread 新增 3 例 |
+| TC-NFR-23 | 确认 `web/tests/unit/sanitize.spec.ts` 既有覆盖（7 例），回填状态 |
+
+**遗留问题（P0 视角）**
+
+- 剩余 ⬜ 共 80 条，其中 P0 主要集中在：前端整枝联调（TC-DASH-01/02、TC-E2E-07 SSE 拉取）、MFA 开关（TC-AUTH-03）、每网站独立草稿（TC-LEAD-15）、inbox 标记已读/未读（TC-INB-11）、实时 log 事件（TC-TASK-04）等 UI/E2E 交互型用例——需 Playwright 级前端 E2E 或人工执行（§7.2 低优先级缺口）。
 | `/api/plan/v3` 端点不提供 `/models` 列表 | 无法用标准接口枚举可用模型，排查只能靠逐模型探测 | 在 `.env.test.example` 注明套餐端点的适用与限制 |

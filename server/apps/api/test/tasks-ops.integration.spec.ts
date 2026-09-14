@@ -24,12 +24,12 @@ import { TasksService } from '../src/tasks/tasks.service.js';
  * - transfer-to-human：暂停图 + outputs 追加 handoff 交接摘要；
  * - 失败批量处理：多选 retry / transfer，逐条回传结果；
  * - SSE：操作后推 status（cancel 另推 done）收口前端流。
- * 前置：docker compose up（PG 5432 / Redis 6380）+ 迁移已执行 + tradepilot_app 角色存在。
+ * 前置：docker compose up（PG 5432 / Redis 6379）+ 迁移已执行 + tradepilot_app 角色存在。
  */
 
 process.env.JWT_SECRET ||= 'it_only_test_secret_0123456789abcdef0123456789abcdef';
 process.env.ENCRYPTION_KEY ||= '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-process.env.REDIS_URL ||= 'redis://localhost:6380';
+process.env.REDIS_URL ||= 'redis://localhost:6379';
 process.env.DATABASE_URL ||= 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
 
 const SUPER_URL = 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';

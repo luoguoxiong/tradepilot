@@ -214,8 +214,13 @@ export class ApiKeyService {
 }
 
 function resolveApiKeyLimit(): number {
-  const raw = Number(process.env['API_KEY_RATE_LIMIT_PER_MINUTE'] ?? '');
-  return Number.isFinite(raw) && raw >= 0 ? raw : API_KEY_RATE_LIMIT_PER_MINUTE;
+  // 同 RateLimitMiddleware：避免 Number('') = 0 把「未配置」误判为「显式关闭」
+  const raw = process.env['API_KEY_RATE_LIMIT_PER_MINUTE'];
+  if (raw === undefined || raw.trim() === '') {
+    return API_KEY_RATE_LIMIT_PER_MINUTE;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : API_KEY_RATE_LIMIT_PER_MINUTE;
 }
 
 function toApiKeyView(row: {

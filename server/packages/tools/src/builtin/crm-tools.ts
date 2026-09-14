@@ -561,7 +561,10 @@ export const knowledgeSearchTool: ToolDefinition<
   description:
     '知识库混合检索（向量+全文+相似 RRF 融合，引用可溯源 docId/chunkId；业务参数唯一结构化来源，06 §4）',
   inputSchema: z.object({
-    query: z.string().min(1),
+    // 允许空串：上游 parsedGoal.targetProduct 等字段按契约为「缺失留空」（parse_goal 提示词
+    // 明确要求缺失字段置空字符串），知识检索只是辅助增强步骤，空 query 必须降级为「无命中」
+    // 并继续主流程，而不是让整条任务 failed（11 §1.3 FR-06 / TC-KN-10 / TC-NFR-36）。
+    query: z.string(),
     scene: z.string().optional(),
     topK: z.number().int().min(1).max(20).optional(),
   }),

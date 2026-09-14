@@ -21,12 +21,12 @@ import { ROLE_KPI_METRIC, type CreateEmployeeDto } from '../src/employees/employ
  * 严格一类一个（02 §2）：注册种子已占满 6 角色（每角色 1 名），故「创建成功」用例先用
  * `releaseSeededRole` 腾空目标角色；列表断言依赖 describe 声明顺序（roles 先于腾空执行），
  * 新增用例请追加到文件末尾。
- * 前置：docker compose up（PG 5432 / Redis 6380）+ 迁移已执行 + tradepilot_app 角色存在。
+ * 前置：docker compose up（PG 5432 / Redis 6379）+ 迁移已执行 + tradepilot_app 角色存在。
  */
 
 process.env.JWT_SECRET ||= 'it_only_test_secret_0123456789abcdef0123456789abcdef';
 process.env.ENCRYPTION_KEY ||= '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-process.env.REDIS_URL ||= 'redis://localhost:6380';
+process.env.REDIS_URL ||= 'redis://localhost:6379';
 process.env.DATABASE_URL ||= 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
 
 const SUPER_URL = 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';

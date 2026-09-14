@@ -58,6 +58,12 @@ export async function searchKnowledgeChunks(
   orgId: string,
   params: KnowledgeSearchParams,
 ): Promise<KnowledgeSearchResult> {
+  // 空查询短路：上游缺失字段（如 parsedGoal.targetProduct 留空）时不做无意义的向量/全文召回，
+  // 直接判定「无命中」——调用方据此显式提示并禁止编造，主流程继续（TC-KN-10 / TC-NFR-36）。
+  if (params.query.trim() === '') {
+    return { results: [], noResult: true };
+  }
+
   const topK = params.topK ?? sceneTopK(params.scene ?? null);
   const categories = params.categories?.length
     ? params.categories

@@ -15,10 +15,10 @@ import { TaskStreamController } from '../src/tasks/task-stream.controller.js';
  * - 实时 done → 终态投递，req close → 清理收尾；
  * - commit→PUBLISH 崩溃兜底（M3-11）：DB 已终态但 done 丢失 → 5s 兜底轮询补发 status+done 并关闭；
  * - 连接上限（04 §6.1）：单用户 > 10 → 42901；断开后计数回收可重连。
- * 前置：docker compose up（PG 5432 / Redis 6380）+ 迁移已执行。
+ * 前置：docker compose up（PG 5432 / Redis 6379）+ 迁移已执行。
  */
 
-process.env.REDIS_URL ||= 'redis://localhost:6380';
+process.env.REDIS_URL ||= 'redis://localhost:6379';
 process.env.DATABASE_URL ||= 'postgresql://tradepilot_app:changeme_app@localhost:5432/tradepilot';
 
 const SUPER_URL = 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
@@ -222,9 +222,7 @@ afterAll(async () => {
     await tx.delete(schema.aiTaskLog).where(inArray(schema.aiTaskLog.orgId, orgIds));
     await tx.delete(schema.aiTask).where(inArray(schema.aiTask.orgId, orgIds));
     await tx.delete(schema.aiEmployee).where(inArray(schema.aiEmployee.orgId, orgIds));
-    await tx
-      .delete(schema.userAccount)
-      .where(and(eq(schema.userAccount.orgId, ORG), sql`true`));
+    await tx.delete(schema.userAccount).where(and(eq(schema.userAccount.orgId, ORG), sql`true`));
     await tx.delete(schema.org).where(inArray(schema.org.id, orgIds));
   });
   await redis.quit();

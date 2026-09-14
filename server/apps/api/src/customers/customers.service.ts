@@ -1156,6 +1156,28 @@ export class CustomersService {
       assertResourceAccess(raw, ctx);
     });
 
+    // TC-C360-05 幂等：同一客户的 product_analysis 任务仍在飞行中（含挂起/待审/暂停）时
+    // 复用原任务，避免重复触发产生多份分析并重复计费。
+    const inFlightId = await withOrg(this.db, ctx.orgId, async (tx) => {
+      const [row] = await tx
+        .select({ id: schema.aiTask.id })
+        .from(schema.aiTask)
+        .where(
+          and(
+            eq(schema.aiTask.orgId, ctx.orgId),
+            eq(schema.aiTask.type, 'product_analysis'),
+            inArray(schema.aiTask.status, ['scheduled', 'running', 'waiting_approval', 'paused']),
+            sql`${schema.aiTask.input}->>'customerId' = ${customerId}`,
+          ),
+        )
+        .orderBy(desc(schema.aiTask.createdAt))
+        .limit(1);
+      return row?.id ?? null;
+    });
+    if (inFlightId) {
+      return { taskId: inFlightId };
+    }
+
     // 查找可用 AI 员工
     let employeeId = '';
     await withOrg(this.db, ctx.orgId, async (tx) => {

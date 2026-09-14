@@ -64,15 +64,21 @@ function str(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+/**
+ * 域名归一（去协议 → 小写 → 去 www），与 tools/search-tools.normalizeDomain 同口径。
+ * 顺序敏感：先小写再去 `www.`，否则 `WWW.Example.com` 与 `example.com` 会被判成两家
+ * 公司（三级去重 TC-LEAD-05 要求去协议/去 www/小写后比对）。
+ */
 function normDomain(domain: string | null | undefined): string | null {
   if (!domain) {
     return null;
   }
   return (
     domain
-      .replace(/^www\./, '')
+      .replace(/^https?:\/\//, '')
       .toLowerCase()
-      .trim() || null
+      .trim()
+      .replace(/^www\./, '') || null
   );
 }
 

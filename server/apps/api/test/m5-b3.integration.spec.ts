@@ -11,7 +11,7 @@
  * - GET /customers/{id}/activities 活动时间线
  * - POST /contacts/{id}/generate-outreach 生成开发信
  * - POST /leads/{id}/convert 单条 lead 转 CRM
- * 前置：docker compose up（PG 5432 / Redis 6380）+ 迁移已执行。
+ * 前置：docker compose up（PG 5432 / Redis 6379）+ 迁移已执行。
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';

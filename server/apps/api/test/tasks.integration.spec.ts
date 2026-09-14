@@ -19,12 +19,12 @@ import { TasksService } from '../src/tasks/tasks.service.js';
  *   ② 入队移到事务提交之后；
  *   ③ 未来 scheduled_at 不直投（本应 delayed，交由 Dispatcher 到点投递）。
  * 断言以「毒态不变式」为核心：任何时刻 org 内不允许存在 running + started_at 为 null 的任务行。
- * 前置：docker compose up（PG 5432 / Redis 6380）+ 迁移已执行 + tradepilot_app 角色存在。
+ * 前置：docker compose up（PG 5432 / Redis 6379）+ 迁移已执行 + tradepilot_app 角色存在。
  */
 
 process.env.JWT_SECRET ||= 'it_only_test_secret_0123456789abcdef0123456789abcdef';
 process.env.ENCRYPTION_KEY ||= '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-process.env.REDIS_URL ||= 'redis://localhost:6380';
+process.env.REDIS_URL ||= 'redis://localhost:6379';
 process.env.DATABASE_URL ||= 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
 
 const SUPER_URL = 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';

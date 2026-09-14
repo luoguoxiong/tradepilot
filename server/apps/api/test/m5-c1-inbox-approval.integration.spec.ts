@@ -19,13 +19,13 @@ import { ConversationsService } from '../src/conversations/conversations.service
  * - 12 §3.3 回调原业务动作：审核批准 → mailbox 真实外发（驱动被调用）+ message.status='sent'
  *   + resultRef={messageId,status:'sent'}；edited_approved → 以编辑稿外发 + editedDiff 留痕；
  *   拒绝 → message.status 回退 'draft' 可重编辑。
- * 前置：docker compose up（PG 5432 / Redis 6380 / GreenMail 1025+1114）
+ * 前置：docker compose up（PG 5432 / Redis 6379 / GreenMail 1025+1114）
  * + `pnpm --filter @tradepilot/db migrate`，且已提供 server/.env.test（真实 provider 配置）。
  */
 
 process.env.JWT_SECRET ||= 'it_only_test_secret_0123456789abcdef0123456789abcdef';
 process.env.ENCRYPTION_KEY ||= '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-process.env.REDIS_URL ||= 'redis://localhost:6380';
+process.env.REDIS_URL ||= 'redis://localhost:6379';
 process.env.DATABASE_URL ||= 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
 
 const SUPER_URL = 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';

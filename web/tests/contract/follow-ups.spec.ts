@@ -141,6 +141,28 @@ describe('策略 CRUD 契约（07 §3.3/§7）', () => {
       }),
     })
     expectFail(breakupAuto.json, ErrorCode.BIZ_VALIDATION)
+
+    // TC-FU-04：步骤引用的知识库模板不存在（或跨租户）→ 42201，不得退化为 50001
+    const badTemplate = await api('/follow-up-strategies', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...base,
+        name: 'Bad Template',
+        steps: [{ seq: 1, dayOffset: 0, title: 'A', templateId: 'doc-not-exist' }],
+      }),
+    })
+    expectFail(badTemplate.json, ErrorCode.BIZ_VALIDATION)
+
+    // 非 Break-up 步骤既无模板又无正文 → 42201
+    const emptyStep = await api('/follow-up-strategies', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...base,
+        name: 'Empty Step',
+        steps: [{ seq: 1, dayOffset: 0, title: 'A' }],
+      }),
+    })
+    expectFail(emptyStep.json, ErrorCode.BIZ_VALIDATION)
   })
 
   it('新建成功：steps 序号归一 + breakup 强制清 templateId；默认策略 PUT/DELETE → 40901', async () => {
@@ -151,7 +173,7 @@ describe('策略 CRUD 契约（07 §3.3/§7）', () => {
           body: JSON.stringify({
             name: `契约测试策略 ${uniq()}`,
             steps: [
-              { seq: 9, dayOffset: 0, title: 'Intro', templateId: 'tpl_intro' },
+              { seq: 9, dayOffset: 0, title: 'Intro', content: 'hello' },
               { seq: 3, dayOffset: 7, title: 'Break-up Email', content: 'bye', isBreakup: true },
             ],
             targetScope: {},
@@ -175,7 +197,8 @@ describe('策略 CRUD 契约（07 §3.3/§7）', () => {
       method: 'PUT',
       body: JSON.stringify({
         name: 'x',
-        steps: [{ seq: 1, dayOffset: 0, title: 'A' }],
+        // 步骤本身合法（模板/正文二选一），确保 40901 只由「默认策略禁改」触发
+        steps: [{ seq: 1, dayOffset: 0, title: 'A', content: 'A' }],
         targetScope: {},
         autoSendPolicy: 'manual_review',
         enabled: true,

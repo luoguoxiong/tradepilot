@@ -17,13 +17,13 @@ import { ensureTestBucket } from './setup/providers.js';
  * - 12 审核中心：summary/list/detail → approve（task 恢复 running + log 留痕）→
  *   edited_approved（字段级 editedDiff）→ reject（级联 failed(approval_rejected) + follow_up paused
  *   + 员工回 idle）→ expired 处置 42201 → 重复处置 40901 → logs。
- * 前置：docker compose up（PG 5432 / Redis 6380 / MinIO 9000）+ `pnpm --filter @tradepilot/db migrate`
+ * 前置：docker compose up（PG 5432 / Redis 6379 / MinIO 9000）+ `pnpm --filter @tradepilot/db migrate`
  * + tradepilot_app 角色，且已提供 server/.env.test（真实 provider 配置，无 mock 兜底）。
  */
 
 process.env.JWT_SECRET ||= 'it_only_test_secret_0123456789abcdef0123456789abcdef';
 process.env.ENCRYPTION_KEY ||= '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-process.env.REDIS_URL ||= 'redis://localhost:6380';
+process.env.REDIS_URL ||= 'redis://localhost:6379';
 process.env.DATABASE_URL ||= 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
 
 const SUPER_URL = 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';

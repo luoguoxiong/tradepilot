@@ -27,12 +27,12 @@ import { NotifyProcessor } from '../../worker/src/queues/notify.js';
  * - A3 会话读侧：列表 scope 裁剪 + keyword、detail 读即清未读、copilot 洞察/空态兜底；
  * - A4 客户基座：创建（同名去重）、列表 tab/keyword、编辑转交（角色越权 40301）、
  *   stage 阶段机（正向 OK / 非法回退 40901 / 活动留痕）。
- * 前置：docker compose up（PG 5432 / Redis 6380）+ 迁移已执行。
+ * 前置：docker compose up（PG 5432 / Redis 6379）+ 迁移已执行。
  */
 
 process.env.JWT_SECRET ||= 'it_only_test_secret_0123456789abcdef0123456789abcdef';
 process.env.ENCRYPTION_KEY ||= '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-process.env.REDIS_URL ||= 'redis://localhost:6380';
+process.env.REDIS_URL ||= 'redis://localhost:6379';
 process.env.DATABASE_URL ||= 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
 
 const SUPER_URL = 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
@@ -110,7 +110,9 @@ afterAll(async () => {
   if (orgId) {
     await superDb.transaction(async (tx) => {
       await tx.delete(schema.notification).where(eq(schema.notification.orgId, orgId));
-      await tx.delete(schema.notificationSetting).where(eq(schema.notificationSetting.orgId, orgId));
+      await tx
+        .delete(schema.notificationSetting)
+        .where(eq(schema.notificationSetting.orgId, orgId));
       await tx.delete(schema.llmCall).where(eq(schema.llmCall.orgId, orgId));
       await tx.delete(schema.aiTaskLog).where(eq(schema.aiTaskLog.orgId, orgId));
       await tx.delete(schema.aiTaskStep).where(eq(schema.aiTaskStep.orgId, orgId));
@@ -123,7 +125,9 @@ afterAll(async () => {
         .delete(schema.followUpStrategyStep)
         .where(eq(schema.followUpStrategyStep.orgId, orgId));
       await tx.delete(schema.followUpStrategy).where(eq(schema.followUpStrategy.orgId, orgId));
-      await tx.delete(schema.conversationInsight).where(eq(schema.conversationInsight.orgId, orgId));
+      await tx
+        .delete(schema.conversationInsight)
+        .where(eq(schema.conversationInsight.orgId, orgId));
       await tx.delete(schema.message).where(eq(schema.message.orgId, orgId));
       await tx.delete(schema.conversation).where(eq(schema.conversation.orgId, orgId));
       await tx.delete(schema.customerInsight).where(eq(schema.customerInsight.orgId, orgId));
@@ -195,7 +199,12 @@ describe('M5-A2 · q:notify 消费端按设置矩阵分发', () => {
     const [row] = await superDb
       .select()
       .from(schema.notification)
-      .where(and(eq(schema.notification.orgId, orgId), eq(schema.notification.event, 'approval_pending')))
+      .where(
+        and(
+          eq(schema.notification.orgId, orgId),
+          eq(schema.notification.event, 'approval_pending'),
+        ),
+      )
       .limit(1);
     expect(row).toBeDefined();
     expect(row!.title).toBe('新报价待审核');
@@ -255,7 +264,9 @@ describe('M5-A4 · 05 CRM 客户中心（列表/创建/编辑/stage）', () => {
         companyName: 'M5A 汉堡进出口 GmbH',
         country: 'Germany',
         customerType: 'brand',
-        contacts: [{ name: 'Hans', title: '采购经理', email: `hans-${createId('cont')}@example.com` }],
+        contacts: [
+          { name: 'Hans', title: '采购经理', email: `hans-${createId('cont')}@example.com` },
+        ],
       }),
     );
     cusA = resp.customerId;
@@ -375,7 +386,10 @@ describe('M5-A4 · 05 CRM 客户中心（列表/创建/编辑/stage）', () => {
   });
 
   it('stage 回退 contacted 允许（05 §3.2 唯一合法回退）', async () => {
-    const resp = await customers.stage(adminCtx, cusA, { stage: 'contacted', reason: '客户重新激活' });
+    const resp = await customers.stage(adminCtx, cusA, {
+      stage: 'contacted',
+      reason: '客户重新激活',
+    });
     expect(resp.stage).toBe('contacted');
   });
 
@@ -522,7 +536,9 @@ describe('M5-A3 · 06 会话读侧（列表/详情/copilot）', () => {
     expect(data.intent).toBe('rfq');
     expect(data.purchaseProbability).toBe(70);
     expect(data.stage).toBe('negotiation');
-    expect(data.suggestions).toEqual([{ suggestionId: 'sug_1', label: '发送报价单', checked: false, kind: 'content' }]);
+    expect(data.suggestions).toEqual([
+      { suggestionId: 'sug_1', label: '发送报价单', checked: false, kind: 'content' },
+    ]);
     expect(data.citations).toEqual([{ docId: 'doc_1', docName: '价格表', chunkId: 'chk_1' }]);
   });
 

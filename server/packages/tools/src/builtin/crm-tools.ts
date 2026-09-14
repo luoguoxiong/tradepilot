@@ -490,6 +490,9 @@ export const emailSendTool: ToolDefinition<
       }
       if (!externalMessageId) {
         const detail = lastError instanceof Error ? lastError.message : String(lastError);
+        // 释放幂等键（04 §5.3 任务级重投）：确认未外发 → 允许重投时真正重发；
+        // 否则重跑本节点会被幂等命中而「假装成功」（邮件实际未发出，任务却 completed）。
+        await ctx.redis.del(key).catch(() => undefined);
         // 最终失败（06 §2.3）：message.status='failed' + 任务失败语义。
         // failed 行走独立事务落库——本工具节点被 execTool 的 withOrg 单事务包裹，
         // 抛错会连带回滚 ctx.tx 写入；ai_task.error 由 Runner 记录（error 日志同源）。

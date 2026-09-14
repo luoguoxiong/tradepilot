@@ -8,6 +8,9 @@ import { Redis as IORedis } from 'ioredis';
 import {
   ALL_QUEUES,
   QUEUE_NAME,
+  TASK_MAX_ATTEMPTS,
+  TASK_QUEUE_NAMES,
+  TASK_RETRY_BACKOFF_MS,
   TASK_TYPE_QUEUE,
   WEBHOOK_BACKOFF_MS,
   WEBHOOK_MAX_ATTEMPTS,
@@ -29,7 +32,12 @@ export class TaskEnqueuer {
     redisUrl: string,
     private readonly logger?: { warn(msg: string, err?: unknown): void },
   ) {
+    const taskQueues = new Set<string>(TASK_QUEUE_NAMES);
     for (const name of ALL_QUEUES) {
+      // 04 §5.3（修订）：承载 ai_task 的队列开启「可重试错误」自动重投（attempts=3 + 指数退避），
+      // 系统队列（q:notify/q:email_sync…）保持 attempts=1（投递/同步失败重投无益，留痕即可）；
+      // q:webhook 出站投递另行覆盖 attempts=5（06 §5.2）。
+      const autoRetry = taskQueues.has(name);
       this.queues.set(
         name,
         new Queue(name, {
@@ -37,7 +45,10 @@ export class TaskEnqueuer {
           defaultJobOptions: {
             removeOnComplete: { age: 3600, count: 1000 },
             removeOnFail: { age: 24 * 3600 },
-            attempts: 1, // 04 §5.3：任务级不自动重投，失败走手动重试（retry_of 新任务）
+            attempts: autoRetry ? TASK_MAX_ATTEMPTS : 1,
+            ...(autoRetry
+              ? { backoff: { type: 'exponential' as const, delay: TASK_RETRY_BACKOFF_MS } }
+              : {}),
           },
         }),
       );

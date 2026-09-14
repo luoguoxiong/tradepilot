@@ -1,5 +1,5 @@
 import type { Job, Processor } from 'bullmq';
-import type { ResumeHint, TaskRunner } from '@tradepilot/runtime';
+import type { ResumeHint, RunTaskOptions, TaskRunner } from '@tradepilot/runtime';
 import { notifyJobSchema, QUEUE_NAME, TASK_TYPE_QUEUE, webhookJobSchema } from '@tradepilot/shared';
 import type { Logger } from 'pino';
 import type { EmailSyncProcessor } from './email-sync.js';
@@ -57,17 +57,35 @@ export function createProcessor(rt: WorkerRuntime): Processor {
     const resume = isResumeHint(resumeRaw) ? (resumeRaw as unknown as ResumeHint) : undefined;
     // 手动恢复（P1-X-30 / 04 §5.4）：job.data.fromPause=true → Runner 从最近检查点续跑
     const fromPause = job.data?.['fromPause'] === true;
-    const runOpts: { resume?: ResumeHint; fromPause?: boolean } = {};
+    // 任务级自动重投（04 §5.3）：attemptsMade>0 的重投 job 走 failed→running 续跑；
+    // 审批 resume / 手动恢复各自的状态机优先（两者都带 job.data 标记，不按重投处理）。
+    const attempts = job.opts?.attempts ?? 1;
+    const runOpts: RunTaskOptions = { attempt: { made: job.attemptsMade, total: attempts } };
     if (resume) {
       runOpts.resume = resume;
     }
     if (fromPause) {
       runOpts.fromPause = true;
     }
-    const result = await rt.runner.run(
-      taskId,
-      Object.keys(runOpts).length > 0 ? runOpts : undefined,
-    );
+    if (!resume && !fromPause && job.attemptsMade > 0) {
+      runOpts.retry = true;
+    }
+    const result = await rt.runner.run(taskId, runOpts);
+    // 可重试错误 + 仍有重投机会 → 抛错交由 BullMQ 按 backoff 重投（确定性失败不重投，正常收口）
+    const willRetry = result.retryable === true && job.attemptsMade + 1 < attempts;
+    if (result.status === 'failed' && willRetry) {
+      rt.logger.warn(
+        {
+          queue: job.queueName,
+          taskId,
+          attempt: job.attemptsMade + 1,
+          attempts,
+          error: result.error,
+        },
+        '任务失败（可重试），抛错交由 BullMQ 退避重投',
+      );
+      throw new Error(result.error ?? '任务失败（可重试）');
+    }
     rt.logger.info(
       { queue: job.queueName, taskId, status: result.status, error: result.error },
       '任务 job 处理结束',

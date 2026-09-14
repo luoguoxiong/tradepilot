@@ -347,6 +347,8 @@ export class TasksService implements OnModuleDestroy {
     if (source.status !== 'failed') {
       throw BizException.conflict('仅失败任务可重试（14 §3.5）');
     }
+    // 手动重试前撤销源任务待触发的自动重投 job（04 §5.3）：否则新任务与源任务重投并发跑同一业务
+    await this.enqueuer.removeTask(taskId, source.type as TaskType);
     return this.create(
       orgId,
       userId,

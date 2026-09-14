@@ -74,9 +74,19 @@ export class ToolRegistry {
     return this.tools.has(name);
   }
 
-  /** 校验链①：员工 tools 白名单（越权 40301，Runtime §4.5） */
-  assertAllowed(tool: ToolDefinition, employeeTools: readonly string[]): void {
-    if (!employeeTools.includes(tool.name)) {
+  /**
+   * 校验链①：工具授权（越权 40301，Runtime §4.5）。
+   * 授权口径 = 员工 `tools` 白名单 ∪ 当前 SOP 图声明的工具（`sopTools`）：
+   * SOP 由 admin/manager 选配并在任务内版本锁定（02 §3.2 / 04 §2），**声明即授权**；
+   * 二者并集用于消除「SOP 图用了 site_crawl 但员工白名单漏勾 → 任务必失败」的配置漂移，
+   * 并集之外仍一律拦截，保留对提示注入 / 模型擅自调用未授权工具的防护。
+   */
+  assertAllowed(
+    tool: ToolDefinition,
+    employeeTools: readonly string[],
+    sopTools: readonly string[] = [],
+  ): void {
+    if (!employeeTools.includes(tool.name) && !sopTools.includes(tool.name)) {
       throw new BizException(ErrorCode.FORBIDDEN, `员工未被授权使用工具: ${tool.name}`);
     }
   }

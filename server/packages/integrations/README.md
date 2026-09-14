@@ -149,14 +149,15 @@ Gmail 收信与 SMTP-IMAP 收信共用，保证解析口径一致。
 
 `web_search` / `site_crawl` 供应商适配（06 §3，M4 #6）。
 
-| 导出                                                                               | 说明                                                                                        |
-| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `SearchProvider`                                                                   | 接口：`webSearch(query, page?)` → `WebSearchHit[]`；`crawlSite(domain)` → `SiteCrawlResult` |
-| `HttpSearchProvider`                                                               | Serper 兼容搜索 API + 轻量 HTML 抓取（非 Playwright 渲染，动态页列后续增强）                |
-| `createSearchProvider(options)`                                                    | 按 `provider: 'http'` 构造（其他值编译期穷尽校验）                                          |
-| `setSearchProviderFactory(factory)`                                                | 进程级注入（按 org 解析）                                                                   |
-| `getSearchProvider(orgId?)`                                                        | 读取 provider；未注入明确报错（不再回落 mock）                                              |
-| `HttpSearchOptions` / `WebSearchHit` / `SiteCrawlResult` / `SearchProviderFactory` | 类型                                                                                        |
+| 导出                                                                                               | 说明                                                                                                                                                                    |
+| -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SearchProvider`                                                                                   | 接口：`webSearch(query, page?)` → `WebSearchHit[]`；`crawlSite(domain)` → `SiteCrawlResult`；`fetchPage(url)` → `FetchedPage`（单页正文 + 站内链接，M4-6 联系人发现用） |
+| `HttpSearchProvider`                                                                               | Serper 兼容搜索 API + 轻量 HTML 抓取（非 Playwright 渲染，动态页列后续增强）                                                                                            |
+| `htmlToText` / `decodeEntities` / `extractLinks`                                                   | HTML → 正文文本 / 实体解码 / 站内链接抽取（公开页正文启发式）                                                                                                           |
+| `createSearchProvider(options)`                                                                    | 按 `provider: 'http'` 构造（其他值编译期穷尽校验）                                                                                                                      |
+| `setSearchProviderFactory(factory)`                                                                | 进程级注入（按 org 解析）                                                                                                                                               |
+| `getSearchProvider(orgId?)`                                                                        | 读取 provider；未注入明确报错（不再回落 mock）                                                                                                                          |
+| `HttpSearchOptions` / `WebSearchHit` / `SiteCrawlResult` / `FetchedPage` / `SearchProviderFactory` | 类型                                                                                                                                                                    |
 
 **抓取合规内建**（08 §7，M4 C8）——以下基元在模块内实现，供 `HttpSearchProvider` 装配：
 
@@ -164,8 +165,10 @@ Gmail 收信与 SMTP-IMAP 收信共用，保证解析口径一致。
 - **单站限速**：`PerHostRateLimiter`，同 host 两次请求间隔 ≥ `perHostIntervalMs`（默认 2000ms）。
 - **UA 自报**：`CRAWLER_UA = TradePilotBot/1.0 (...)`，不伪装浏览器。
 - **域名硬过滤**：`isExcludedDomain`，host 归一（去 `www.`）后精确 / 子域匹配。
-- **数据最小化**：抓取仅提取 `<title>` / meta description 摘要与产品链接锚文本，不整页入库。
-- 抓取页固定为 `/`、`/products`、`/about`；根域与 `www` 变体依次尝试。
+- **数据最小化**：`crawlSite` 仅提取 `<title>` / meta description 摘要与产品链接锚文本；`fetchPage`
+  仅返回截断正文（默认 20k 字符）与站内链接（上限 80）；均不整页入库。
+- 抓取页固定为 `/`、`/products`、`/about`；`fetchPage` 可抓任意公开页（联系人发现按首页链接发现
+  contact/about/team 页）；根域与 `www` 变体依次尝试。
 
 > `HttpSearchProvider` 构造参数含 `fetchTimeoutMs` / `excludeDomains` / `perHostIntervalMs` /
 > `respectRobots` / `robotsCacheTtlMs`；供应商 ToS 由契约承担，额度令牌桶在 `tools` 侧（06 §3.2）。

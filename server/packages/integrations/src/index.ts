@@ -49,12 +49,22 @@ export {
   setSearchProviderFactory,
   getSearchProvider,
   HttpSearchProvider,
+  SEARCH_BACKOFF_MS,
+  SEARCH_MAX_ATTEMPTS,
+  SEARCH_TIMEOUT_MS,
+  decodeEntities,
+  extractLinks,
+  htmlToText,
+  normalizeHost,
+  PAGE_LINK_LIMIT,
+  PAGE_TEXT_LIMIT,
 } from './search/index.js';
 export type {
   SearchProvider,
   SearchProviderFactory,
   WebSearchHit,
   SiteCrawlResult,
+  FetchedPage,
   HttpSearchOptions,
 } from './search/index.js';
 

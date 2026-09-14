@@ -25,9 +25,15 @@ import {
   toolIdempotencyKey,
   withIdempotency,
 } from '../src/index.js';
-import { leadScoringTool, siteCrawlTool, webSearchTool } from '../src/builtin/search-tools.js';
+import {
+  findContactTool,
+  leadScoringTool,
+  lookupContactTool,
+  siteCrawlTool,
+  webSearchTool,
+} from '../src/builtin/search-tools.js';
 import { crmWriteTool } from '../src/builtin/crm-tools.js';
-import { setSearchProviderFactory } from '@tradepilot/integrations';
+import { extractLinks, htmlToText, setSearchProviderFactory } from '@tradepilot/integrations';
 
 /** 最小 fake 事务：满足工具节点的 insert/select 链（org 时区读取回落默认） */
 function fakeTx(orgRows: { timezone?: string | null }[] = []): Tx {
@@ -157,6 +163,22 @@ describe('ToolRegistry 校验链（05 §3 / Runtime §4.5）', () => {
     expect(() =>
       registry.assertAllowed(tool({ name: 'email_send' }), ['web_search', 'email_send']),
     ).not.toThrow();
+  });
+
+  it('校验链①：SOP 图声明的工具即使员工白名单漏勾也放行（声明即授权，防配置漂移）', () => {
+    const registry = new ToolRegistry();
+    // 员工 tools 缺 site_crawl，但 SOP 图声明了 → 放行（否则获客任务在 crawl 节点必失败）
+    expect(() =>
+      registry.assertAllowed(
+        tool({ name: 'site_crawl' }),
+        ['web_search'],
+        ['web_search', 'site_crawl'],
+      ),
+    ).not.toThrow();
+    // SOP 未声明且白名单未授权 → 仍拦截（防提示注入调用未授权工具）
+    expect(() =>
+      registry.assertAllowed(tool({ name: 'email_send' }), ['web_search'], ['site_crawl']),
+    ).toThrow(/未被授权/);
   });
 
   it('校验链②：入参不合法 → 40001（AI 不可传越权字段）', () => {
@@ -318,6 +340,9 @@ describe('site_crawl 降级（TC-LEAD-10 单站不可达不中断任务）', () 
       async crawlSite() {
         throw new Error('403 Forbidden（WAF）');
       },
+      async fetchPage(url: string) {
+        throw new Error(`页面抓取失败（HTTP 403）: ${url}`);
+      },
     }));
     const res = await siteCrawlTool.execute(makeCtx(), {
       domain: 'blocked.com',
@@ -335,6 +360,9 @@ describe('site_crawl 降级（TC-LEAD-10 单站不可达不中断任务）', () 
       },
       async crawlSite() {
         return { summary: 'LED 制造商', products: ['Panel Light'], crawledPages: ['/'] };
+      },
+      async fetchPage(url: string) {
+        throw new Error(`页面抓取失败（单测未注入页面）: ${url}`);
       },
     }));
     const res = await siteCrawlTool.execute(makeCtx(), { domain: 'acme.com', companyName: 'Acme' });
@@ -364,6 +392,9 @@ describe('web_search 轮次换词（TC-LEAD-04）', () => {
       async crawlSite() {
         return { summary: '', products: [], crawledPages: [] };
       },
+      async fetchPage(url: string) {
+        throw new Error(`页面抓取失败（单测未注入页面）: ${url}`);
+      },
     }));
     const bag = new Map<string, unknown>();
     const first = await webSearchTool.execute(makeCtx({ bag }), { queries: ['q1', 'q2'] });
@@ -371,6 +402,140 @@ describe('web_search 轮次换词（TC-LEAD-04）', () => {
     expect(queries).toEqual(['q1', 'q2']);
     expect(first.companies[0]?.domain).toBe('acme.com');
     expect(second.companies[0]?.companyName).toBe('Acme Inc');
+  });
+});
+
+describe('find_contact 官网联系页发现（M4-6，06 §3.1 公开渠道）', () => {
+  /**
+   * 按 URL 注入静态页的 fake 供应商：命中返回真实 htmlToText 结果，未命中抛 404
+   * （与 HttpSearchProvider.fetchPage 失败语义一致，用于验证逐页降级）。
+   */
+  function pageProvider(pages: Record<string, string>, calls: string[] = []) {
+    return {
+      async webSearch() {
+        return [];
+      },
+      async crawlSite() {
+        return { summary: '', products: [], crawledPages: [] };
+      },
+      async fetchPage(url: string) {
+        calls.push(url);
+        const html =
+          Object.keys(pages).find((key) => url === key) === undefined ? undefined : pages[url];
+        if (html === undefined) {
+          throw new Error(`页面抓取失败（HTTP 404）: ${url}`);
+        }
+        return { url, text: htmlToText(html), links: extractLinks(html, url) };
+      },
+    };
+  }
+
+  it('官网联系页邮箱 → 产出联系人（local-part 可还原姓名；无职衔不猜影响力）', async () => {
+    const calls: string[] = [];
+    setSearchProviderFactory(() =>
+      pageProvider(
+        {
+          'https://wardpromotional.com': `<html><body><a href="/contact.htm">Contact Us</a></body></html>`,
+          'https://wardpromotional.com/contact.htm':
+            `<html><body><p>530 Charity Way | Modesto, CA 95356</p>` +
+            `<p>t. 209-549-2765</p><p>ashley@wardpromotional.com</p></body></html>`,
+        },
+        calls,
+      ),
+    );
+    const res = await findContactTool.execute(makeCtx(), {
+      companyName: 'Ward Promotional Branding',
+      domain: 'wardpromotional.com',
+    });
+    expect(res.contacts).toHaveLength(1);
+    expect(res.contacts[0]).toMatchObject({ name: 'Ashley', email: 'ashley@wardpromotional.com' });
+    expect(res.contacts[0]?.title).toBeUndefined();
+    expect(res.contacts[0]?.decisionInfluencePct).toBeNull();
+    expect(calls).toContain('https://wardpromotional.com/contact.htm');
+  });
+
+  it('联系页「姓名 + 职衔」→ 带职衔与影响力，并绑定同域名邮箱', async () => {
+    setSearchProviderFactory(() =>
+      pageProvider({
+        'https://acme.com': `<html><body><a href="/contact">Contact</a></body></html>`,
+        'https://acme.com/contact':
+          `<html><body><p>Ashley Smith - Purchasing Manager</p>` +
+          `<p>ashley@acme.com</p></body></html>`,
+      }),
+    );
+    const res = await findContactTool.execute(makeCtx(), {
+      companyName: 'Acme Inc',
+      domain: 'acme.com',
+    });
+    expect(res.contacts[0]).toMatchObject({
+      name: 'Ashley Smith',
+      title: 'Purchasing Manager',
+      email: 'ashley@acme.com',
+      decisionInfluencePct: 75,
+    });
+  });
+
+  it('仅角色邮箱（info@）不挂自然人 → 不产联系人（08 §6）', async () => {
+    setSearchProviderFactory(() =>
+      pageProvider({
+        'https://acme.com': `<html><body><a href="/contact">Contact</a></body></html>`,
+        'https://acme.com/contact': `<html><body><p>info@acme.com</p></body></html>`,
+      }),
+    );
+    const res = await findContactTool.execute(makeCtx(), {
+      companyName: 'Acme Inc',
+      domain: 'acme.com',
+    });
+    expect(res.contacts).toEqual([]);
+  });
+
+  it('首页无联系页链接 → 回落已知路径 /contact', async () => {
+    const calls: string[] = [];
+    setSearchProviderFactory(() =>
+      pageProvider(
+        {
+          'https://acme.com': `<html><body><p>Acme Inc</p></body></html>`,
+          'https://acme.com/contact': `<html><body><p>john.smith@acme.com</p></body></html>`,
+        },
+        calls,
+      ),
+    );
+    const res = await findContactTool.execute(makeCtx(), {
+      companyName: 'Acme Inc',
+      domain: 'acme.com',
+    });
+    expect(calls).toContain('https://acme.com/contact');
+    expect(res.contacts[0]).toMatchObject({ name: 'John Smith', email: 'john.smith@acme.com' });
+  });
+
+  it('lookup_contact 复用联系页缓存补邮箱，不重复抓页', async () => {
+    const calls: string[] = [];
+    setSearchProviderFactory(() =>
+      pageProvider(
+        {
+          'https://acme.com': `<html><body><a href="/contact">Contact</a></body></html>`,
+          'https://acme.com/contact':
+            `<html><body><p>Ashley Smith - Purchasing Manager</p>` +
+            `<p>asmith@acme.com</p></body></html>`,
+        },
+        calls,
+      ),
+    );
+    const bag = new Map<string, unknown>();
+    await findContactTool.execute(makeCtx({ bag }), {
+      companyName: 'Acme Inc',
+      domain: 'acme.com',
+    });
+    const afterFind = calls.length;
+    const looked = await lookupContactTool.execute(makeCtx({ bag }), {
+      companyName: 'Acme Inc',
+      domain: 'acme.com',
+    });
+    expect(calls.length).toBe(afterFind);
+    expect(looked.contacts[0]).toMatchObject({
+      name: 'Ashley Smith',
+      email: 'asmith@acme.com',
+    });
   });
 });
 

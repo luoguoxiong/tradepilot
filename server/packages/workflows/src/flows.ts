@@ -257,7 +257,7 @@ const recordScore: FlowNodeFn = (state, ctx) => {
   const level = mapScoreLevel(current.matchPct, readAdvanced(ctx).matchThresholds);
   // 身份以发现阶段为准：match_product 只应决定 matchPct 与理由，
   // 若采信 LLM 回显的 companyName，则下游 meta/contacts 按名连接、域名级去重、国家画像会全部失配
-  // （本地 mock provider 下正是 'mock-companyName' + 'Unknown' + 联系人恒空）。
+  // （LLM 回显名与发现阶段不一致时，contacts 归并键会错配到另一家公司）。
   const discovered = (state['discovered'] as CompanyLead[] | undefined)?.[0];
   const normalized: LeadScore = {
     ...current,
@@ -318,8 +318,9 @@ const assembleLeads: FlowNodeFn = (state, ctx) => {
       matchPct: s.matchPct,
       scoreLevel: s.scoreLevel,
       reasons: s.reasons,
+      // 无姓名联系人不入池：crm_write 的 contact.name 为必填，且无名条目对销售无意义
       contacts: contacts
-        .filter((c) => entityKey(c.companyName, c.domain) === key)
+        .filter((c) => entityKey(c.companyName, c.domain) === key && c.name)
         .map((c) => ({
           name: c.name,
           title: c.title,

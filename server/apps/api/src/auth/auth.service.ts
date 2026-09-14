@@ -18,6 +18,8 @@ import { isPlaceholderHash } from '../org/org.service.js';
  */
 
 const BCRYPT_COST = 12;
+/** 防账号枚举时序侧信道：账号不存在时对 dummy 哈希跑同代价比较（与真实哈希同 cost） */
+const DUMMY_HASH = bcrypt.hashSync('tradepilot-dummy-password', BCRYPT_COST);
 const LOGIN_RATE_WINDOW_S = 15 * 60;
 const LOGIN_ACCOUNT_MAX = 5;
 const LOGIN_IP_MAX = 30;
@@ -113,9 +115,9 @@ export class AuthService {
     );
     const user = rows[0];
 
-    // 防账号枚举：账号不存在 / 已停用 / 密码错误 → 同一文案同一错误码
-    const passwordOk =
-      user !== undefined && (await bcrypt.compare(dto.password, user.passwordHash));
+    // 防账号枚举：账号不存在 / 已停用 / 密码错误 → 同一文案同一错误码；
+    // 时序一致：不存在时也对 dummy 哈希跑同 cost 比较，响应耗时无可探测差异
+    const passwordOk = await bcrypt.compare(dto.password, user?.passwordHash ?? DUMMY_HASH);
     if (user === undefined || user.status === 'disabled' || !passwordOk) {
       throw new BizException(ErrorCode.UNAUTHORIZED, '邮箱或密码错误');
     }

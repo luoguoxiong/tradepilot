@@ -9,7 +9,11 @@ import EmptyState from '@/components/business/EmptyState.vue'
 import DashboardSkeleton from '@/components/business/skeletons/DashboardSkeleton.vue'
 import ReportMarkdown from '@/features/manager/components/ReportMarkdown.vue'
 import { getDashboardSummary } from '@/api/resources/dashboard'
-import type { DashboardKpi, DashboardPendingItem } from '@/api/types/dashboard'
+import type {
+  DashboardKpi,
+  DashboardPendingItem,
+  DashboardPendingType,
+} from '@/api/types/dashboard'
 import { useDailyReport } from '@/features/dashboard/composables/useDailyReport'
 import { features } from '@/features'
 import { qk } from '@/query/keys'
@@ -66,7 +70,21 @@ const dateText = computed(() =>
 )
 
 // ===== KPI（FR-02，D1 自适应：卡片数决定列数）=====
-const kpis = computed<DashboardKpi[]>(() => summary.value?.kpis ?? [])
+/**
+ * D1 降级：后端随 09/10 交付后恒返回全量 metric，卡片需与「路由/菜单/页签」读取同一份
+ * features 常量（02 §5.1 四处一致）——P0 档位隐藏 new_quotes / estimated_revenue，
+ * 否则会出现「展示 P1 模块数据但模块入口已被整枝移除」的不一致。
+ */
+const P1_METRIC_FEATURE: Partial<Record<DashboardKpi['metric'], 'quotes' | 'orders'>> = {
+  new_quotes: 'quotes',
+  estimated_revenue: 'quotes',
+}
+const kpis = computed<DashboardKpi[]>(() =>
+  (summary.value?.kpis ?? []).filter((kpi) => {
+    const feature = P1_METRIC_FEATURE[kpi.metric]
+    return !feature || features[feature]
+  }),
+)
 const kpiGridClass = computed(() =>
   kpis.value.length <= 2 ? 'dashboard__kpis is-two' : 'dashboard__kpis',
 )
@@ -108,8 +126,21 @@ const reportGeneratedAt = computed(() =>
   formatInOrgTz(report.value?.generatedAt, auth.org?.timezone, 'YYYY-MM-DD HH:mm'),
 )
 
-// ===== 今日待处理（FR-05，D2 按存在性渲染）=====
-const pendingItems = computed<DashboardPendingItem[]>(() => summary.value?.pendingItems ?? [])
+// ===== 今日待处理（FR-05，D2 按存在性渲染 + 档位过滤）=====
+/**
+ * D2 降级：与 KPI 同理，P0 档位下过滤 09（quote_approval）/ 10（order_delay_risk）类别，
+ * 避免待处理项 link 指向 `/quotes`、`/orders` 等已被整枝移除的路由。
+ */
+const P1_PENDING_FEATURE: Partial<Record<DashboardPendingType, 'quotes' | 'orders'>> = {
+  quote_approval: 'quotes',
+  order_delay_risk: 'orders',
+}
+const pendingItems = computed<DashboardPendingItem[]>(() =>
+  (summary.value?.pendingItems ?? []).filter((item) => {
+    const feature = P1_PENDING_FEATURE[item.type]
+    return !feature || features[feature]
+  }),
+)
 
 function onPendingClick(item: DashboardPendingItem) {
   void router.push(item.link)

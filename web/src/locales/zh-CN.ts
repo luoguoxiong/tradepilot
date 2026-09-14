@@ -1108,6 +1108,13 @@ export default {
       normal: '正常',
       pending: '待处理',
     },
+    intent: {
+      rfq: '询价需求',
+      price_compare: '比价议价',
+      logistics: '物流运输',
+      sample: '样品寄送',
+      other: '其他',
+    },
     status: {
       draft: '草稿',
       waitingApproval: '等待审核',

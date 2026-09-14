@@ -1130,6 +1130,13 @@ export default {
       normal: 'Normal',
       pending: 'Pending',
     },
+    intent: {
+      rfq: 'RFQ',
+      price_compare: 'Price negotiation',
+      logistics: 'Logistics',
+      sample: 'Sample request',
+      other: 'Other',
+    },
     status: {
       draft: 'Draft',
       waitingApproval: 'Awaiting review',

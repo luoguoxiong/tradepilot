@@ -1,4 +1,11 @@
-import { createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from 'node:crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from 'node:crypto';
 
 /**
  * 敏感凭据加密（后端技术方案 08 §2）：
@@ -47,4 +54,24 @@ export function safeEqual(a: string, b: string): boolean {
     return false;
   }
   return timingSafeEqual(bufA, bufB);
+}
+
+/** sha256 十六进制小写（API Key 摘要存储，08 §2「明文仅创建时返回一次」） */
+export function sha256Hex(input: string): string {
+  return createHash('sha256').update(input, 'utf8').digest('hex');
+}
+
+/** HMAC-SHA256 十六进制小写（Webhook 出站签名，06 §5.2） */
+export function hmacSha256Hex(secret: string, payload: string): string {
+  return createHmac('sha256', secret).update(payload, 'utf8').digest('hex');
+}
+
+/** 生成 URL-safe 随机串（API Key 明文主体 / webhook secret 等） */
+export function randomToken(bytes = 24): string {
+  return randomBytes(bytes).toString('base64url');
+}
+
+/** 生成小写十六进制随机串（API Key 可见前缀等） */
+export function randomHex(bytes = 4): string {
+  return randomBytes(bytes).toString('hex');
 }

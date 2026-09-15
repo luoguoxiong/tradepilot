@@ -21,9 +21,10 @@ export const qk = {
     summary: () => [...qk.leads.all, 'summary'] as const,
   },
 
-  /** 任务（14）：detail / logs(after 增量) / steps */
+  /** 任务（14）：list(filters 全量) / detail / logs(after 增量) */
   tasks: {
     all: ['tasks'] as const,
+    list: (filters: unknown) => [...qk.tasks.all, 'list', filters] as const,
     detail: (taskId: string) => [...qk.tasks.all, 'detail', taskId] as const,
     logs: (taskId: string, after: string) => [...qk.tasks.all, 'logs', taskId, after] as const,
   },
@@ -105,6 +106,51 @@ export const qk = {
     detail: (docId: string) => [...qk.knowledge.all, 'detail', docId] as const,
   },
 
-  /** 工作台（01）：首屏只读聚合 */
+  /** 产品中心（08）：list(filters 全量) / detail(productId) */
+  products: {
+    all: ['products'] as const,
+    list: (filters: unknown) => [...qk.products.all, 'list', filters] as const,
+    detail: (productId: string) => [...qk.products.all, 'detail', productId] as const,
+  },
+
+  /** 报价中心（09）：list(filters 全量) / detail(quoteId) / summary(Tab 计数) / ladder(议价梯度) */
+  quotes: {
+    all: ['quotes'] as const,
+    list: (filters: unknown) => [...qk.quotes.all, 'list', filters] as const,
+    detail: (quoteId: string) => [...qk.quotes.all, 'detail', quoteId] as const,
+    summary: () => [...qk.quotes.all, 'summary'] as const,
+    ladder: (quoteId: string) => [...qk.quotes.all, 'ladder', quoteId] as const,
+  },
+
+  /** 订单中心（10）：list(filters 全量) / detail(orderId) / summary(Tab + 风险计数) */
+  orders: {
+    all: ['orders'] as const,
+    list: (filters: unknown) => [...qk.orders.all, 'list', filters] as const,
+    detail: (orderId: string) => [...qk.orders.all, 'detail', orderId] as const,
+    summary: () => [...qk.orders.all, 'summary'] as const,
+  },
+
+  /** 数据中心（15）：trend / distribution / contribution / drilldown（筛选全量进 key） */
+  analytics: {
+    all: ['analytics'] as const,
+    trend: (filters: unknown) => [...qk.analytics.all, 'trend', filters] as const,
+    distribution: (filters: unknown) => [...qk.analytics.all, 'distribution', filters] as const,
+    contribution: (filters: unknown) => [...qk.analytics.all, 'contribution', filters] as const,
+    drilldown: (metric: string, filters: unknown, page: number) =>
+      [...qk.analytics.all, 'drilldown', metric, filters, page] as const,
+  },
+
+  /** 工作台（01）：首屏只读聚合 + D3 每日报告 */
   dashboardSummary: ['dashboard', 'summary'] as const,
+  dashboardDailyReport: ['dashboard', 'daily-report'] as const,
+
+  /** AI 外贸经理（13）：overview(date) / discoveries(type) / efficiency / reports(filters) / report(id) */
+  manager: {
+    all: ['manager'] as const,
+    overview: (date: string) => [...qk.manager.all, 'overview', date] as const,
+    discoveries: (type: unknown) => [...qk.manager.all, 'discoveries', type] as const,
+    efficiency: () => [...qk.manager.all, 'efficiency'] as const,
+    reports: (filters: unknown) => [...qk.manager.all, 'reports', filters] as const,
+    report: (reportId: string) => [...qk.manager.all, 'report', reportId] as const,
+  },
 } as const

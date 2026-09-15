@@ -13,16 +13,20 @@ import { ROLE_KPI_METRIC, type CreateEmployeeDto } from '../src/employees/employ
 /**
  * M5 批次 C3 集成测试（02 AI 数字员工中心）：
  * - GET /ai-employees/roles：注册种子预置的 6 角色模板（sop_template is_preset=true 派生）；
- * - POST /ai-employees：admin 创建成功（org 级 SOP 副本 + 落库）、kpiConfig 非法 metric → 42201、
- *   approvalPolicy.quote 缺失 → 42201、非法角色 → 42201、sales 越权 → 40301；
+ * - POST /ai-employees：admin 创建成功（org 级 SOP 副本 + 落库）、同角色重复创建 → 42201（严格一类一个）、
+ *   kpiConfig 非法 metric → 42201、approvalPolicy.quote 缺失 → 42201、非法角色 → 42201、sales 越权 → 40301；
  * - GET /ai-employees：卡片列表（status 语义 / todayStats / kpi / currentTask 聚合 / workspacePath）；
  * - GET /ai-employees/{id}/tasks：该员工任务列表（复用 tasks 模块）。
- * 前置：docker compose up（PG 5432 / Redis 6380）+ 迁移已执行 + tradepilot_app 角色存在。
+ *
+ * 严格一类一个（02 §2）：注册种子已占满 6 角色（每角色 1 名），故「创建成功」用例先用
+ * `releaseSeededRole` 腾空目标角色；列表断言依赖 describe 声明顺序（roles 先于腾空执行），
+ * 新增用例请追加到文件末尾。
+ * 前置：docker compose up（PG 5432 / Redis 6379）+ 迁移已执行 + tradepilot_app 角色存在。
  */
 
 process.env.JWT_SECRET ||= 'it_only_test_secret_0123456789abcdef0123456789abcdef';
 process.env.ENCRYPTION_KEY ||= '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-process.env.REDIS_URL ||= 'redis://localhost:6380';
+process.env.REDIS_URL ||= 'redis://localhost:6379';
 process.env.DATABASE_URL ||= 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
 
 const SUPER_URL = 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
@@ -45,6 +49,16 @@ let runningTaskId = '';
 
 const adminEmail = `it-m5c-${createId('org')}@test.com`;
 const salesEmail = `it-m5c-sales-${createId('org')}@test.com`;
+
+/** 02 §1.2 承载决策（D4 恢复后六角色全启用）：卡片 workspacePath 期望值 */
+const WORKSPACE_PATH: Record<string, string> = {
+  lead_hunter: '/lead-gen',
+  customer_researcher: '/crm',
+  sales: '/inbox',
+  follow_up: '/follow-up',
+  merchandiser: '/orders',
+  manager: '/manager',
+};
 
 async function expectBiz(promise: Promise<unknown>, code: number): Promise<BizException> {
   try {
@@ -72,6 +86,16 @@ function createBody(overrides: Partial<CreateEmployeeDto> = {}): CreateEmployeeD
     kpiConfig: { metric: ROLE_KPI_METRIC.lead_hunter, target: 35, period: 'daily' },
     ...overrides,
   };
+}
+
+/**
+ * 腾空某角色的预置员工（严格一类一个，02 §2）：注册种子已占用全部 6 角色，
+ * 「创建成功」类用例需先释放目标角色；本 org 的预置员工无任务/审批引用，可直接删除。
+ */
+async function releaseSeededRole(role: string): Promise<void> {
+  await superDb
+    .delete(schema.aiEmployee)
+    .where(and(eq(schema.aiEmployee.orgId, orgId), eq(schema.aiEmployee.role, role)));
 }
 
 beforeAll(async () => {
@@ -120,6 +144,9 @@ afterAll(async () => {
       await tx.delete(schema.llmCall).where(eq(schema.llmCall.orgId, orgId));
       await tx.delete(schema.aiTaskLog).where(eq(schema.aiTaskLog.orgId, orgId));
       await tx.delete(schema.aiTaskStep).where(eq(schema.aiTaskStep.orgId, orgId));
+      // ai_lead.task_id FK → ai_task：先清业务行再删任务（本文件 seed 了经任务归因的线索）
+      await tx.delete(schema.aiLeadContact).where(eq(schema.aiLeadContact.orgId, orgId));
+      await tx.delete(schema.aiLead).where(eq(schema.aiLead.orgId, orgId));
       await tx.delete(schema.aiTask).where(eq(schema.aiTask.orgId, orgId));
       await tx.delete(schema.approvalLog).where(eq(schema.approvalLog.orgId, orgId));
       await tx.delete(schema.approvalRequest).where(eq(schema.approvalRequest.orgId, orgId));
@@ -138,8 +165,6 @@ afterAll(async () => {
       await tx.delete(schema.customerActivity).where(eq(schema.customerActivity.orgId, orgId));
       await tx.delete(schema.contact).where(eq(schema.contact.orgId, orgId));
       await tx.delete(schema.customer).where(eq(schema.customer.orgId, orgId));
-      await tx.delete(schema.aiLeadContact).where(eq(schema.aiLeadContact.orgId, orgId));
-      await tx.delete(schema.aiLead).where(eq(schema.aiLead.orgId, orgId));
       await tx.delete(schema.aiEmployee).where(eq(schema.aiEmployee.orgId, orgId));
       await tx.delete(schema.sopTemplate).where(eq(schema.sopTemplate.orgId, orgId));
       await tx.delete(schema.aiModelSetting).where(eq(schema.aiModelSetting.orgId, orgId));
@@ -200,6 +225,8 @@ describe('M5-C3 · POST /ai-employees（创建）', () => {
   let createdId = '';
 
   it('admin 创建成功：返回 employeeId + 落库 + org 级 SOP 副本（sopParams 合并）', async () => {
+    // 严格一类一个（02 §2）：该角色已被种子占用，先腾空再创建
+    await releaseSeededRole('lead_hunter');
     const resp = await employees.create(adminCtx, createBody());
     createdId = resp.employeeId;
     expect(createdId.startsWith('emp_')).toBe(true);
@@ -229,6 +256,14 @@ describe('M5-C3 · POST /ai-employees（创建）', () => {
     expect(sop!.isPreset).toBe(false);
     expect(sop!.role).toBe('lead_hunter');
     expect(sop!.content.advancedSettings).toMatchObject({ match_product: 'medium' });
+  });
+
+  it('同角色重复创建 → 42201（严格一类一个，02 §2）', async () => {
+    const err = await expectBiz(
+      employees.create(adminCtx, createBody({ name: '第二个获客专员' })),
+      ErrorCode.BIZ_VALIDATION,
+    );
+    expect(err.message).toContain('仅允许创建一个');
   });
 
   it('kpiConfig.metric 与角色不匹配 → 42201', async () => {
@@ -276,6 +311,8 @@ describe('M5-C3 · POST /ai-employees（创建）', () => {
   });
 
   it('email_send 缺省 → high_value_only；显式 always 生效', async () => {
+    // 严格一类一个（02 §2）：sales 已被种子占用，先腾空
+    await releaseSeededRole('sales');
     const always = await employees.create(
       adminCtx,
       createBody({
@@ -298,13 +335,8 @@ describe('M5-C3 · GET /ai-employees（卡片列表 + currentTask 聚合）', ()
   let empId = '';
 
   beforeAll(async () => {
-    // 复用上一用例创建的 lead_hunter 员工（区别于种子预置的那位）
-    const rows = await superDb
-      .select({ id: schema.aiEmployee.id })
-      .from(schema.aiEmployee)
-      .where(and(eq(schema.aiEmployee.orgId, orgId), eq(schema.aiEmployee.role, 'lead_hunter')));
-    const seedHunter = await seededEmployee('lead_hunter');
-    empId = rows.find((r) => r.id !== seedHunter)?.id ?? rows[0]!.id;
+    // 严格一类一个（02 §2）：org 内 lead_hunter 恒为一条（上一用例腾空后重建的那条）
+    empId = await seededEmployee('lead_hunter');
 
     // 造一条 running 任务（只读聚合 currentTask 数据源）
     runningTaskId = createId('task');
@@ -321,21 +353,31 @@ describe('M5-C3 · GET /ai-employees（卡片列表 + currentTask 聚合）', ()
       startedAt: new Date(),
       createdBy: adminId,
     });
+    // 业务量口径（P1 精化）：今日产出/KPI 取业务表聚合而非任务数 → 造 1 条经 task 归因到该员工的今日线索
+    await superDb.insert(schema.aiLead).values({
+      id: createId('lead'),
+      orgId,
+      taskId: runningTaskId,
+      companyName: 'US Running Shoes Co',
+      country: 'US',
+      matchPct: 90,
+      scoreLevel: 'high',
+      insight: { value: 90, confidence: 0.9, reasons: [] },
+      inCrm: false,
+    });
   });
 
-  it('列表含全量员工卡（6 预置 + 创建的），字段结构与承载决策正确', async () => {
+  it('列表含 6 张员工卡（严格一类一个：每角色一张），字段结构与承载决策正确', async () => {
     const resp = await employees.list(adminCtx, 1, 20);
-    expect(resp.total).toBeGreaterThanOrEqual(7);
+    expect(resp.total).toBe(6);
     expect(resp.items.some((i) => i.employeeId === empId)).toBe(true);
 
     for (const card of resp.items) {
       expect(card.employeeId.startsWith('emp_')).toBe(true);
       expect(card.name.length).toBeGreaterThan(0);
       expect(Array.isArray(card.todayStats)).toBe(true);
-      // D4 承载决策：跟单/经理工作台入口禁用（null）
-      if (card.role === 'merchandiser' || card.role === 'manager') {
-        expect(card.workspacePath).toBeNull();
-      }
+      // 承载决策（D4 恢复）：六角色工作台入口全部启用（跟单随 10 / 经理随 13 解开占位）
+      expect(card.workspacePath).toBe(WORKSPACE_PATH[card.role]);
     }
     const hunter = resp.items.find((i) => i.employeeId === empId)!;
     expect(hunter.workspacePath).toBe('/lead-gen');
@@ -353,13 +395,16 @@ describe('M5-C3 · GET /ai-employees（卡片列表 + currentTask 聚合）', ()
       progressPct: 40,
       currentStep: 'search_sources',
     });
-    // 今日任务计数 = 1（running 任务 createdAt=今天）
+    // 今日产出（P1 精化）：今日产出 = 经任务归因到该员工的今日线索数 = 1
+    expect(card.todayStats[0]!.label).toBe('今日找到客户');
     expect(card.todayStats[0]!.count).toBe(1);
-    // KPI：非占位角色展示（achieved = 今日任务计数）
+    // KPI：非占位角色展示（achieved 与今日产出同源 → 1 / target 35）
     expect(card.kpi).not.toBeNull();
     expect(card.kpi!.metric).toBe('daily_leads');
     expect(card.kpi!.target).toBe(35);
     expect(card.kpi!.period).toBe('daily');
+    expect(card.kpi!.achieved).toBe(1);
+    expect(card.kpi!.progressPct).toBe(3);
   });
 
   it('无任务员工卡：status=idle + currentTask=null（种子 idle 员工）', async () => {
@@ -367,19 +412,20 @@ describe('M5-C3 · GET /ai-employees（卡片列表 + currentTask 聚合）', ()
     const merchandiser = resp.items.find((i) => i.role === 'merchandiser')!;
     expect(merchandiser.status).toBe('idle');
     expect(merchandiser.currentTask).toBeNull();
-    expect(merchandiser.kpi).toBeNull();
+    // D4 恢复：跟单 KPI 不再占位（在跟订单数，存量指标；本 org 未造订单 → 0）
+    expect(merchandiser.kpi).not.toBeNull();
+    expect(merchandiser.kpi!.metric).toBe('active_orders');
+    expect(merchandiser.kpi!.target).toBe(99);
+    expect(merchandiser.kpi!.achieved).toBe(0);
+    expect(merchandiser.todayStats[0]!.label).toBe('在跟订单');
+    expect(merchandiser.todayStats[0]!.count).toBe(0);
   });
 });
 
 describe('M5-C3 · GET /ai-employees/{id}/tasks（该员工任务列表）', () => {
   it('返回该员工任务（含 beforeAll 造的 running 任务）', async () => {
-    // 卡片 describe 造 running 的 custom lead_hunter（区分种子员工；target = 非种子那位）
-    const rows = await superDb
-      .select({ id: schema.aiEmployee.id })
-      .from(schema.aiEmployee)
-      .where(and(eq(schema.aiEmployee.orgId, orgId), eq(schema.aiEmployee.role, 'lead_hunter')));
-    const seedHunter = await seededEmployee('lead_hunter');
-    const targetId = rows.find((r) => r.id !== seedHunter)?.id ?? rows[0]!.id;
+    // 卡片 describe 造 running 的 lead_hunter（严格一类一个：org 内每角色唯一）
+    const targetId = await seededEmployee('lead_hunter');
     const resp = await employees.listTasks(adminCtx, targetId, 1, 20);
     expect(resp.total).toBeGreaterThanOrEqual(1);
     const found = resp.items.find((t: { taskId: string }) => t.taskId === runningTaskId);
@@ -410,6 +456,8 @@ describe('M5-C3 · POST /ai-employees/{id}/pause + /resume（员工级暂停/恢
 
   beforeAll(async () => {
     // 独立目标员工（follow_up），避免与卡片列表 running 任务耦合
+    // 严格一类一个（02 §2）：follow_up 已被种子占用，先腾空
+    await releaseSeededRole('follow_up');
     const created = await employees.create(adminCtx, {
       role: 'follow_up',
       name: 'M5C 暂停目标',

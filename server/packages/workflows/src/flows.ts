@@ -10,8 +10,36 @@
  */
 import { and, desc, eq, gt, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { createId } from '@tradepilot/core';
-import { computeDeferredNextRunAt, type SendWindow } from '@tradepilot/core';
-import { schema, withOrg } from '@tradepilot/db';
+import { copilotNextActionType, computeDeferredNextRunAt, type SendWindow } from '@tradepilot/core';
+import {
+  ORDER_RISK_SUGGESTIONS,
+  computeOrderRisk,
+  normalizeOrderProgress,
+  type OrderRiskAssessment,
+} from '@tradepilot/core';
+import {
+  schema,
+  withOrg,
+  upsertDiscoveries,
+  fetchOpportunityCandidates,
+  fetchStaleHighValueCustomers,
+} from '@tradepilot/db';
+import {
+  MANAGER_HIGH_VALUE_SCORE,
+  MANAGER_INACTIVE_DAYS,
+  MANAGER_REPORT_PERIODS,
+  buildBusinessReportCitations,
+  buildBusinessReportMarkdown,
+  buildOpportunityDiscoveries,
+  buildRiskDiscovery,
+  managerInsightWindow,
+  reportPeriodLabel,
+  type BusinessReportInput,
+  type DiscoveryDraft,
+  type ManagerOverview,
+  type ManagerReportPeriod,
+  type ReportTeamRow,
+} from '@tradepilot/core';
 import {
   boundExternal,
   detectEmailLanguage,
@@ -36,15 +64,21 @@ function str(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+/**
+ * 域名归一（去协议 → 小写 → 去 www），与 tools/search-tools.normalizeDomain 同口径。
+ * 顺序敏感：先小写再去 `www.`，否则 `WWW.Example.com` 与 `example.com` 会被判成两家
+ * 公司（三级去重 TC-LEAD-05 要求去协议/去 www/小写后比对）。
+ */
 function normDomain(domain: string | null | undefined): string | null {
   if (!domain) {
     return null;
   }
   return (
     domain
-      .replace(/^www\./, '')
+      .replace(/^https?:\/\//, '')
       .toLowerCase()
-      .trim() || null
+      .trim()
+      .replace(/^www\./, '') || null
   );
 }
 
@@ -223,7 +257,7 @@ const recordScore: FlowNodeFn = (state, ctx) => {
   const level = mapScoreLevel(current.matchPct, readAdvanced(ctx).matchThresholds);
   // 身份以发现阶段为准：match_product 只应决定 matchPct 与理由，
   // 若采信 LLM 回显的 companyName，则下游 meta/contacts 按名连接、域名级去重、国家画像会全部失配
-  // （本地 mock provider 下正是 'mock-companyName' + 'Unknown' + 联系人恒空）。
+  // （LLM 回显名与发现阶段不一致时，contacts 归并键会错配到另一家公司）。
   const discovered = (state['discovered'] as CompanyLead[] | undefined)?.[0];
   const normalized: LeadScore = {
     ...current,
@@ -284,8 +318,9 @@ const assembleLeads: FlowNodeFn = (state, ctx) => {
       matchPct: s.matchPct,
       scoreLevel: s.scoreLevel,
       reasons: s.reasons,
+      // 无姓名联系人不入池：crm_write 的 contact.name 为必填，且无名条目对销售无意义
       contacts: contacts
-        .filter((c) => entityKey(c.companyName, c.domain) === key)
+        .filter((c) => entityKey(c.companyName, c.domain) === key && c.name)
         .map((c) => ({
           name: c.name,
           title: c.title,
@@ -883,7 +918,13 @@ const writeCustomerInsight: FlowNodeFn = async (state, ctx) => {
       ? Math.max(0, Math.min(100, Math.round(copilot.purchaseProbability)))
       : null;
   const reasons = actions.map((label) => ({ text: label }));
-  const nextAction = actions.length > 0 ? { type: 'follow_up', label: actions[0]! } : null;
+  // 下一步动作优先取「流程型」语义的动作（D8 恢复：创建报价 → send_quote 引导 04 跳 09），
+  // 无流程型动作时回落首条动作 + follow_up（P0 既有行为）
+  const flowLabel = actions.find((label) => copilotNextActionType(label) !== null) ?? actions[0];
+  const nextAction =
+    flowLabel !== undefined
+      ? { type: copilotNextActionType(flowLabel) ?? 'follow_up', label: flowLabel }
+      : null;
   await withOrg(ctx.db, ctx.orgId, async (tx) => {
     await tx
       .insert(schema.customerInsight)
@@ -914,10 +955,628 @@ const writeCustomerInsight: FlowNodeFn = async (state, ctx) => {
   return { patch: {} };
 };
 
+/** ===== product_knowledge（08 产品中心：资料解析 → 结构化入库 → 知识生成） ===== */
+
+/** 产品生成上下文：结构化数据 + 已索引资料 chunk（CostPrice 红线：绝不进上下文/prompt，08 §7） */
+type ProductKnowledgePatch = {
+  productContext?: Record<string, unknown>;
+  productCitations?: { docId: string; docName?: string; chunkId?: string }[];
+};
+
+/** 单文档并入上下文的 chunk 数与单 chunk 截断（控 prompt 体积；保留开头高信息段） */
+const PRODUCT_DOC_MAX_CHUNKS = 8;
+const PRODUCT_CHUNK_MAX_CHARS = 1200;
+
+/**
+ * load_product_context（08 §4 产品资料解析）：按 sources 加载产品结构化数据 + 已索引资料，
+ * 组装 productContext 供 LLM 生成。CostPrice 永不进入 productContext（仅 Pricing 的
+ * suggestedPrice/priceTiers 可进，构成报价依据而非成本暴露）。
+ */
+const loadProductContext: FlowNodeFn = async (state, ctx) => {
+  const productId = str(state['productId']);
+  const rawSources = state['sources'];
+  const sources = new Set(
+    Array.isArray(rawSources) && rawSources.length > 0
+      ? rawSources.map((s) => String(s))
+      : ['specifications', 'pricing', 'documents'],
+  );
+  const wantSpecs = sources.has('specifications');
+  const wantPricing = sources.has('pricing');
+  const wantDocs = sources.has('documents');
+
+  const context: Record<string, unknown> = {};
+  const citations: ProductKnowledgePatch['productCitations'] = [];
+
+  await withOrg(ctx.db, ctx.orgId, async (tx) => {
+    const [p] = await tx
+      .select({
+        id: schema.product.id,
+        sku: schema.product.sku,
+        name: schema.product.name,
+        category: schema.product.category,
+        material: schema.product.material,
+        description: schema.product.description,
+        moq: schema.product.moq,
+        moqUnit: schema.product.moqUnit,
+        leadTimeDays: schema.product.leadTimeDays,
+        currency: schema.product.currency,
+        suggestedPrice: schema.product.suggestedPrice,
+        status: schema.product.status,
+      })
+      .from(schema.product)
+      .where(and(eq(schema.product.id, productId), eq(schema.product.orgId, ctx.orgId)))
+      .limit(1);
+    if (!p) {
+      return;
+    }
+    Object.assign(context, {
+      productId: p.id,
+      sku: p.sku,
+      name: p.name,
+      category: p.category,
+      material: p.material,
+      description: p.description,
+      moq: p.moq,
+      moqUnit: p.moqUnit,
+      leadTimeDays: p.leadTimeDays,
+      currency: p.currency,
+      status: p.status,
+    });
+
+    if (wantSpecs) {
+      const specs = await tx
+        .select({
+          name: schema.productSpec.name,
+          value: schema.productSpec.value,
+          unit: schema.productSpec.unit,
+        })
+        .from(schema.productSpec)
+        .where(eq(schema.productSpec.productId, productId))
+        .orderBy(schema.productSpec.seq);
+      context['specifications'] = specs.map((s) => ({
+        name: s.name,
+        value: s.value,
+        ...(s.unit ? { unit: s.unit } : {}),
+      }));
+    }
+
+    if (wantPricing) {
+      const tiers = await tx
+        .select({
+          minQty: schema.productPriceTier.minQty,
+          unitPrice: schema.productPriceTier.unitPrice,
+        })
+        .from(schema.productPriceTier)
+        .where(eq(schema.productPriceTier.productId, productId))
+        .orderBy(schema.productPriceTier.minQty);
+      context['pricing'] = {
+        currency: p.currency,
+        suggestedPrice: p.suggestedPrice ?? null,
+        priceTiers: tiers,
+      };
+    }
+
+    if (wantDocs) {
+      const docs = await tx
+        .select({ docId: schema.knowledgeDocument.id, docName: schema.knowledgeDocument.fileName })
+        .from(schema.knowledgeDocument)
+        .where(
+          and(
+            eq(schema.knowledgeDocument.orgId, ctx.orgId),
+            eq(schema.knowledgeDocument.productId, productId),
+            eq(schema.knowledgeDocument.source, 'product'),
+            eq(schema.knowledgeDocument.status, 'indexed'),
+            isNull(schema.knowledgeDocument.deletedAt),
+          ),
+        )
+        .orderBy(schema.knowledgeDocument.createdAt);
+      const documents: { docId: string; docName: string; content: string }[] = [];
+      for (const doc of docs) {
+        const chunks = await tx
+          .select({ id: schema.knowledgeChunk.id, content: schema.knowledgeChunk.content })
+          .from(schema.knowledgeChunk)
+          .where(eq(schema.knowledgeChunk.documentId, doc.docId))
+          .orderBy(schema.knowledgeChunk.chunkIndex)
+          .limit(PRODUCT_DOC_MAX_CHUNKS);
+        if (chunks.length === 0) {
+          continue;
+        }
+        documents.push({
+          docId: doc.docId,
+          docName: doc.docName,
+          content: chunks.map((c) => c.content.slice(0, PRODUCT_CHUNK_MAX_CHARS)).join('\n'),
+        });
+        citations.push({ docId: doc.docId, docName: doc.docName, chunkId: chunks[0]!.id });
+      }
+      context['documents'] = documents;
+    }
+  });
+
+  if (Object.keys(context).length === 0) {
+    return { patch: {} };
+  }
+  return { patch: { productContext: context, productCitations: citations } };
+};
+
+/**
+ * write_product_knowledge（08 §4 结构化入库）：仅 action='generate' 落 product_knowledge
+ * （draft + citations + taskId 溯源，按 productId upsert 并重置为待确认）；analyze 仅预览不落库。
+ */
+const writeProductKnowledge: FlowNodeFn = async (state, ctx) => {
+  const action = ctx.task.input['action'];
+  const productId = str(state['productId']);
+  const knowledge = state['knowledge'] as
+    | {
+        advantages?: string[];
+        faqs?: { question: string; answer: string }[];
+        scenarios?: string[];
+        salesScripts?: string[];
+      }
+    | undefined;
+  if (action !== 'generate' || !productId || !knowledge) {
+    return { patch: {} };
+  }
+  const citations = (state['productCitations'] as ProductKnowledgePatch['productCitations']) ?? [];
+  const advantages = knowledge.advantages ?? [];
+  const faqs = knowledge.faqs ?? [];
+  const scenarios = knowledge.scenarios ?? [];
+  const salesScripts = knowledge.salesScripts ?? [];
+  await withOrg(ctx.db, ctx.orgId, async (tx) => {
+    await tx
+      .insert(schema.productKnowledge)
+      .values({
+        id: createId('pknow'),
+        orgId: ctx.orgId,
+        productId,
+        advantages,
+        faqs,
+        scenarios,
+        salesScripts,
+        status: 'draft',
+        ...(citations.length > 0 ? { citations } : {}),
+        taskId: ctx.taskId,
+        generatedAt: ctx.now,
+        updatedAt: ctx.now,
+      })
+      .onConflictDoUpdate({
+        target: schema.productKnowledge.productId,
+        set: {
+          advantages,
+          faqs,
+          scenarios,
+          salesScripts,
+          status: 'draft',
+          ...(citations.length > 0 ? { citations } : {}),
+          // 重新生成视为推翻旧确认：回落 draft 待人工再确认（08 §3.2）
+          confirmedBy: null,
+          confirmedAt: null,
+          taskId: ctx.taskId,
+          generatedAt: ctx.now,
+          updatedAt: ctx.now,
+        },
+      });
+  });
+  return { patch: {} };
+};
+
+/** ===== order_monitor（10 订单中心 FR-04/FR-05） ===== */
+
+/** 订单监控快照（load_order 落 State，供规则引擎与告警节点消费） */
+interface MonitoredOrder {
+  id: string;
+  orderNo: string;
+  customerId: string;
+  customerName: string;
+  deliveryDate: string;
+  status: string;
+  risk: string;
+  poConfirmed: boolean;
+  payment: boolean;
+  productionPct: number;
+  shipping: boolean;
+  createdAt: string;
+}
+
+/**
+ * load_order：订单状态轮询（10 FR-04 数据源）。
+ * 订单不存在（已删除/越权）→ 落 error 日志并结束任务，避免静默空跑。
+ */
+const loadOrder: FlowNodeFn = async (state, ctx) => {
+  const orderId = str(state['orderId']) || str(ctx.task.input['orderId']);
+  if (!orderId) {
+    await writeTaskLog(ctx, TASK_LOG_TYPE.ERROR, '订单监控缺少 orderId，任务结束');
+    return { done: true };
+  }
+  const row = await withOrg(ctx.db, ctx.orgId, async (tx) => {
+    const [r] = await tx
+      .select({
+        id: schema.salesOrder.id,
+        orderNo: schema.salesOrder.orderNo,
+        customerId: schema.salesOrder.customerId,
+        customerName: schema.customer.companyName,
+        deliveryDate: schema.salesOrder.deliveryDate,
+        status: schema.salesOrder.status,
+        risk: schema.salesOrder.risk,
+        poConfirmed: schema.salesOrder.progressPoConfirmed,
+        payment: schema.salesOrder.progressPayment,
+        productionPct: schema.salesOrder.productionPct,
+        shipping: schema.salesOrder.progressShipping,
+        createdAt: schema.salesOrder.createdAt,
+      })
+      .from(schema.salesOrder)
+      .leftJoin(schema.customer, eq(schema.customer.id, schema.salesOrder.customerId))
+      .where(and(eq(schema.salesOrder.id, orderId), eq(schema.salesOrder.orgId, ctx.orgId)))
+      .limit(1);
+    return r ?? null;
+  });
+  if (!row) {
+    await writeTaskLog(ctx, TASK_LOG_TYPE.ERROR, `订单监控目标不存在: ${orderId}`);
+    return { done: true };
+  }
+  const order: MonitoredOrder = {
+    id: row.id,
+    orderNo: row.orderNo,
+    customerId: row.customerId,
+    customerName: row.customerName ?? '—',
+    deliveryDate: row.deliveryDate,
+    status: row.status,
+    risk: row.risk,
+    poConfirmed: Boolean(row.poConfirmed),
+    payment: Boolean(row.payment),
+    productionPct: row.productionPct ?? 0,
+    shipping: Boolean(row.shipping),
+    createdAt: row.createdAt.toISOString(),
+  };
+  return { patch: { orderId: order.id, orderNo: order.orderNo, order } };
+};
+
+/**
+ * assess_risk：规则引擎判定（planSource=linear_by_time，决策 A4）+ order_risk_insight 幂等写回（P1-10-12）。
+ * at_risk → 复用/新建 active 洞察；normal → 关闭 active 洞察；sales_order.risk 同步为列表徽标口径。
+ */
+const assessRisk: FlowNodeFn = async (state, ctx) => {
+  const order = state['order'] as MonitoredOrder | undefined;
+  if (!order) {
+    return { done: true };
+  }
+  const progress = normalizeOrderProgress({
+    poConfirmed: order.poConfirmed,
+    payment: order.payment,
+    productionPct: order.productionPct,
+    shipping: order.shipping,
+  });
+  const assessment = computeOrderRisk({
+    createdAt: new Date(order.createdAt),
+    deliveryDate: order.deliveryDate,
+    progress,
+    now: ctx.now,
+  });
+
+  await withOrg(ctx.db, ctx.orgId, async (tx) => {
+    const [active] = await tx
+      .select({ id: schema.orderRiskInsight.id })
+      .from(schema.orderRiskInsight)
+      .where(
+        and(
+          eq(schema.orderRiskInsight.salesOrderId, order.id),
+          eq(schema.orderRiskInsight.status, 'active'),
+        ),
+      )
+      .limit(1);
+
+    if (assessment.status === 'normal') {
+      if (active) {
+        await tx
+          .update(schema.orderRiskInsight)
+          .set({ status: 'resolved', resolvedAt: ctx.now, updatedAt: ctx.now })
+          .where(eq(schema.orderRiskInsight.id, active.id));
+      }
+    } else {
+      const payload = {
+        delayDays: assessment.delayDays,
+        reason: assessment.reason,
+        evidence: assessment.evidence as unknown as Record<string, unknown>,
+        suggestions: assessment.suggestions.map((s) => ({ ...s })),
+        generatedAt: ctx.now,
+        updatedAt: ctx.now,
+        status: 'active',
+        resolvedAt: null,
+      };
+      if (active) {
+        await tx
+          .update(schema.orderRiskInsight)
+          .set(payload)
+          .where(eq(schema.orderRiskInsight.id, active.id));
+      } else {
+        await tx.insert(schema.orderRiskInsight).values({
+          id: createId('orisk'),
+          orgId: ctx.orgId,
+          salesOrderId: order.id,
+          ...payload,
+          createdAt: ctx.now,
+        });
+      }
+    }
+
+    if (order.risk !== assessment.status) {
+      await tx
+        .update(schema.salesOrder)
+        .set({ risk: assessment.status, updatedAt: ctx.now })
+        .where(eq(schema.salesOrder.id, order.id));
+    }
+  });
+
+  return {
+    patch: {
+      assessment: {
+        status: assessment.status,
+        plannedPct: assessment.plannedPct,
+        actualPct: assessment.actualPct,
+        lagPct: assessment.lagPct,
+        delayDays: assessment.delayDays,
+        reason: assessment.reason,
+        evidence: assessment.evidence as unknown as Record<string, unknown>,
+        suggestions: assessment.suggestions.map((s) => ({ ...s })),
+      } satisfies Record<string, unknown>,
+    },
+  };
+};
+
+/**
+ * alert_anomaly：异常告警（10 FR-04）。
+ * at_risk → ai_task_log(error) + log 事件 + outputs 告警（前端任务详情可追溯）；
+ * normal → 不落告警日志（任务以 outputs 正常收尾）。
+ * 若任务由「执行建议」创建（input.suggestionId），把该建议一并写入告警文案形成闭环。
+ */
+const alertAnomaly: FlowNodeFn = async (state, ctx) => {
+  const order = state['order'] as MonitoredOrder | undefined;
+  const assessment = state['assessment'] as
+    (OrderRiskAssessment & { suggestions: { suggestionId: string; label: string }[] }) | undefined;
+  if (!order || !assessment) {
+    return { done: true };
+  }
+  const suggestionId = str(state['suggestionId']) || str(ctx.task.input['suggestionId']);
+  const suggestion =
+    ORDER_RISK_SUGGESTIONS.find((s) => s.suggestionId === suggestionId)?.label ?? null;
+
+  if (assessment.status !== 'at_risk') {
+    return {
+      patch: { alert: { atRisk: false, content: null, suggestionId: suggestionId || null } },
+    };
+  }
+  const content = `订单 ${order.orderNo} 履约异常：${assessment.reason}${
+    suggestion ? `；已执行建议：${suggestion}` : ''
+  }`;
+  await writeTaskLog(ctx, TASK_LOG_TYPE.ERROR, content);
+  return { patch: { alert: { atRisk: true, content, suggestionId: suggestionId || null } } };
+};
+
+/** ===== 13 AI 外贸经理：business_analysis（P1-13-06/07） ===== */
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function num(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function isoDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function readOverview(value: unknown): ManagerOverview | null {
+  const raw = asRecord(value);
+  if (!raw) {
+    return null;
+  }
+  return {
+    newCustomers: num(raw['newCustomers']),
+    newInquiries: num(raw['newInquiries']),
+    newQuotes: num(raw['newQuotes']),
+    dealsClosed: num(raw['dealsClosed']),
+  };
+}
+
+/**
+ * load_report_context：校验报告行（防越权/防幽灵任务），并把 API 侧同源指标快照铺进 State。
+ * 指标快照由 `POST /manager/reports/generate` 写入 task.input（AnalyticsService 同源），
+ * worker 不重复实现统计口径（13 §3.1 / 15 §3 一致性红线）。
+ */
+const loadReportContext: FlowNodeFn = async (state, ctx) => {
+  const reportId = str(state['reportId']) || str(ctx.task.input['reportId']);
+  if (!reportId) {
+    await writeTaskLog(ctx, TASK_LOG_TYPE.ERROR, '经营分析缺少 reportId，任务结束');
+    return { done: true };
+  }
+  const periodRaw = str(state['period']) || str(ctx.task.input['period']);
+  const period: ManagerReportPeriod = (MANAGER_REPORT_PERIODS as readonly string[]).includes(
+    periodRaw,
+  )
+    ? (periodRaw as ManagerReportPeriod)
+    : 'daily';
+  const periodStart = str(state['periodStart']) || str(ctx.task.input['periodStart']);
+  const periodEnd = str(state['periodEnd']) || str(ctx.task.input['periodEnd']);
+
+  const exists = await withOrg(ctx.db, ctx.orgId, async (tx) => {
+    const [row] = await tx
+      .select({ id: schema.businessReport.id })
+      .from(schema.businessReport)
+      .where(
+        and(eq(schema.businessReport.id, reportId), eq(schema.businessReport.orgId, ctx.orgId)),
+      )
+      .limit(1);
+    if (!row) {
+      return false;
+    }
+    await tx
+      .update(schema.businessReport)
+      .set({ status: 'generating', updatedAt: ctx.now })
+      .where(eq(schema.businessReport.id, reportId));
+    return true;
+  });
+  if (!exists) {
+    await writeTaskLog(ctx, TASK_LOG_TYPE.ERROR, `经营报告不存在或已删除: ${reportId}`);
+    return { done: true };
+  }
+
+  const previousPeriod = asRecord(ctx.task.input['previousPeriod']);
+  await writeTaskLog(
+    ctx,
+    TASK_LOG_TYPE.MATCH,
+    `开始生成${reportPeriodLabel(period)}（${periodStart} ~ ${periodEnd}）`,
+  );
+
+  return {
+    patch: {
+      reportId,
+      period,
+      periodStart,
+      periodEnd,
+      overview: readOverview(ctx.task.input['overview']),
+      previousOverview: readOverview(ctx.task.input['previousOverview']),
+      previousPeriod: previousPeriod
+        ? { start: str(previousPeriod['start']), end: str(previousPeriod['end']) }
+        : null,
+      team: Array.isArray(ctx.task.input['team']) ? (ctx.task.input['team'] as unknown[]) : [],
+    },
+  };
+};
+
+/** detect_opportunities：近窗 vs 前窗询盘环比（阈值见 core 常量），产出可下钻 evidence */
+const detectOpportunities: FlowNodeFn = async (state, ctx) => {
+  const window = managerInsightWindow({ anchor: ctx.now, timeZone: ctx.org.timezone });
+  const candidates = await withOrg(ctx.db, ctx.orgId, (tx) =>
+    fetchOpportunityCandidates(tx, window),
+  );
+  const drafts = buildOpportunityDiscoveries(candidates, {
+    startDate: isoDate(window.recentStart),
+    endDate: isoDate(new Date(window.recentEnd.getTime() - 1)),
+  });
+  await writeTaskLog(
+    ctx,
+    TASK_LOG_TYPE.MATCH,
+    `机会检测完成：${candidates.length} 个国家候选，命中 ${drafts.length} 条`,
+  );
+  return { patch: { opportunityDiscoveries: drafts } };
+};
+
+/** detect_risks：高价值客户静默判定（score ≥ 阈值、非 cold、最后触达超期） */
+const detectRisks: FlowNodeFn = async (state, ctx) => {
+  const cutoff = new Date(ctx.now.getTime() - MANAGER_INACTIVE_DAYS * 86_400_000);
+  const rows = await withOrg(ctx.db, ctx.orgId, (tx) =>
+    fetchStaleHighValueCustomers(tx, {
+      scoreThreshold: MANAGER_HIGH_VALUE_SCORE,
+      cutoff,
+      limit: 20,
+    }),
+  );
+  const risk = buildRiskDiscovery(rows);
+  await writeTaskLog(
+    ctx,
+    TASK_LOG_TYPE.MATCH,
+    `风险检测完成：${rows.length} 个高价值客户静默超 ${MANAGER_INACTIVE_DAYS} 天`,
+  );
+  return { patch: { riskDiscoveries: risk ? [risk] : [] } };
+};
+
+/** compose_report：五段 Markdown + citations（纯函数组装，保证与发现列表同一套文案） */
+const composeReport: FlowNodeFn = (state, ctx) => {
+  const discoveries: DiscoveryDraft[] = [
+    ...((state['opportunityDiscoveries'] as DiscoveryDraft[] | undefined) ?? []),
+    ...((state['riskDiscoveries'] as DiscoveryDraft[] | undefined) ?? []),
+  ];
+  const previousPeriod = asRecord(state['previousPeriod']);
+  const input: BusinessReportInput = {
+    period: (state['period'] as ManagerReportPeriod | undefined) ?? 'daily',
+    periodStart: str(state['periodStart']),
+    periodEnd: str(state['periodEnd']),
+    overview: readOverview(state['overview']),
+    previousOverview: readOverview(state['previousOverview']),
+    previousPeriod: previousPeriod
+      ? { start: str(previousPeriod['start']), end: str(previousPeriod['end']) }
+      : null,
+    discoveries,
+    team: (state['team'] as ReportTeamRow[] | undefined) ?? [],
+    generatedAt: ctx.now,
+  };
+  return {
+    patch: {
+      discoveries,
+      reportContent: buildBusinessReportMarkdown(input),
+      reportCitations: buildBusinessReportCitations(input),
+    },
+  };
+};
+
+/** persist_report：business_report → ready + ai_discovery 幂等写回（P1-13-07） */
+const persistReport: FlowNodeFn = async (state, ctx) => {
+  const reportId = str(state['reportId']);
+  const content = str(state['reportContent']);
+  const discoveries = (state['discoveries'] as DiscoveryDraft[] | undefined) ?? [];
+
+  if (!reportId || !content) {
+    if (reportId) {
+      await withOrg(ctx.db, ctx.orgId, (tx) =>
+        tx
+          .update(schema.businessReport)
+          .set({ status: 'failed', updatedAt: ctx.now })
+          .where(eq(schema.businessReport.id, reportId)),
+      );
+    }
+    await writeTaskLog(ctx, TASK_LOG_TYPE.ERROR, '经营报告组装失败：缺少报告标识或正文');
+    return { done: true };
+  }
+
+  const citations = (state['reportCitations'] as Record<string, unknown>[] | undefined) ?? [];
+  await withOrg(ctx.db, ctx.orgId, async (tx) => {
+    await upsertDiscoveries(tx, ctx.orgId, discoveries);
+    await tx
+      .update(schema.businessReport)
+      .set({ status: 'ready', content, citations, generatedAt: ctx.now, updatedAt: ctx.now })
+      .where(
+        and(eq(schema.businessReport.id, reportId), eq(schema.businessReport.orgId, ctx.orgId)),
+      );
+  });
+  await writeTaskLog(ctx, TASK_LOG_TYPE.FOUND, `经营报告已生成：${discoveries.length} 条发现`);
+  return { patch: { reportStatus: 'ready', discoveryCount: discoveries.length } };
+};
+
+/** 任务日志落库 + 推实时事件（先落库再推事件，保证断线回放同构，03 §6.2） */
+async function writeTaskLog(
+  ctx: TaskRunContext,
+  type: (typeof TASK_LOG_TYPE)[keyof typeof TASK_LOG_TYPE],
+  content: string,
+): Promise<void> {
+  const logId = createId('tlog');
+  const occurredAt = ctx.now;
+  await withOrg(ctx.db, ctx.orgId, async (tx) => {
+    await tx.insert(schema.aiTaskLog).values({
+      id: logId,
+      orgId: ctx.orgId,
+      taskId: ctx.taskId,
+      occurredAt,
+      type,
+      content,
+      leadId: null,
+    });
+  });
+  ctx.events.push({
+    type: 'log',
+    payload: { logId, time: occurredAt.toISOString(), type, content },
+  });
+}
+
 /** ===== 注册表装配 ===== */
 
 /** 注册到具体实现类（register 方法在 Simple 实现上，接口仅暴露 get/has） */
 export function registerFlows(registry: SimpleFlowRegistry): void {
+  registry.register('load_order', loadOrder);
+  registry.register('assess_risk', assessRisk);
+  registry.register('alert_anomaly', alertAnomaly);
   registry.register('dedup_check', dedupCheck);
   registry.register('record_score', recordScore);
   registry.register('target_reached', targetReached);
@@ -935,6 +1594,13 @@ export function registerFlows(registry: SimpleFlowRegistry): void {
   registry.register('schedule_next', scheduleNext);
   registry.register('load_analysis_context', loadAnalysisContext);
   registry.register('write_customer_insight', writeCustomerInsight);
+  registry.register('load_product_context', loadProductContext);
+  registry.register('write_product_knowledge', writeProductKnowledge);
+  registry.register('load_report_context', loadReportContext);
+  registry.register('detect_opportunities', detectOpportunities);
+  registry.register('detect_risks', detectRisks);
+  registry.register('compose_report', composeReport);
+  registry.register('persist_report', persistReport);
 }
 
 /** 便捷装配：新建 SimpleFlowRegistry 并注入全部 flow */

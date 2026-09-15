@@ -3,7 +3,7 @@
  * - llm / embedding / search 三类配置清单 CRUD；
  * - 首建自动选中；selection 切换（每 type 至多一个 selected）；
  * - 删除生效模型自动回退；apiKey 加密落库（响应不回显，resolveActiveModel 可解密）；
- * - embedding 必须指定向量维度（且须与知识索引 vector(1536) 一致）；
+ * - embedding 必须指定向量维度（且须与知识索引向量列维度 = KNOWLEDGE_EMBEDDING_DIMENSIONS 一致）；
  * - search（搜索供应商）provider 限 http，必须有端点与凭据；
  * - 运行时接入：选用模型驱动 LlmGateway.resolveTarget / Embedding Provider / Search Provider（全服务统一口径）。
  * 前置：docker compose up（PG 5432 / Redis 6379）+ 迁移已执行（含 manual 0011 的 ai_model_type='search'）。
@@ -26,6 +26,7 @@ import {
   getEmbeddingProvider,
   getSearchProvider,
   HttpSearchProvider,
+  KNOWLEDGE_EMBEDDING_DIMENSIONS,
   OpenAiEmbeddingProvider,
   setEmbeddingProviderFactory,
   setSearchProviderFactory,
@@ -175,14 +176,14 @@ describe('M5-D3 · ai_model 台账 + org 级全局选用（16 FR-10 扩展）', 
       name: 'Embedding A',
       provider: 'openai',
       model: 'text-embedding-3-small',
-      dimensions: 1536,
+      dimensions: KNOWLEDGE_EMBEDDING_DIMENSIONS,
     });
     const e2 = await aiModels.create(orgId, userId, {
       type: 'embedding',
       name: 'Embedding B',
       provider: 'openai',
       model: 'text-embedding-3-large',
-      dimensions: 1536,
+      dimensions: KNOWLEDGE_EMBEDDING_DIMENSIONS,
     });
     expect(e1.isSelected).toBe(true);
     expect(e2.isSelected).toBe(false);
@@ -213,7 +214,7 @@ describe('M5-D3 · ai_model 台账 + org 级全局选用（16 FR-10 扩展）', 
     expect(activeWithKey?.apiKey).toBe('sk-test-123');
   });
 
-  it('embedding 维度非 1536 / 提供方不支持时拒绝（与知识索引列约束一致）', async () => {
+  it('embedding 维度与知识索引列不一致 / 提供方不支持时拒绝', async () => {
     await expect(
       aiModels.create(orgId, userId, {
         type: 'embedding',
@@ -222,7 +223,7 @@ describe('M5-D3 · ai_model 台账 + org 级全局选用（16 FR-10 扩展）', 
         model: 'text-embedding-3-large',
         dimensions: 3072,
       }),
-    ).rejects.toThrow('1536');
+    ).rejects.toThrow(String(KNOWLEDGE_EMBEDDING_DIMENSIONS));
 
     await expect(
       aiModels.create(orgId, userId, {
@@ -230,7 +231,7 @@ describe('M5-D3 · ai_model 台账 + org 级全局选用（16 FR-10 扩展）', 
         name: 'Wrong Provider',
         provider: 'anthropic',
         model: 'voyage-3',
-        dimensions: 1536,
+        dimensions: KNOWLEDGE_EMBEDDING_DIMENSIONS,
       }),
     ).rejects.toThrow('提供方');
   });
@@ -266,14 +267,14 @@ describe('M5-D3 · 运行时接入：选用模型驱动 LlmGateway / Embedding�
     expect(switched.degraded).toBe(false);
   });
 
-  it('Embedding 解析：台账选用 → toEmbeddingProviderConfig 输出 openai + 1536 维', async () => {
+  it('Embedding 解析：台账选用 → toEmbeddingProviderConfig 输出 openai + 与列一致的维度', async () => {
     const active = await aiModels.resolveActiveModel(orgId, 'embedding');
     expect(active).not.toBeNull();
-    expect(active?.dimensions).toBe(1536);
+    expect(active?.dimensions).toBe(KNOWLEDGE_EMBEDDING_DIMENSIONS);
 
     const config = toEmbeddingProviderConfig(active, EMBEDDING_FALLBACK);
     expect(config.provider).toBe('openai');
-    expect(config.dimensions).toBe(1536);
+    expect(config.dimensions).toBe(KNOWLEDGE_EMBEDDING_DIMENSIONS);
     expect(config.model).toBe(active?.model);
 
     // 未配置台账（active=null）→ 原样回落环境变量
@@ -287,7 +288,7 @@ describe('M5-D3 · 运行时接入：选用模型驱动 LlmGateway / Embedding�
       name: 'Embedding Live',
       provider: 'openai',
       model: 'text-embedding-3-small',
-      dimensions: 1536,
+      dimensions: KNOWLEDGE_EMBEDDING_DIMENSIONS,
       apiKey: 'sk-embed-123',
     });
     await aiModels.select(orgId, { type: 'embedding', modelId: emb.id });

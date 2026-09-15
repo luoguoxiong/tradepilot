@@ -176,7 +176,9 @@ export class FollowUpsService {
         notDeleted(schema.customer.deletedAt),
       ];
       if (query.tab === 'today') {
-        conditions.push(and(gte(schema.followUpTask.nextRunAt, start), lt(schema.followUpTask.nextRunAt, end)));
+        conditions.push(
+          and(gte(schema.followUpTask.nextRunAt, start), lt(schema.followUpTask.nextRunAt, end)),
+        );
       } else if (query.tab === 'waiting_approval') {
         conditions.push(eq(schema.followUpTask.status, 'waiting_approval'));
       } else if (query.tab === 'completed') {
@@ -200,7 +202,10 @@ export class FollowUpsService {
         })
         .from(schema.followUpTask)
         .innerJoin(schema.customer, eq(schema.customer.id, schema.followUpTask.customerId))
-        .innerJoin(schema.followUpStrategy, eq(schema.followUpStrategy.id, schema.followUpTask.strategyId))
+        .innerJoin(
+          schema.followUpStrategy,
+          eq(schema.followUpStrategy.id, schema.followUpTask.strategyId),
+        )
         .where(where)
         .orderBy(desc(schema.followUpTask.createdAt))
         .limit(query.pageSize)
@@ -210,7 +215,10 @@ export class FollowUpsService {
         .select({ n: sql<number>`count(*)::int` })
         .from(schema.followUpTask)
         .innerJoin(schema.customer, eq(schema.customer.id, schema.followUpTask.customerId))
-        .innerJoin(schema.followUpStrategy, eq(schema.followUpStrategy.id, schema.followUpTask.strategyId))
+        .innerJoin(
+          schema.followUpStrategy,
+          eq(schema.followUpStrategy.id, schema.followUpTask.strategyId),
+        )
         .where(where);
 
       return {
@@ -232,7 +240,10 @@ export class FollowUpsService {
   }
 
   /** 07 §2 暂停单个客户跟进（如客户已回复）；completed → 40901 */
-  async pause(ctx: OrgScopeContext, taskId: string): Promise<{ followUpTaskId: string; status: 'paused' }> {
+  async pause(
+    ctx: OrgScopeContext,
+    taskId: string,
+  ): Promise<{ followUpTaskId: string; status: 'paused' }> {
     return withOrg(this.db, ctx.orgId, async (tx) => {
       const [task] = await tx
         .select({ id: schema.followUpTask.id, status: schema.followUpTask.status })
@@ -260,7 +271,10 @@ export class FollowUpsService {
    * （按 dayOffset 差值推进；无下一步则顺延 +24h 对齐 mock），最终经
    * computeDeferredNextRunAt 对齐发送窗口并满足频控约束；completed → 40901。
    */
-  async skip(ctx: OrgScopeContext, taskId: string): Promise<{ followUpTaskId: string; nextRunAt: string }> {
+  async skip(
+    ctx: OrgScopeContext,
+    taskId: string,
+  ): Promise<{ followUpTaskId: string; nextRunAt: string }> {
     return withOrg(this.db, ctx.orgId, async (tx) => {
       const [task] = await tx
         .select()
@@ -275,7 +289,10 @@ export class FollowUpsService {
       }
 
       const steps = await tx
-        .select({ seq: schema.followUpStrategyStep.seq, dayOffset: schema.followUpStrategyStep.dayOffset })
+        .select({
+          seq: schema.followUpStrategyStep.seq,
+          dayOffset: schema.followUpStrategyStep.dayOffset,
+        })
         .from(schema.followUpStrategyStep)
         .where(
           and(
@@ -290,9 +307,13 @@ export class FollowUpsService {
       const nextStep = steps.find((s) => s.seq > currentSeq);
 
       const now = new Date();
-      const base = task.nextRunAt !== null && task.nextRunAt.getTime() > now.getTime() ? task.nextRunAt : now;
+      const base =
+        task.nextRunAt !== null && task.nextRunAt.getTime() > now.getTime() ? task.nextRunAt : now;
       const rawTarget = nextStep
-        ? new Date(base.getTime() + Math.max(nextStep.dayOffset - (currentStep?.dayOffset ?? 0), 1) * 86_400_000)
+        ? new Date(
+            base.getTime() +
+              Math.max(nextStep.dayOffset - (currentStep?.dayOffset ?? 0), 1) * 86_400_000,
+          )
         : new Date(base.getTime() + 24 * 3_600_000);
 
       const orgCtx = await this.orgSendContext(tx, ctx.orgId);
@@ -340,7 +361,10 @@ export class FollowUpsService {
         .from(schema.followUpStrategy)
         .where(where);
 
-      const stepsByStrategy = new Map<string, typeof schema.followUpStrategyStep.$inferSelect[]>();
+      const stepsByStrategy = new Map<
+        string,
+        (typeof schema.followUpStrategyStep.$inferSelect)[]
+      >();
       if (rows.length > 0) {
         const stepRows = await tx
           .select()
@@ -389,7 +413,10 @@ export class FollowUpsService {
   }
 
   /** 07 §3.3 新建策略：业务校验 42201，写 followUpStrategy + 多条 step（seq 归一、isBreakup 系统置位） */
-  async createStrategy(ctx: OrgScopeContext, dto: UpsertStrategyDto): Promise<{ strategyId: string }> {
+  async createStrategy(
+    ctx: OrgScopeContext,
+    dto: UpsertStrategyDto,
+  ): Promise<{ strategyId: string }> {
     this.assertStrategyWritable(ctx);
     this.validateStrategy(dto);
     return withOrg(this.db, ctx.orgId, async (tx) => {
@@ -407,6 +434,7 @@ export class FollowUpsService {
         createdAt: now,
         updatedAt: now,
       });
+      await this.assertTemplatesExist(tx, ctx.orgId, dto.steps);
       try {
         await this.insertSteps(tx, ctx.orgId, strategyId, dto.steps);
       } catch (err) {
@@ -432,7 +460,12 @@ export class FollowUpsService {
       const [strategy] = await tx
         .select({ id: schema.followUpStrategy.id, isDefault: schema.followUpStrategy.isDefault })
         .from(schema.followUpStrategy)
-        .where(and(eq(schema.followUpStrategy.id, strategyId), eq(schema.followUpStrategy.orgId, ctx.orgId)))
+        .where(
+          and(
+            eq(schema.followUpStrategy.id, strategyId),
+            eq(schema.followUpStrategy.orgId, ctx.orgId),
+          ),
+        )
         .limit(1);
       if (!strategy) {
         throw new BizException(ErrorCode.NOT_FOUND, '策略不存在');
@@ -461,6 +494,7 @@ export class FollowUpsService {
             eq(schema.followUpStrategyStep.orgId, ctx.orgId),
           ),
         );
+      await this.assertTemplatesExist(tx, ctx.orgId, dto.steps);
       try {
         await this.insertSteps(tx, ctx.orgId, strategyId, dto.steps);
       } catch (err) {
@@ -480,7 +514,12 @@ export class FollowUpsService {
       const [strategy] = await tx
         .select({ id: schema.followUpStrategy.id, isDefault: schema.followUpStrategy.isDefault })
         .from(schema.followUpStrategy)
-        .where(and(eq(schema.followUpStrategy.id, strategyId), eq(schema.followUpStrategy.orgId, ctx.orgId)))
+        .where(
+          and(
+            eq(schema.followUpStrategy.id, strategyId),
+            eq(schema.followUpStrategy.orgId, ctx.orgId),
+          ),
+        )
         .limit(1);
       if (!strategy) {
         throw new BizException(ErrorCode.NOT_FOUND, '策略不存在');
@@ -513,7 +552,12 @@ export class FollowUpsService {
         );
       await tx
         .delete(schema.followUpStrategy)
-        .where(and(eq(schema.followUpStrategy.id, strategyId), eq(schema.followUpStrategy.orgId, ctx.orgId)));
+        .where(
+          and(
+            eq(schema.followUpStrategy.id, strategyId),
+            eq(schema.followUpStrategy.orgId, ctx.orgId),
+          ),
+        );
       return { deleted: true };
     });
   }
@@ -529,7 +573,12 @@ export class FollowUpsService {
       const [strategy] = await tx
         .select({ id: schema.followUpStrategy.id })
         .from(schema.followUpStrategy)
-        .where(and(eq(schema.followUpStrategy.id, strategyId), eq(schema.followUpStrategy.orgId, ctx.orgId)))
+        .where(
+          and(
+            eq(schema.followUpStrategy.id, strategyId),
+            eq(schema.followUpStrategy.orgId, ctx.orgId),
+          ),
+        )
         .limit(1);
       if (!strategy) {
         throw new BizException(ErrorCode.NOT_FOUND, '策略不存在');
@@ -538,7 +587,12 @@ export class FollowUpsService {
       const tasks = await tx
         .select({ id: schema.followUpTask.id })
         .from(schema.followUpTask)
-        .where(and(eq(schema.followUpTask.strategyId, strategyId), eq(schema.followUpTask.orgId, ctx.orgId)));
+        .where(
+          and(
+            eq(schema.followUpTask.strategyId, strategyId),
+            eq(schema.followUpTask.orgId, ctx.orgId),
+          ),
+        );
       const taskIds = tasks.map((t) => t.id);
       if (taskIds.length === 0) {
         return { items: [], total: 0, page, pageSize };
@@ -604,14 +658,22 @@ export class FollowUpsService {
       const [strategy] = await tx
         .select({ id: schema.followUpStrategy.id })
         .from(schema.followUpStrategy)
-        .where(and(eq(schema.followUpStrategy.id, strategyId), eq(schema.followUpStrategy.orgId, ctx.orgId)))
+        .where(
+          and(
+            eq(schema.followUpStrategy.id, strategyId),
+            eq(schema.followUpStrategy.orgId, ctx.orgId),
+          ),
+        )
         .limit(1);
       if (!strategy) {
         throw new BizException(ErrorCode.NOT_FOUND, '策略不存在');
       }
 
       const steps = await tx
-        .select({ seq: schema.followUpStrategyStep.seq, dayOffset: schema.followUpStrategyStep.dayOffset })
+        .select({
+          seq: schema.followUpStrategyStep.seq,
+          dayOffset: schema.followUpStrategyStep.dayOffset,
+        })
         .from(schema.followUpStrategyStep)
         .where(
           and(
@@ -725,12 +787,75 @@ export class FollowUpsService {
       }
     }
     if (steps.some((s) => s.isBreakup) && dto.autoSendPolicy === 'auto_send') {
-      throw new BizException(ErrorCode.BIZ_VALIDATION, 'Break-up Email 节点强制人工审核，不可选择自动发送');
+      throw new BizException(
+        ErrorCode.BIZ_VALIDATION,
+        'Break-up Email 节点强制人工审核，不可选择自动发送',
+      );
+    }
+    // 07 §3.3 / TC-FU-04：非 Break-up 步骤必须「模板 ID 或自定义正文」二选一，
+    // 否则落库后既无模板又无正文，执行期无法产出内容。
+    for (const s of steps) {
+      if (s.isBreakup) continue;
+      const hasTemplate = typeof s.templateId === 'string' && s.templateId.trim() !== '';
+      const hasContent = typeof s.content === 'string' && s.content.trim() !== '';
+      if (!hasTemplate && !hasContent) {
+        throw new BizException(
+          ErrorCode.BIZ_VALIDATION,
+          '跟进步骤必须指定知识库模板或填写自定义正文',
+        );
+      }
+    }
+  }
+
+  /**
+   * 校验步骤引用的知识库模板存在且属于本租户（07 §3.3 / TC-FU-04）。
+   *
+   * `follow_up_strategy_step.template_id` 外键指向 `knowledge_document`，此前未做存在性校验，
+   * 传入任意（或跨租户）模板 ID 会直接命中外键约束并返回 50001，属于把校验缺失暴露成内部错误。
+   */
+  private async assertTemplatesExist(
+    tx: Tx,
+    orgId: string,
+    steps: StrategyStepDto[],
+  ): Promise<void> {
+    const templateIds = [
+      ...new Set(
+        steps
+          .filter((s) => !s.isBreakup)
+          .map((s) => s.templateId)
+          .filter((id): id is string => typeof id === 'string' && id.trim() !== ''),
+      ),
+    ];
+    if (templateIds.length === 0) return;
+
+    const found = await tx
+      .select({ id: schema.knowledgeDocument.id })
+      .from(schema.knowledgeDocument)
+      .where(
+        and(
+          eq(schema.knowledgeDocument.orgId, orgId),
+          inArray(schema.knowledgeDocument.id, templateIds),
+          notDeleted(schema.knowledgeDocument.deletedAt),
+        ),
+      );
+
+    if (found.length !== templateIds.length) {
+      const hit = new Set(found.map((r) => r.id));
+      const missing = templateIds.filter((id) => !hit.has(id));
+      throw new BizException(
+        ErrorCode.BIZ_VALIDATION,
+        `步骤引用的知识库模板不存在或不属于当前组织：${missing.join(', ')}`,
+      );
     }
   }
 
   /** 批量写 steps：seq 归一（下标+1）、isBreakup 系统置位、channel 固定 email（对齐 mock sanitizeSteps） */
-  private async insertSteps(tx: Tx, orgId: string, strategyId: string, steps: StrategyStepDto[]): Promise<void> {
+  private async insertSteps(
+    tx: Tx,
+    orgId: string,
+    strategyId: string,
+    steps: StrategyStepDto[],
+  ): Promise<void> {
     if (steps.length === 0) {
       return;
     }
@@ -742,8 +867,8 @@ export class FollowUpsService {
         seq: index + 1,
         dayOffset: step.dayOffset,
         title: step.title,
-        templateId: step.isBreakup ? null : step.templateId ?? null,
-        content: step.isBreakup || !step.templateId ? step.content ?? null : null,
+        templateId: step.isBreakup ? null : (step.templateId ?? null),
+        content: step.isBreakup || !step.templateId ? (step.content ?? null) : null,
         channel: 'email',
         isBreakup: Boolean(step.isBreakup),
       })),
@@ -801,7 +926,11 @@ export class FollowUpsService {
 export interface FollowUpStrategy {
   strategyId: string;
   name: string;
-  targetScope: { customerValue: Array<'high' | 'medium' | 'low'>; industry?: string[]; tags?: string[] };
+  targetScope: {
+    customerValue: Array<'high' | 'medium' | 'low'>;
+    industry?: string[];
+    tags?: string[];
+  };
   steps: {
     seq: number;
     dayOffset: number;

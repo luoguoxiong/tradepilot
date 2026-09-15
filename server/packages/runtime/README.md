@@ -130,7 +130,8 @@ src/
 - `failStep`：置步骤 `failed`（审批挂起 / 外部暂停**豁免**，不落 failed）。
 
 **工具桥接 `execTool`**：`withOrg` 单事务装配 `ToolContext`（`log` 绑定 `ai_task_log` + 事件缓冲）。
-`tool` 节点执行顺序：`assertAllowed`（员工工具白名单）→ `parseInput`（Zod 入参即权限边界）→
+`tool` 节点执行顺序：`assertAllowed`（员工工具白名单 ∪ 当前 SOP 图声明的工具，SOP 由 admin/manager
+选配并版本锁定，声明即授权，避免白名单漏勾导致任务必失败）→ `parseInput`（Zod 入参即权限边界）→
 `assertQuota`（`quotaWeight` + org 时区墙钟日分片）→ 风险分流 → `freshnessCheck`（仅 resume）。
 
 **关键导出**（包根）：`GraphCompiler`、`ApprovalPendingError`、`renderTemplate`、

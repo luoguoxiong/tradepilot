@@ -1,5 +1,6 @@
 export * from './error-codes.js';
 export * from './errors.js';
+export * from './retry.js';
 export * from './id.js';
 export * from './time-window.js';
 export * from './money.js';
@@ -7,3 +8,9 @@ export * from './scope.js';
 export * from './crypto.js';
 export * from './text-chunk.js';
 export * from './rrf.js';
+export * from './pricing.js';
+export * from './order-risk.js';
+export * from './analytics.js';
+export * from './manager-insights.js';
+export * from './employee-kpi.js';
+export * from './copilot-action.js';

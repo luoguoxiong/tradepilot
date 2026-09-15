@@ -7,6 +7,12 @@
 export type KnowledgeCategory =
   'product' | 'company' | 'sales' | 'customer' | 'faq' | 'process' | 'other'
 
+/**
+ * 入库来源（11 §3.1）：`upload` 手动上传（知识中心）/ `email_attachment` 06 会话详情「存入知识库」（FR-07）。
+ * `product` 为 08 归档内部写入，不走前端上传。
+ */
+export type KnowledgeSource = 'upload' | 'email_attachment'
+
 /** 索引状态（11 §1.1） */
 export type KnowledgeDocStatus = 'indexed' | 'indexing' | 'failed'
 

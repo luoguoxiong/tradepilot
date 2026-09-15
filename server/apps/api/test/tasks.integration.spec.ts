@@ -19,12 +19,12 @@ import { TasksService } from '../src/tasks/tasks.service.js';
  *   ② 入队移到事务提交之后；
  *   ③ 未来 scheduled_at 不直投（本应 delayed，交由 Dispatcher 到点投递）。
  * 断言以「毒态不变式」为核心：任何时刻 org 内不允许存在 running + started_at 为 null 的任务行。
- * 前置：docker compose up（PG 5432 / Redis 6380）+ 迁移已执行 + tradepilot_app 角色存在。
+ * 前置：docker compose up（PG 5432 / Redis 6379）+ 迁移已执行 + tradepilot_app 角色存在。
  */
 
 process.env.JWT_SECRET ||= 'it_only_test_secret_0123456789abcdef0123456789abcdef';
 process.env.ENCRYPTION_KEY ||= '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-process.env.REDIS_URL ||= 'redis://localhost:6380';
+process.env.REDIS_URL ||= 'redis://localhost:6379';
 process.env.DATABASE_URL ||= 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
 
 const SUPER_URL = 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
@@ -129,6 +129,11 @@ afterAll(async () => {
       await tx.delete(schema.sopTemplate).where(eq(schema.sopTemplate.orgId, orgId));
       await tx.delete(schema.aiModelSetting).where(eq(schema.aiModelSetting.orgId, orgId));
       await tx.delete(schema.rolePermission).where(eq(schema.rolePermission.orgId, orgId));
+      // 通知由审批/任务等业务事件生成（notification.org_id FK → org，必须先清）
+      await tx.delete(schema.notification).where(eq(schema.notification.orgId, orgId));
+      await tx
+        .delete(schema.notificationSetting)
+        .where(eq(schema.notificationSetting.orgId, orgId));
       await tx.delete(schema.userAccount).where(eq(schema.userAccount.orgId, orgId));
       await tx.delete(schema.org).where(eq(schema.org.id, orgId));
     });

@@ -33,13 +33,13 @@ import { EmailSyncProcessor } from '../src/queues/email-sync.js';
  *   IMAP 登录收件方邮箱验证回信到达（真实收发闭环）；
  * - follow_up：autoApprove 直发（auto_approved 留痕）→ 真实外发 → writeback_execution →
  *   schedule_next（频控顺延）→ 收件方邮箱验证第 1 步触达。
- * 前置：docker compose up（PG 5432 / Redis 6380 / GreenMail 1025+1114）+ `pnpm --filter @tradepilot/db migrate`。
+ * 前置：docker compose up（PG 5432 / Redis 6379 / GreenMail 1025+1114）+ `pnpm --filter @tradepilot/db migrate`。
  */
 
 const SUPER_URL =
   process.env.TEST_SUPER_DATABASE_URL ??
   'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
-const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6380';
+const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 const SMTP_PORT = Number(process.env.MAILPIT_SMTP_PORT ?? 1025);
 const IMAP_PORT = Number(process.env.MAILPIT_IMAP_PORT ?? 1114);
 const KEY = '0'.repeat(64);
@@ -442,7 +442,8 @@ async function fetchInboxSubjects(
 describe('M4 出口 dry-run · lead_hunting（真实搜索供应商）', () => {
   it('图执行 completed：web_search→评分→联系人→crm_write 落 ai_lead，LLM 记账全节点', async () => {
     const taskId = await insertTask(ORG_LH, EMP_LH, 'lead_hunting', {
-      goal: '寻找欧洲 LED 照明进口商',
+      // 键名须与服务层契约一致：工作流 parse_goal 提示词消费 {{input.goalText}}
+      goalText: '寻找欧洲 LED 照明进口商',
       targetCount: 5,
     });
 

@@ -8,7 +8,8 @@ import { ensureTestBucket, testEnv, testObjectStorage } from './setup/providers.
 
 /**
  * M4 #7 知识入库流水线集成用例（C3，后端技术方案 07 §2 / 11 §7.2）：
- * - 取原文 → parse（md 直读）→ clean → chunk → embed（真实向量模型，维度 1536）
+ * - 取原文 → parse（md 直读）→ clean → chunk → embed（真实向量模型，维度须等于知识索引列维度
+ *   KNOWLEDGE_EMBEDDING_DIMENSIONS）
  *   → 事务落库（旧 chunk 物理清除 + status='indexed'）；
  * - retry 重跑幂等（chunk 数一致）；
  * - 软删后迟到 job → skipped（引用实时失效语义）；
@@ -97,7 +98,7 @@ afterAll(async () => {
 });
 
 describe('M4 #7 知识入库流水线（q:knowledge_index）', () => {
-  it('md 文档：parse→chunk→embed→落库，status=indexed + embedding 1536 维', async () => {
+  it('md 文档：parse→chunk→embed→落库，status=indexed + embedding 维度与列一致', async () => {
     const outcome = await processor.process(DOC_OK);
     expect(outcome.status).toBe('indexed');
     expect(outcome.chunks).toBeGreaterThanOrEqual(1);

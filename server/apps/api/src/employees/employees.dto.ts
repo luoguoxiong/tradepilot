@@ -1,33 +1,14 @@
 /**
  * 02 AI 数字员工中心 DTO（M5-C3）。
  * 契约来源：web/src/api/types/employees.ts（前端契约为唯一事实源）+ 页面级接口文档 02 §1.2。
- * - 角色/KPI metric 枚举（02 §1.1 注 + web mock 口径，联调 v0.1.8 统一）：
- *   lead_hunter=daily_leads / customer_researcher=daily_profiles / sales=daily_replies /
- *   follow_up=daily_followups / merchandiser=active_orders / manager=daily_reports；
+ * - 角色/KPI metric 枚举定义在 `@tradepilot/core`（02 §3.2 P1 精化口径聚合也依赖同一映射，此处仅再导出）；
  * - role / kpiConfig.metric / approvalPolicy.quote 属业务校验（非法 → 42201，服务层校验，02 §3.1/§3.2）；
  * - approvalPolicy.email_send 缺省 'high_value_only'、autoExecute 缺省 []（02 §1.2）。
  */
+import { EMPLOYEE_ROLES, ROLE_KPI_METRIC, type EmployeeRole } from '@tradepilot/core';
 import { z } from 'zod';
 
-export const EMPLOYEE_ROLES = [
-  'lead_hunter',
-  'customer_researcher',
-  'sales',
-  'follow_up',
-  'merchandiser',
-  'manager',
-] as const;
-export type EmployeeRole = (typeof EMPLOYEE_ROLES)[number];
-
-/** 角色 → KPI metric 固定映射（02 §1.1 注 + web mock 口径；period 恒 daily） */
-export const ROLE_KPI_METRIC: Record<EmployeeRole, string> = {
-  lead_hunter: 'daily_leads',
-  customer_researcher: 'daily_profiles',
-  sales: 'daily_replies',
-  follow_up: 'daily_followups',
-  merchandiser: 'active_orders',
-  manager: 'daily_reports',
-};
+export { EMPLOYEE_ROLES, ROLE_KPI_METRIC, type EmployeeRole };
 
 export const approvalPolicySchema = z.object({
   /** 邮件发送审批策略（16 §4）：缺省跟随全局 high_value_only */

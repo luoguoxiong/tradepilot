@@ -19,13 +19,13 @@ import { ConversationsService } from '../src/conversations/conversations.service
  * - 12 §3.3 回调原业务动作：审核批准 → mailbox 真实外发（驱动被调用）+ message.status='sent'
  *   + resultRef={messageId,status:'sent'}；edited_approved → 以编辑稿外发 + editedDiff 留痕；
  *   拒绝 → message.status 回退 'draft' 可重编辑。
- * 前置：docker compose up（PG 5432 / Redis 6380 / GreenMail 1025+1114）
+ * 前置：docker compose up（PG 5432 / Redis 6379 / GreenMail 1025+1114）
  * + `pnpm --filter @tradepilot/db migrate`，且已提供 server/.env.test（真实 provider 配置）。
  */
 
 process.env.JWT_SECRET ||= 'it_only_test_secret_0123456789abcdef0123456789abcdef';
 process.env.ENCRYPTION_KEY ||= '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-process.env.REDIS_URL ||= 'redis://localhost:6380';
+process.env.REDIS_URL ||= 'redis://localhost:6379';
 process.env.DATABASE_URL ||= 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
 
 const SUPER_URL = 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
@@ -54,6 +54,7 @@ const MSG_REJECT = createId('msg');
 const APR_APPROVE = createId('apr');
 const APR_EDIT = createId('apr');
 const APR_REJECT = createId('apr');
+const STRAT = createId('fstrat');
 
 const ctx = { orgId: ORG, userId: ADMIN, role: 'admin' as const, scope: 'all' as const };
 
@@ -209,8 +210,29 @@ beforeAll(async () => {
       suggestions: [
         { suggestionId: 'sug-1', label: '强调 MOQ 500 双起订' },
         { suggestionId: 'sug-2', label: '附上 CE 认证说明' },
+        // 流程型建议（D8 恢复）：创建报价 → 跳 09；预约跟进 → create_tasks 建任务
+        { suggestionId: 'sug-quote', label: '创建报价单（MOQ 500，CE 认证）' },
+        { suggestionId: 'sug-task', label: '预约 5 天后跟进' },
       ],
       generatedAt: new Date(),
+    });
+    // create_tasks 依赖组织默认跟进策略（本档手工建 org，需自建策略 + 首步）
+    await tx.insert(schema.followUpStrategy).values({
+      id: STRAT,
+      orgId: ORG,
+      name: 'M5-C1 默认跟进策略',
+      targetScope: {},
+      autoSendPolicy: 'manual_review',
+      isDefault: true,
+    });
+    await tx.insert(schema.followUpStrategyStep).values({
+      id: createId('fstep'),
+      orgId: ORG,
+      strategyId: STRAT,
+      seq: 1,
+      dayOffset: 5,
+      title: '第 1 次跟进',
+      channel: 'email',
     });
     await seedMessageApproval(tx, MSG_APPROVE, APR_APPROVE, '原稿正文 A');
     await seedMessageApproval(tx, MSG_EDIT, APR_EDIT, '原稿正文 B');
@@ -223,6 +245,9 @@ afterAll(async () => {
     await tx.delete(schema.approvalLog).where(eq(schema.approvalLog.orgId, ORG));
     await tx.delete(schema.approvalRequest).where(eq(schema.approvalRequest.orgId, ORG));
     await tx.delete(schema.message).where(eq(schema.message.orgId, ORG));
+    await tx.delete(schema.followUpTask).where(eq(schema.followUpTask.orgId, ORG));
+    await tx.delete(schema.followUpStrategyStep).where(eq(schema.followUpStrategyStep.orgId, ORG));
+    await tx.delete(schema.followUpStrategy).where(eq(schema.followUpStrategy.orgId, ORG));
     await tx.delete(schema.conversationInsight).where(eq(schema.conversationInsight.orgId, ORG));
     await tx.delete(schema.conversation).where(eq(schema.conversation.orgId, ORG));
     await tx.delete(schema.contact).where(eq(schema.contact.orgId, ORG));
@@ -271,6 +296,20 @@ describe('M5-C1 · 06 #11 ↔ 12 #12 联动', () => {
       .from(schema.message)
       .where(eq(schema.message.id, MSG_SEND));
     expect(msg?.status).toBe('waiting_approval');
+
+    // TC-APV-15：confidence 0–1 禁止虚构 + reasons 逐条 Insight Schema（text/evidence/source）
+    const confidence = Number(apr?.confidence);
+    expect(confidence).toBeGreaterThanOrEqual(0);
+    expect(confidence).toBeLessThanOrEqual(1);
+    for (const r of apr?.reasons ?? []) {
+      const reason = r as { text?: unknown; evidence?: unknown; source?: unknown };
+      expect(typeof reason.text).toBe('string');
+      expect(reason.text!.length).toBeGreaterThan(0);
+      expect(typeof reason.source).toBe('string');
+    }
+
+    // TC-APV-12：waiting_approval 期间绕过审批直接再发 → 40901 拦截（未批准执行拦截）
+    await expectBizError(conversations.send(ctx, CONV, { messageId: MSG_SEND }), 40901);
   });
 
   it('insert_draft：返回合并后全文 + 草稿消息 id，二次执行复用同一草稿', async () => {
@@ -298,6 +337,58 @@ describe('M5-C1 · 06 #11 ↔ 12 #12 联动', () => {
       .where(eq(schema.message.id, first.draftId!));
     expect(draft?.status).toBe('draft');
     expect(draft?.content).toBe(second.draftContent);
+  });
+
+  it('copilot 读侧：返回 customerId + 建议分类（内容型 content / 流程型 create_quote·create_tasks，D8 恢复）', async () => {
+    const data = await conversations.copilot(ctx, CONV);
+    // 流程型「创建报价」跳 09 需带客
+    expect(data.customerId).toBe(CUS);
+    expect(data.intent).toBe('rfq');
+
+    const byId = new Map(data.suggestions.map((s) => [s.suggestionId, s]));
+    // 内容型：无 action，前端归入 insert_draft
+    expect(byId.get('sug-1')).toMatchObject({ kind: 'content', checked: false });
+    expect(byId.get('sug-1')!.action).toBeUndefined();
+    // 流程型：动作标识驱动前端入口（创建报价 / 预约跟进）
+    expect(byId.get('sug-quote')).toMatchObject({ kind: 'process', action: 'create_quote' });
+    expect(byId.get('sug-task')).toMatchObject({ kind: 'process', action: 'create_tasks' });
+  });
+
+  it('create_tasks：流程型「预约跟进」→ 建 follow_up_task（默认策略首步 + 同客户幂等复用）', async () => {
+    const resp = await conversations.applySuggestions(ctx, {
+      conversationId: CONV,
+      suggestionIds: ['sug-task'],
+      mode: 'create_tasks',
+    });
+    expect(resp.taskIds?.length).toBe(1);
+
+    const [task] = await superDb
+      .select({
+        customerId: schema.followUpTask.customerId,
+        strategyId: schema.followUpTask.strategyId,
+        status: schema.followUpTask.status,
+        nextRunAt: schema.followUpTask.nextRunAt,
+      })
+      .from(schema.followUpTask)
+      .where(eq(schema.followUpTask.id, resp.taskIds![0]!));
+    expect(task?.customerId).toBe(CUS);
+    expect(task?.strategyId).toBe(STRAT);
+    expect(task?.status).toBe('ready');
+    // 首步 dayOffset=5 → 顺延到未来（不早于今天）
+    expect(task!.nextRunAt.getTime()).toBeGreaterThan(Date.now());
+
+    // 同客户已有进行中任务 → 复用，不重复建
+    const again = await conversations.applySuggestions(ctx, {
+      conversationId: CONV,
+      suggestionIds: ['sug-task'],
+      mode: 'create_tasks',
+    });
+    expect(again.taskIds).toEqual(resp.taskIds);
+    const rows = await superDb
+      .select({ id: schema.followUpTask.id })
+      .from(schema.followUpTask)
+      .where(eq(schema.followUpTask.orgId, ORG));
+    expect(rows.length).toBe(1);
   });
 
   it('approve：回调原业务动作 —— mailbox 真实外发 + message=sent + resultRef', async () => {
@@ -355,6 +446,17 @@ describe('M5-C1 · 06 #11 ↔ 12 #12 联动', () => {
     expect(logs[0]?.editedDiff).toEqual([
       { field: 'aiProposal.emailContent', before: '原稿正文 B', after: '编辑后正文 B' },
     ]);
+  });
+
+  it('reject 缺失/空白原因 → 42201（12 §3.4 必填原因，TC-APV-06）', async () => {
+    await expectBizError(approvals.reject(ORG, ADMIN, APR_REJECT, {} as never), 42201);
+    await expectBizError(approvals.reject(ORG, ADMIN, APR_REJECT, { reason: '   ' }), 42201);
+    // 校验前置：审批单仍 pending，未被处置
+    const [apr] = await superDb
+      .select({ status: schema.approvalRequest.status })
+      .from(schema.approvalRequest)
+      .where(eq(schema.approvalRequest.id, APR_REJECT));
+    expect(apr?.status).toBe('pending');
   });
 
   it('reject：message 回退 draft（可重编辑重发）+ rejectReason 留痕', async () => {

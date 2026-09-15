@@ -5,7 +5,7 @@
  * envelope、分页、错误码（40001/40401/40901）与关键字段结构。
  *
  * 运行前需启动后端；本文件在 beforeAll 注册独立 org 并通过 API 自建数据。
- * （ownerId 缺省即当前登录用户；转交类用例需同 org 多成员，故不在本文件覆盖。）
+ * （ownerId 缺省即当前登录用户；转交类用例需同 org 多成员，故 beforeAll 额外邀请一名 sales 成员。）
  */
 import { beforeAll, describe, expect, it } from 'vitest'
 
@@ -13,13 +13,15 @@ import type { PageResp } from '@/api/types/common'
 import type { ActivityItem, ContactItem, CustomerDetail, CustomerItem } from '@/api/types/customers'
 import { ErrorCode } from '@/api/error-codes'
 
-import { api, expectFail, expectOk, expectPage, registerOrg } from './_server'
+import { api, expectFail, expectOk, expectPage, registerOrg, uniq } from './_server'
 
 const ALPHA = 'Contract Test Alpha'
 const BETA = 'Contract Test Beta'
 const GAMMA = 'Contract Test Gamma'
 
 let userId = ''
+/** 同 org 第二名成员（sales）：批量转交用例需要「目标负责人 ≠ 当前归属人」才能产生 updated>0 */
+let teammateId = ''
 let customerA!: CustomerDetail
 let customerB!: CustomerDetail
 let customerB2!: CustomerDetail
@@ -62,6 +64,18 @@ beforeAll(async () => {
     ).json,
   )
   customerB2 = expectOk((await api<CustomerDetail>(`/customers/${c.customerId}`)).json)
+
+  // 批量转交需要「目标负责人 ≠ 当前归属人」：新 org 只有 admin 一人，
+  // 若不邀请第二人，转交给自己会命中「已归属则跳过」分支，updated 恒为 0。
+  const invite = expectOk(
+    (
+      await api<{ memberId: string }>('/org/members/invite', {
+        method: 'POST',
+        body: JSON.stringify({ email: `${uniq('mate')}@example.com`, role: 'sales' }),
+      })
+    ).json,
+  )
+  teammateId = invite.memberId
 })
 
 describe('GET /customers 列表契约（05 §3.1）', () => {
@@ -251,11 +265,21 @@ describe('删除客户 → 审批契约（05 §3.3/§3.5）', () => {
       (
         await api<{ updated: number }>('/customers/batch-owner', {
           method: 'POST',
-          body: JSON.stringify({ customerIds: [customerA.customerId], ownerId: userId }),
+          body: JSON.stringify({ customerIds: [customerA.customerId], ownerId: teammateId }),
         })
       ).json,
     )
     expect(data.updated).toBe(1)
+    // 转交后重复转给同一人：已归属则跳过，updated 归 0（幂等，不重复写活动）
+    const again = expectOk(
+      (
+        await api<{ updated: number }>('/customers/batch-owner', {
+          method: 'POST',
+          body: JSON.stringify({ customerIds: [customerA.customerId], ownerId: teammateId }),
+        })
+      ).json,
+    )
+    expect(again.updated).toBe(0)
     const bad = await api('/customers/batch-owner', {
       method: 'POST',
       body: JSON.stringify({ customerIds: [customerA.customerId], ownerId: 'usr-not-exist' }),

@@ -17,13 +17,13 @@ import { ensureTestBucket } from './setup/providers.js';
  * - 12 审核中心：summary/list/detail → approve（task 恢复 running + log 留痕）→
  *   edited_approved（字段级 editedDiff）→ reject（级联 failed(approval_rejected) + follow_up paused
  *   + 员工回 idle）→ expired 处置 42201 → 重复处置 40901 → logs。
- * 前置：docker compose up（PG 5432 / Redis 6380 / MinIO 9000）+ `pnpm --filter @tradepilot/db migrate`
+ * 前置：docker compose up（PG 5432 / Redis 6379 / MinIO 9000）+ `pnpm --filter @tradepilot/db migrate`
  * + tradepilot_app 角色，且已提供 server/.env.test（真实 provider 配置，无 mock 兜底）。
  */
 
 process.env.JWT_SECRET ||= 'it_only_test_secret_0123456789abcdef0123456789abcdef';
 process.env.ENCRYPTION_KEY ||= '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-process.env.REDIS_URL ||= 'redis://localhost:6380';
+process.env.REDIS_URL ||= 'redis://localhost:6379';
 process.env.DATABASE_URL ||= 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
 
 const SUPER_URL = 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
@@ -263,6 +263,11 @@ afterAll(async () => {
       await tx.delete(schema.followUpStrategy).where(eq(schema.followUpStrategy.orgId, orgId));
       await tx.delete(schema.customer).where(eq(schema.customer.orgId, orgId));
       await tx.delete(schema.aiEmployee).where(eq(schema.aiEmployee.orgId, orgId));
+      // 通知由审批/任务等业务事件生成（notification.org_id FK → org，必须先清）
+      await tx.delete(schema.notification).where(eq(schema.notification.orgId, orgId));
+      await tx
+        .delete(schema.notificationSetting)
+        .where(eq(schema.notificationSetting.orgId, orgId));
       await tx.delete(schema.userAccount).where(eq(schema.userAccount.orgId, orgId));
       await tx.delete(schema.org).where(eq(schema.org.id, orgId));
     }
@@ -423,12 +428,17 @@ describe('M4 #9 · 11 知识中心', () => {
 });
 
 describe('M4 #10 · 12 审核中心', () => {
-  it('summary：all + P0 常驻类型 + count>0 类型 Tab（12 §3.1）', async () => {
+  it('summary：all + 常驻类型（P0/P1）+ count>0 类型 Tab（12 §3.1 / D10）', async () => {
     const result = await approvals.summary(ORG_A);
     const all = result.tabs.find((t) => t.type === 'all');
     expect(all?.count).toBe(4); // APPROVE/EDIT/REJECT pending + CD pending（EXPIRED 不计）
     expect(result.tabs.some((t) => t.type === 'email_send' && t.count === 3)).toBe(true);
     expect(result.tabs.some((t) => t.type === 'customer_delete' && t.count === 1)).toBe(true);
+    // D10：报价 / 订单变更随 09/10 常驻返回（count=0 也返回，由前端按启用模块裁剪）
+    expect(result.tabs.some((t) => t.type === 'quote' && t.count === 0)).toBe(true);
+    expect(result.tabs.some((t) => t.type === 'order_change' && t.count === 0)).toBe(true);
+    // 无来源模块的类型此时不占位
+    expect(result.tabs.some((t) => t.type === 'bulk_marketing')).toBe(false);
   });
 
   it('list：status 筛选 + 卡片字段；detail 不存在 40401', async () => {
@@ -523,5 +533,30 @@ describe('M4 #10 · 12 审核中心', () => {
       approvals.approve(ORG_A, APPROVER, APR_APPROVE, { action: 'approve' }),
       40901,
     );
+  });
+
+  it('D10：无来源模块的类型（bulk_marketing）仅在确有数据时进入 Tab', async () => {
+    const approvalId = createId('apr');
+    await superDb.insert(schema.approvalRequest).values({
+      id: approvalId,
+      orgId: ORG_A,
+      approvalType: 'bulk_marketing',
+      riskLevel: 'medium',
+      title: '批量营销审批',
+      bizType: 'follow_up_strategy',
+      bizId: STRAT,
+      context: {},
+      aiProposal: {},
+      expiresAt: new Date(Date.now() + 48 * 3600_000),
+    });
+
+    const result = await approvals.summary(ORG_A);
+    expect(result.tabs.some((t) => t.type === 'bulk_marketing' && t.count === 1)).toBe(true);
+    // all 口径 = 该 org 下 status='pending' 的合计数（12 §3.1）。本用例位于文件末尾：
+    // APR_APPROVE/APR_EDIT/APR_REJECT 已被前序用例处置、APR_EXPIRED 为 expired，
+    // 故此刻仅剩 APR_CD（customer_delete）+ 本次新增的 bulk_marketing → 2。
+    expect(result.tabs.find((t) => t.type === 'all')?.count).toBe(2);
+
+    await superDb.delete(schema.approvalRequest).where(eq(schema.approvalRequest.id, approvalId));
   });
 });

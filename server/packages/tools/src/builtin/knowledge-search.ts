@@ -1,7 +1,9 @@
 /**
  * knowledge_search 混合检索实装（M4 #8，后端技术方案 07 §4）：
  * 三路召回 + RRF 融合（k=60）——
- *   ① 向量：query 嵌入 → HNSW（vector_cosine_ops）Top-20（idx_kchunk_embedding；含距离阈值）；
+ *   ① 向量：query 嵌入 → 余弦最近邻 Top-20（含距离阈值）。P1 起 embed 维度为 2048，
+ *      超出 pgvector 对 vector 的 hnsw 上限（2000 维）→ 暂为精确扫描（MVP 量级可接受）；
+ *      需要 ANN 时以 halfvec(2048) + hnsw(halfvec_cosine_ops) 启用（见迁移 0005 说明）；
  *   ② 全文：to_tsvector('simple') @@ websearch_to_tsquery Top-20；
  *   ③ 相似：pg_trgm similarity Top-20（trgm gin 索引，manual 迁移交付）；
  * 融合排序取 Top-K，score 归一 0~1（相对三路满分 3/(k+1)）。
@@ -56,6 +58,12 @@ export async function searchKnowledgeChunks(
   orgId: string,
   params: KnowledgeSearchParams,
 ): Promise<KnowledgeSearchResult> {
+  // 空查询短路：上游缺失字段（如 parsedGoal.targetProduct 留空）时不做无意义的向量/全文召回，
+  // 直接判定「无命中」——调用方据此显式提示并禁止编造，主流程继续（TC-KN-10 / TC-NFR-36）。
+  if (params.query.trim() === '') {
+    return { results: [], noResult: true };
+  }
+
   const topK = params.topK ?? sceneTopK(params.scene ?? null);
   const categories = params.categories?.length
     ? params.categories
@@ -92,6 +100,10 @@ export async function searchKnowledgeChunks(
     ),`
     : sql``;
   const vecJoin = vecLiteral ? sql`LEFT JOIN vec ON vec.id = s.id` : sql``;
+  // 降级（嵌入不可用 → 无 vec CTE/join）时，打分项与过滤条件必须同步移除，
+  // 否则 SELECT/WHERE 仍引用 vec.rn / vec.id → 42P01（missing FROM-clause entry for table "vec"）。
+  const vecScore = vecLiteral ? sql`COALESCE(1.0/(${RRF_K}+vec.rn),0) + ` : sql``;
+  const vecFilter = vecLiteral ? sql`vec.id IS NOT NULL OR ` : sql``;
 
   const rowsRes = await tx.execute(sql`
     WITH scope AS (
@@ -112,12 +124,12 @@ export async function searchKnowledgeChunks(
       LIMIT ${CANDIDATE_K}
     )
     SELECT s.id AS chunk_id, s.document_id, s.file_name, s.category, s.content, s.metadata,
-      COALESCE(1.0/(${RRF_K}+vec.rn),0) + COALESCE(1.0/(${RRF_K}+fts.rn),0) + COALESCE(1.0/(${RRF_K}+trgm.rn),0) AS rrf
+      ${vecScore}COALESCE(1.0/(${RRF_K}+fts.rn),0) + COALESCE(1.0/(${RRF_K}+trgm.rn),0) AS rrf
     FROM scope s
     ${vecJoin}
     LEFT JOIN fts ON fts.id = s.id
     LEFT JOIN trgm ON trgm.id = s.id
-    WHERE vec.id IS NOT NULL OR fts.id IS NOT NULL OR trgm.id IS NOT NULL
+    WHERE ${vecFilter}fts.id IS NOT NULL OR trgm.id IS NOT NULL
     ORDER BY rrf DESC
     LIMIT ${topK}
   `);

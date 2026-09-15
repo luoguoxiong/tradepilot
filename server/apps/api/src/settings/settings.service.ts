@@ -1,10 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
-import { BizException, createId, ErrorCode, type Role } from '@tradepilot/core';
+import { and, asc, eq } from 'drizzle-orm';
+import { BizException, COST_ITEM_KEYS, createId, ErrorCode, type Role } from '@tradepilot/core';
 import {
   schema,
   withOrg,
   type ApprovalRule,
+  type CrmFieldMapping,
   type Db,
   type NotificationEvents,
   type RolePermissionMatrix,
@@ -14,9 +15,12 @@ import { DEFAULT_NOTIFICATION_EVENTS } from '@tradepilot/shared';
 import { DB } from '../db/db.module.js';
 import { highRiskApprovalTypes, mandatoryApprovalTypes } from './settings.dto.js';
 import type {
+  CreateCrmIntegrationDto,
   RolePermissionsDto,
   UpdateAiModelsDto,
+  UpdateCrmIntegrationDto,
   UpdateNotificationsDto,
+  UpdatePricingRulesDto,
 } from './settings.dto.js';
 
 /**
@@ -24,7 +28,8 @@ import type {
  * - 角色权限 + 审批规则：强制审批绑定不可被配置绕过（approverRoles 置空 → 42201）；
  *   high 类型（quote/contract/customer_delete）强制人工，autoApprove 置 true → 42201；
  * - 通知设置：org 单例，事件 × 渠道矩阵（channels 列存聚合总开关）；
- * - AI 模型：场景级路由 upsert（org 级，16 FR-10）。
+ * - AI 模型：场景级路由 upsert（org 级，16 FR-10）；
+ * - CRM 集成：授权连接 + 字段映射 + 同步方向（16 FR-06 / ER 01 §2.5，具体外呼由 CrmDriver 承接）。
  */
 
 export interface RolePermissionsView {
@@ -45,8 +50,51 @@ export interface AiModelSettingView {
   budgetLimit: string | null;
 }
 
+/** 产品与报价规则视图（16 §1.6，字段与接口文档逐字段一致） */
+export interface PricingRulesView {
+  productCategories: string[];
+  costItems: string[];
+  profitFloorPct: number;
+  discountLadder: number[];
+  defaultIncoterms: string;
+  defaultCurrency: string;
+  exchangeRateSource: string;
+}
+
+/** CRM 集成视图（16 §1.8 FR-06 / ER 01 §2.5，字段与接口文档逐字段一致） */
+export interface CrmIntegrationView {
+  id: string;
+  /** 供应商（16 FR-06：xiaoman=小满 / futong=富通天下） */
+  provider: string;
+  /** connected / disconnected */
+  status: string;
+  /** pull / push / both */
+  syncDirection: string;
+  /** 字段映射（本地字段 → 外部 CRM 字段名）；未配置为 null */
+  mapping: CrmFieldMapping[] | null;
+  /** 最近同步时间（外呼驱动未接入前恒为 null，06 §6） */
+  lastSyncAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** 缺省开关矩阵（16 §1.8；与 worker 通知分发兜底同源，shared 单一事实源） */
 const DEFAULT_EVENTS: NotificationEvents = DEFAULT_NOTIFICATION_EVENTS;
+
+/**
+ * 缺省报价规则（16 §1.6；register 种子未预置，首访惰性落库）：
+ * 成本项取引擎五项全集；利润红线 10%（保守基线，管理员可调）；
+ * 让价梯度 [3,2,1]（ER 01 §2.6 示例）；默认 FOB / USD / manual。
+ */
+const DEFAULT_PRICING_RULES = {
+  productCategories: [] as string[],
+  costItems: [...COST_ITEM_KEYS] as string[],
+  profitFloorPct: '10.00',
+  discountLadder: [3, 2, 1] as number[],
+  defaultIncoterms: 'FOB',
+  defaultCurrency: 'USD',
+  exchangeRateSource: 'manual',
+};
 
 @Injectable()
 export class SettingsService {
@@ -212,6 +260,144 @@ export class SettingsService {
     });
   }
 
+  // ===== 产品与报价规则（FR-07，16 §1.6/§3.5）=====
+
+  async getPricingRules(orgId: string): Promise<PricingRulesView> {
+    return withOrg(this.db, orgId, async (tx) => {
+      const row = await ensurePricingRuleRow(tx, orgId);
+      return toPricingRuleView(row);
+    });
+  }
+
+  async updatePricingRules(
+    orgId: string,
+    userId: string,
+    dto: UpdatePricingRulesDto,
+  ): Promise<PricingRulesView> {
+    return withOrg(this.db, orgId, async (tx) => {
+      await ensurePricingRuleRow(tx, orgId);
+      const [row] = await tx
+        .update(schema.pricingRuleSetting)
+        .set({
+          productCategories: dto.productCategories,
+          costItems: dto.costItems,
+          profitFloorPct: dto.profitFloorPct.toFixed(2),
+          discountLadder: dto.discountLadder,
+          defaultIncoterms: dto.defaultIncoterms,
+          defaultCurrency: dto.defaultCurrency,
+          exchangeRateSource: dto.exchangeRateSource,
+          updatedBy: userId,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.pricingRuleSetting.orgId, orgId))
+        .returning();
+      if (!row) {
+        throw new BizException(ErrorCode.INTERNAL, '产品与报价规则更新失败');
+      }
+      return toPricingRuleView(row);
+    });
+  }
+
+  // ===== CRM 集成（FR-06，16 §1.8 / ER 01 §2.5）=====
+
+  async listCrmIntegrations(orgId: string): Promise<CrmIntegrationView[]> {
+    return withOrg(this.db, orgId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(schema.crmIntegration)
+        .where(eq(schema.crmIntegration.orgId, orgId))
+        .orderBy(asc(schema.crmIntegration.createdAt));
+      return rows.map(toCrmIntegrationView);
+    });
+  }
+
+  /** 授权连接：同一供应商每 org 至多一条（ER 01 §2.5 未加唯一约束，服务层拦截并给出可读错误） */
+  async createCrmIntegration(
+    orgId: string,
+    dto: CreateCrmIntegrationDto,
+  ): Promise<CrmIntegrationView> {
+    return withOrg(this.db, orgId, async (tx) => {
+      const [dup] = await tx
+        .select({ id: schema.crmIntegration.id })
+        .from(schema.crmIntegration)
+        .where(
+          and(
+            eq(schema.crmIntegration.orgId, orgId),
+            eq(schema.crmIntegration.provider, dto.provider),
+          ),
+        )
+        .limit(1);
+      if (dup) {
+        throw new BizException(ErrorCode.CONFLICT, '该 CRM 供应商已接入');
+      }
+      const [row] = await tx
+        .insert(schema.crmIntegration)
+        .values({
+          id: createId('cint'),
+          orgId,
+          provider: dto.provider,
+          // 授权通过即视为已连接；断开走 PUT status='disconnected'
+          status: 'connected',
+          syncDirection: dto.syncDirection,
+          mapping: normalizeMapping(dto.mapping),
+        })
+        .returning();
+      if (!row) {
+        throw new BizException(ErrorCode.INTERNAL, 'CRM 集成创建失败');
+      }
+      return toCrmIntegrationView(row);
+    });
+  }
+
+  /** 更新同步方向 / 字段映射 / 连接状态（provider 不可变，切换供应商需断开后重新授权） */
+  async updateCrmIntegration(
+    orgId: string,
+    id: string,
+    dto: UpdateCrmIntegrationDto,
+  ): Promise<CrmIntegrationView> {
+    return withOrg(this.db, orgId, async (tx) => {
+      const [current] = await tx
+        .select({ id: schema.crmIntegration.id })
+        .from(schema.crmIntegration)
+        .where(and(eq(schema.crmIntegration.id, id), eq(schema.crmIntegration.orgId, orgId)))
+        .limit(1);
+      if (!current) {
+        throw new BizException(ErrorCode.NOT_FOUND, 'CRM 集成不存在');
+      }
+      const [row] = await tx
+        .update(schema.crmIntegration)
+        .set({
+          ...(dto.syncDirection !== undefined && { syncDirection: dto.syncDirection }),
+          // 显式 null = 清空映射（空数组同义，见 normalizeMapping）
+          ...(dto.mapping !== undefined && { mapping: normalizeMapping(dto.mapping) }),
+          ...(dto.status !== undefined && { status: dto.status }),
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.crmIntegration.id, id))
+        .returning();
+      if (!row) {
+        throw new BizException(ErrorCode.NOT_FOUND, 'CRM 集成不存在');
+      }
+      return toCrmIntegrationView(row);
+    });
+  }
+
+  /** 断开连接：删除集成记录（历史同步数据保留，不回溯） */
+  async removeCrmIntegration(orgId: string, id: string): Promise<{ id: string }> {
+    return withOrg(this.db, orgId, async (tx) => {
+      const [current] = await tx
+        .select({ id: schema.crmIntegration.id })
+        .from(schema.crmIntegration)
+        .where(and(eq(schema.crmIntegration.id, id), eq(schema.crmIntegration.orgId, orgId)))
+        .limit(1);
+      if (!current) {
+        throw new BizException(ErrorCode.NOT_FOUND, 'CRM 集成不存在');
+      }
+      await tx.delete(schema.crmIntegration).where(eq(schema.crmIntegration.id, id));
+      return { id };
+    });
+  }
+
   /** withOrg + 角色参数类型收窄（enum 列 where 需要 Role 而非 string） */
   private withRole<T>(
     orgId: string,
@@ -278,6 +464,59 @@ async function ensureNotificationRow(tx: Tx, orgId: string): Promise<Notificatio
     events: DEFAULT_EVENTS,
   });
   return DEFAULT_EVENTS;
+}
+
+/** org 单例缺行时落默认（register 种子未预置报价规则） */
+async function ensurePricingRuleRow(
+  tx: Tx,
+  orgId: string,
+): Promise<typeof schema.pricingRuleSetting.$inferSelect> {
+  const [row] = await tx
+    .select()
+    .from(schema.pricingRuleSetting)
+    .where(eq(schema.pricingRuleSetting.orgId, orgId))
+    .limit(1);
+  if (row) {
+    return row;
+  }
+  const [created] = await tx
+    .insert(schema.pricingRuleSetting)
+    .values({ id: createId('prule'), orgId, ...DEFAULT_PRICING_RULES })
+    .returning();
+  if (!created) {
+    throw new BizException(ErrorCode.INTERNAL, '产品与报价规则初始化失败');
+  }
+  return created;
+}
+
+function toPricingRuleView(row: typeof schema.pricingRuleSetting.$inferSelect): PricingRulesView {
+  return {
+    productCategories: row.productCategories,
+    costItems: row.costItems,
+    profitFloorPct: Number(row.profitFloorPct),
+    discountLadder: row.discountLadder,
+    defaultIncoterms: row.defaultIncoterms,
+    defaultCurrency: row.defaultCurrency,
+    exchangeRateSource: row.exchangeRateSource,
+  };
+}
+
+/** mapping 归一：空数组与未配置等价（jsonb 存 null，避免 [] / null 两种空语义） */
+function normalizeMapping(mapping: CrmFieldMapping[] | null | undefined): CrmFieldMapping[] | null {
+  return mapping && mapping.length > 0 ? mapping : null;
+}
+
+function toCrmIntegrationView(row: typeof schema.crmIntegration.$inferSelect): CrmIntegrationView {
+  return {
+    id: row.id,
+    provider: row.provider,
+    status: row.status,
+    syncDirection: row.syncDirection,
+    mapping: row.mapping ?? null,
+    lastSyncAt: row.lastSyncAt ? row.lastSyncAt.toISOString() : null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
 }
 
 function toAiModelView(row: typeof schema.aiModelSetting.$inferSelect): AiModelSettingView {

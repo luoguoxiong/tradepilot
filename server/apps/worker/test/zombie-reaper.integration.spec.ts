@@ -16,7 +16,7 @@ import { ZombieReaper } from '../src/scheduler/zombie-reaper.js';
  * - 心跳仍存活（长节点）→ 不收割；
  * - started_at 新鲜 → 不进入扫描；
  * - 员工终态回写前置校验（M3-06）：员工仍占用其它任务 → 保持状态。
- * 前置：docker compose up（PG 5432 / Redis 6380）；扫描经 superDb（BYPASSRLS）。
+ * 前置：docker compose up（PG 5432 / Redis 6379）；扫描经 superDb（BYPASSRLS）。
  */
 
 const SUPER_URL =
@@ -59,7 +59,7 @@ async function insertRunningTask(values: {
 
 beforeAll(async () => {
   db = createDb(SUPER_URL, { max: 5 });
-  redis = new Redis(process.env.REDIS_URL ?? 'redis://localhost:6380', { maxRetriesPerRequest: 2 });
+  redis = new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379', { maxRetriesPerRequest: 2 });
   reaper = new ZombieReaper({ db, redis, publisher, logger });
 
   // 跨租户扫描器对 DB 残留敏感：全局清表保干净基线
@@ -224,7 +224,10 @@ describe('ZombieReaper（04 §5.4）', () => {
     // SSE：status + done（timeout 语义）
     const events = publisher.publish.mock.calls.filter((c) => c[0] === TASK_STALE);
     expect(events).toHaveLength(2);
-    expect(events[0]![1]).toMatchObject({ type: 'status', payload: { status: 'failed', error: 'timeout' } });
+    expect(events[0]![1]).toMatchObject({
+      type: 'status',
+      payload: { status: 'failed', error: 'timeout' },
+    });
     expect(events[1]![1]).toMatchObject({ type: 'done', payload: { status: 'failed' } });
   });
 

@@ -9,7 +9,7 @@
  * 知识上传无 AI 员工归属，终态/错误/耗时留痕在 knowledge_document 行上（11 接口轮询可见）。
  * 覆盖式更新（11 §7.2）= 软删旧文档 + 新文档新 ID 走全流水线，引用不迁移。
  */
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { schema, withOrg, type Db } from '@tradepilot/db';
 import { createId, cleanDocumentText, chunkDocumentText } from '@tradepilot/core';
 import { getObjectStorage, getEmbeddingProvider } from '@tradepilot/integrations';
@@ -114,6 +114,16 @@ export class KnowledgeIndexProcessor {
             updatedAt: new Date(),
           })
           .where(eq(schema.knowledgeDocument.id, docId));
+        // 08 §4 回写：产品资料归档后置 indexed=true（前端资料列表「已索引」状态）
+        await tx
+          .update(schema.productDocument)
+          .set({ indexed: true, updatedAt: new Date() })
+          .where(
+            and(
+              eq(schema.productDocument.orgId, doc.orgId),
+              eq(schema.productDocument.knowledgeDocId, docId),
+            ),
+          );
         return values.length;
       });
 

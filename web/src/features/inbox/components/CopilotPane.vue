@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQuery } from '@tanstack/vue-query'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Promotion, Document } from '@element-plus/icons-vue'
 
@@ -11,12 +12,19 @@ import { handleApiError } from '@/api/error-handler'
 import { applySuggestions, askAi, fetchCopilot } from '@/api/resources/conversations'
 import CitationPopover from '@/components/business/CitationPopover.vue'
 import InsightCard from '@/components/business/InsightCard.vue'
+import { features } from '@/features'
+import {
+  clearQuoteChecked,
+  checkedCounts,
+  showQuoteEntry,
+} from '@/features/inbox/utils/copilot-suggestions'
 import { qk } from '@/query/keys'
 
 /**
  * AI Copilot Pane（06 §2 右栏 / §1.3）：
  * - 头部：意图 + 采购概率（InsightCard 统一证据链呈现）；
- * - 勾选式建议（FR-06）：内容型 → insert_draft 上抛插入草稿；流程型 → create_tasks 直接执行（D8：P0 不产出 create_quote）；
+ * - 勾选式建议（FR-06）：内容型 → insert_draft 上抛插入草稿；流程型 →
+ *   create_tasks 建跟进任务、create_quote 带客跳 09 报价中心（D8 随 09 启用）；
  * - Ask AI（FR-07）：RAG 检索问答 + citations 溯源。
  */
 const props = defineProps<{
@@ -31,6 +39,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const router = useRouter()
 
 // ===== Copilot 数据 =====
 const copilotQuery = useQuery({
@@ -85,18 +94,22 @@ async function applyChecked(mode: 'insert_draft' | 'create_tasks'): Promise<void
   }
 }
 
-const checkedContent = computed(
-  () =>
-    copilot.value?.suggestions.filter(
-      (s) => s.kind === 'content' && checkedIds.value.has(s.suggestionId),
-    ).length ?? 0,
-)
-const checkedProcess = computed(
-  () =>
-    copilot.value?.suggestions.filter(
-      (s) => s.kind === 'process' && checkedIds.value.has(s.suggestionId),
-    ).length ?? 0,
-)
+/** 勾选计数按执行入口分派（内容型 / create_tasks / create_quote，见 utils/copilot-suggestions） */
+const counts = computed(() => checkedCounts(copilot.value?.suggestions ?? [], checkedIds.value))
+const checkedContent = computed(() => counts.value.content)
+const checkedTasks = computed(() => counts.value.tasks)
+const checkedQuote = computed(() => counts.value.quote)
+/** 「创建报价」入口渲染条件：建议含该动作且 09 已启用（D8 未启用时降级隐藏） */
+const showQuote = computed(() => showQuoteEntry(copilot.value?.suggestions ?? [], features.quotes))
+
+/** 流程型「创建报价」：带客户跳 09 报价中心（09 列表页 `create=1` 深链直接打开新建弹窗） */
+function createQuote(): void {
+  if (!copilot.value || checkedQuote.value === 0) return
+  const customerId = copilot.value.customerId
+  checkedIds.value = clearQuoteChecked(copilot.value.suggestions, checkedIds.value)
+  ElMessage.success(t('inbox.copilot.quoteJumped'))
+  void router.push({ name: 'quotes', query: { customerId, create: '1' } })
+}
 
 // ===== Ask AI =====
 const question = ref('')
@@ -172,11 +185,20 @@ async function ask(): Promise<void> {
           <el-button
             size="small"
             plain
-            :disabled="checkedProcess === 0 || applying"
-            :loading="applying && checkedProcess > 0"
+            :disabled="checkedTasks === 0 || applying"
+            :loading="applying && checkedTasks > 0"
             @click="applyChecked('create_tasks')"
           >
             {{ t('inbox.copilot.createTasks') }}
+          </el-button>
+          <el-button
+            v-if="showQuote"
+            size="small"
+            plain
+            :disabled="checkedQuote === 0 || applying"
+            @click="createQuote"
+          >
+            {{ t('inbox.copilot.createQuote') }}
           </el-button>
         </div>
       </section>

@@ -37,3 +37,15 @@ export async function withLoginContext<T>(db: Db, fn: (tx: Tx) => Promise<T>): P
     return fn(tx);
   });
 }
+
+/**
+ * 开放 API 鉴权上下文事务：仅用于「按 key_hash 全局定位 API Key」（P1-X-22 / 06 §5.1）。
+ * `api_key` 上有配套 apikey_lookup 策略（manual 0013），其他表不受影响。
+ * 明文 key 永不落库/不参与查询——调用方须先 sha256 再等值命中。
+ */
+export async function withApiKeyContext<T>(db: Db, fn: (tx: Tx) => Promise<T>): Promise<T> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT set_config('app.apikey', '1', true)`);
+    return fn(tx);
+  });
+}

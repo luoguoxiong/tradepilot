@@ -5,6 +5,7 @@ import type {
   KnowledgeListQuery,
   KnowledgeSearchReq,
   KnowledgeSearchResp,
+  KnowledgeSource,
   KnowledgeStats,
   UploadKnowledgeResp,
 } from '../types/knowledge'
@@ -28,12 +29,20 @@ export function getKnowledgeDocument(docId: string) {
   return request<KnowledgeDocument>({ url: `/knowledge/documents/${docId}`, method: 'GET' })
 }
 
-/** POST /knowledge/documents：批量上传（multipart，每文件一条；50MB/格式白名单校验 → 42201） */
-export function uploadKnowledgeDocuments(files: File[], category: string) {
+/**
+ * POST /knowledge/documents：批量上传（multipart，每文件一条；50MB/格式白名单校验 → 42201）。
+ * `source`：`upload`（知识中心，默认）/ `email_attachment`（06 会话详情「存入知识库」，11 FR-07）。
+ */
+export function uploadKnowledgeDocuments(
+  files: File[],
+  category: string,
+  source: KnowledgeSource = 'upload',
+) {
   const uploads = files.map((file) => {
     const form = new FormData()
     form.append('file', file)
     form.append('category', category)
+    form.append('source', source)
     return request<UploadKnowledgeResp>({
       url: '/knowledge/documents',
       method: 'POST',

@@ -1,3 +1,4 @@
+import { hostname } from 'node:os';
 import { BizException } from './errors.js';
 
 /**
@@ -42,10 +43,21 @@ export class Snowflake {
   private lastTimestampMs = -1n;
   private sequence = 0n;
 
+  /** 跨毫秒重置时回到的序列起点，见构造函数 `initialSequence` 说明 */
+  private readonly sequenceOffset: bigint;
+
   constructor(
     private readonly machineId: bigint,
     private readonly now: () => number = () => Date.now(),
+    /**
+     * 序列起点：默认 0（测试与显式 `initSnowflake` 保持确定性）。
+     * 默认全局实例取随机值，且该偏移在跨毫秒重置时**持续生效**——仅在构造时赋一次
+     * 是不够的，`next()` 每次跨毫秒都会把序列归零。
+     */
+    initialSequence: bigint = 0n,
   ) {
+    this.sequenceOffset = initialSequence & MAX_SEQUENCE;
+    this.sequence = this.sequenceOffset;
     if (machineId < 0n || machineId > MAX_MACHINE) {
       throw new Error(`machineId 必须在 0~${MAX_MACHINE} 之间，收到 ${machineId}`);
     }
@@ -73,15 +85,15 @@ export class Snowflake {
 
     if (timestampMs === this.lastTimestampMs) {
       this.sequence = (this.sequence + 1n) & MAX_SEQUENCE;
-      if (this.sequence === 0n) {
-        // 同毫秒序列耗尽，自旋至下一毫秒
+      if (this.sequence === this.sequenceOffset) {
+        // 同毫秒序列耗尽（绕回起点），自旋至下一毫秒
         while (BigInt(Math.trunc(this.now())) - EPOCH_MS <= this.lastTimestampMs) {
           // busy-wait
         }
         timestampMs = BigInt(Math.trunc(this.now())) - EPOCH_MS;
       }
     } else {
-      this.sequence = 0n;
+      this.sequence = this.sequenceOffset;
     }
 
     this.lastTimestampMs = timestampMs;
@@ -97,16 +109,41 @@ export class Snowflake {
   }
 }
 
-/** 默认全局实例；机器位取 WORKER_INDEX 环境变量（缺省 1） */
+/** 默认全局实例；机器位取 WORKER_INDEX 环境变量（缺省按进程派生） */
 let defaultSnowflake: Snowflake | null = null;
+
+/**
+ * 未显式配置 WORKER_INDEX 时按「主机 + 进程」派生机器位（02 §9 的 10bit）。
+ *
+ * 背景：此前缺省值固定为 1，导致同一毫秒内不同进程（多实例 API / worker / 并行测试
+ * worker）会以完全相同的 machineId + sequence=0 生成**同一条 ID**，实测 4 进程并发
+ * 有 3 条完全重复，直接触发主键 23505。显式配置 WORKER_INDEX 时仍严格沿用该值，
+ * 保证运维可预期的分片语义。
+ */
+function deriveMachineId(): bigint {
+  const seed = `${hostname()}:${process.pid}`;
+  let hash = 2_166_136_261n; // FNV-1a 32bit offset basis
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash ^ BigInt(seed.charCodeAt(i))) * 16_777_619n;
+  }
+  return (hash ^ (hash >> 32n)) & MAX_MACHINE;
+}
 
 function getDefaultSnowflake(): Snowflake {
   if (defaultSnowflake === null) {
-    const raw = Number.parseInt(process.env['WORKER_INDEX'] ?? '1', 10);
+    const rawEnv = process.env['WORKER_INDEX'];
+    const raw = rawEnv === undefined || rawEnv === '' ? Number.NaN : Number.parseInt(rawEnv, 10);
     const machineId = Number.isFinite(raw)
       ? BigInt(Math.max(0, Math.min(raw, Number(MAX_MACHINE))))
-      : 1n;
-    defaultSnowflake = new Snowflake(machineId);
+      : deriveMachineId();
+    // 序列起点一律随机：即便显式配置了 WORKER_INDEX，同一份配置（如 .env 的 WORKER_INDEX=1）
+    // 也可能被 api 与 worker 多个进程共用；随机起点让「同机器位 + 同毫秒」的碰撞概率
+    // 从必然降为 1/4096，且不破坏单进程内的单调递增语义。
+    defaultSnowflake = new Snowflake(
+      machineId,
+      undefined,
+      BigInt(Math.floor(Math.random() * Number(MAX_SEQUENCE + 1n))),
+    );
   }
   return defaultSnowflake;
 }
@@ -166,16 +203,28 @@ export const ID_PREFIX = {
   product: 'prod',
   quotation: 'quote',
   salesOrder: 'order',
+  /** 销售订单明细行（sales_order_item，10 §3） */
+  salesOrderItem: 'oitem',
+  /** 订单进度流水（order_progress_log，10 FR-02） */
+  orderProgressLog: 'oplog',
+  /** 订单风险洞察（order_risk_insight，10 FR-04） */
+  orderRiskInsight: 'orisk',
   knowledgeDocument: 'doc',
   approval: 'appr',
   followUpStrategy: 'strat',
   followUpTask: 'ftask',
   report: 'rpt',
+  /** AI 发现·机会/风险（ai_discovery，ER 00 §2.2 / 13 §3.2） */
+  discovery: 'disc',
   trace: 'trc',
   /** 通知设置行（notification_setting） */
   notificationSetting: 'ntf',
   /** 站内通知收件箱行（notification，M5-A2 增补表） */
   notification: 'ntfn',
+  /** 开放 API 密钥（api_key，ER 01 §2.9） */
+  apiKey: 'key',
+  /** 出站 Webhook 订阅（webhook，ER 01 §2.10） */
+  webhook: 'hook',
 } as const;
 
 export type IdPrefix = (typeof ID_PREFIX)[keyof typeof ID_PREFIX];

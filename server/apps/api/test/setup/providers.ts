@@ -113,7 +113,7 @@ export const testEnv = parsed.data;
 if (testEnv.TEST_EMBEDDING_DIMENSIONS !== KNOWLEDGE_EMBEDDING_DIMENSIONS) {
   throw new Error(
     `测试向量模型维度不匹配：TEST_EMBEDDING_DIMENSIONS=${testEnv.TEST_EMBEDDING_DIMENSIONS}，` +
-      `须为 ${KNOWLEDGE_EMBEDDING_DIMENSIONS}（knowledge_chunk.embedding = vector(1536)）。`,
+      `须为 ${KNOWLEDGE_EMBEDDING_DIMENSIONS}（= knowledge_chunk.embedding 列维度）。`,
   );
 }
 

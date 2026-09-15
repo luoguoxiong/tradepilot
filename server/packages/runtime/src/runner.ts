@@ -12,7 +12,7 @@ import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { and, eq, sql } from 'drizzle-orm';
 import { schema, withOrg, type Db } from '@tradepilot/db';
-import { BizException, ErrorCode, createId } from '@tradepilot/core';
+import { BizException, ErrorCode, createId, isRetryableError } from '@tradepilot/core';
 import { EMPLOYEE_STATUS, TASK_STATUS, type TaskType } from '@tradepilot/shared';
 import type { GraphCompiler } from './compiler.js';
 import { BRANCH_KEY, ApprovalPendingError, PauseAbortError } from './compiler.js';
@@ -66,12 +66,30 @@ export interface RunTaskResult {
   status: 'completed' | 'waiting_approval' | 'failed' | 'paused' | 'skipped' | 'missing';
   outputs?: Record<string, unknown>[];
   error?: string;
+  /**
+   * 失败是否为「可重试错误」（core `isRetryableError` 判定，04 §5.3）。
+   * processor 据此决定是否抛错交给 BullMQ 按 attempts + 指数退避重投；
+   * 确定性失败（入参/权限/状态冲突/4xx）为 false → job 正常收口，任务保持 failed 等手动重试。
+   */
+  retryable?: boolean;
+}
+
+export interface RunTaskOptions {
+  resume?: ResumeHint;
+  fromPause?: boolean;
+  /**
+   * 任务级自动重投（BullMQ 重投的 job，attemptsMade > 0）：
+   * 领取放开 failed → running，并优先从检查点续跑（04 §5.3）。
+   */
+  retry?: boolean;
+  /** 尝试序号（made 从 0 起）；用于文案留痕与「是否还有重试机会」判定 */
+  attempt?: { made: number; total: number };
 }
 
 export class TaskRunner {
   constructor(private readonly deps: TaskRunnerDeps) {}
 
-  async run(taskId: string, opts?: { resume?: ResumeHint }): Promise<RunTaskResult> {
+  async run(taskId: string, opts?: RunTaskOptions): Promise<RunTaskResult> {
     const { db, redis, logger } = this.deps;
 
     // ① 跨租户定位任务（sched_scan 策略放行 SELECT，02 §4.3）
@@ -100,7 +118,7 @@ export class TaskRunner {
     }
 
     // ② 领取（乐观锁状态机）
-    const claim = await this.claim(probe, opts?.resume);
+    const claim = await this.claim(probe, opts);
     if (!claim.ok) {
       return { status: 'skipped' };
     }
@@ -139,7 +157,18 @@ export class TaskRunner {
     try {
       const { sop, stateKeys } = this.deps.sops.get(ctx.taskType);
       const graph = this.deps.compiler.compile(ctx.orgId, ctx.taskType, sop, stateKeys);
-      const finalState = await graph.invoke(buildInitialState(ctx, stateKeys), ctx);
+      // 审批 resume / 手动恢复（fromPause）：invoke(null) 从最近检查点续跑当前节点；
+      // 自动重投（retry）：有检查点则续跑（只重跑失败节点，不重复已完成节点成本），
+      // 无检查点（checkpointer 未装配等）回落全量重跑；
+      // 全新任务以初始 State 从 START 起跑（04 §5.2/§5.3/§5.4）。
+      let resumeFromCheckpoint = Boolean(opts?.resume) || Boolean(opts?.fromPause);
+      if (!resumeFromCheckpoint && opts?.retry) {
+        resumeFromCheckpoint = await this.deps.compiler.hasCheckpoint(taskId);
+      }
+      const finalState = await graph.invoke(
+        resumeFromCheckpoint ? null : buildInitialState(ctx, stateKeys),
+        ctx,
+      );
       const outputs =
         this.deps.sops.buildOutputs?.(ctx.taskType, finalState) ?? buildOutputs(finalState);
       const updated = await this.complete(taskId, probe.orgId, snapshot.employee.id, outputs);
@@ -171,17 +200,42 @@ export class TaskRunner {
         await this.pause(taskId, probe.orgId, snapshot.employee.id, err.message);
         return { status: TASK_STATUS.PAUSED, error: err.message };
       }
-      const error = err instanceof Error ? err.message : String(err);
+      const message = err instanceof Error ? err.message : String(err);
+      const retryable = isRetryableError(err);
+      const made = opts?.attempt?.made ?? 0;
+      const total = opts?.attempt?.total ?? 1;
+      // 还有重试机会 → 留痕但不发 done/失败通知（终态未定，重试仍在进行）
+      const willRetry = retryable && made + 1 < total;
+      const error = willRetry
+        ? `${message}（可重试失败：第 ${made + 1}/${total} 次，将自动退避重投）`
+        : message;
       this.deps.logger.warn(
-        { taskId, error, err: err instanceof Error ? err : undefined },
+        {
+          taskId,
+          error: message,
+          retryable,
+          attempt: made + 1,
+          attempts: total,
+          willRetry,
+          err: err instanceof Error ? err : undefined,
+        },
         '任务失败（堆栈见 err 字段）',
       );
-      const updated = await this.fail(taskId, probe.orgId, snapshot.employee.id, error, probe.title);
+      const updated = await this.fail(
+        taskId,
+        probe.orgId,
+        snapshot.employee.id,
+        error,
+        probe.title,
+        {
+          willRetry,
+        },
+      );
       if (!updated) {
         // 失败收尾未命中（执行期间被暂停）→ 保持 paused，不覆盖
-        return { status: TASK_STATUS.PAUSED, error };
+        return { status: TASK_STATUS.PAUSED, error, retryable };
       }
-      return { status: TASK_STATUS.FAILED, error };
+      return { status: TASK_STATUS.FAILED, error, retryable };
     } finally {
       stopHeartbeat();
     }
@@ -192,8 +246,12 @@ export class TaskRunner {
   /**
    * 乐观锁领取（04 §5.2）：
    * - 正常：scheduled → running（0 行命中 = 重复投递/已取消 → 跳过）；
+   * - fromPause（手动恢复，P1-X-30 / 04 §5.4）：paused → running（API 已置 running 时幂等放行），
+   *   runner 侧 invoke(null) 从最近检查点续跑当前节点（工具按 taskId+nodeId 幂等防重复）；
    * - resume：waiting_approval → running（markResumed 已置 running 时幂等放行），
-   *   并同步员工 working、follow_up_task scheduled（排期冻结解除）。
+   *   并同步员工 working、follow_up_task scheduled（排期冻结解除）；
+   * - retry（自动重投，04 §5.3）：failed → running，清 error/finishedAt（终态复位），
+   *   从检查点续跑失败节点；无检查点时按全量重跑（见 run）。
    */
   private async claim(
     probe: {
@@ -203,10 +261,79 @@ export class TaskRunner {
       title: string;
       input: Record<string, unknown>;
     },
-    resume?: ResumeHint,
+    opts: RunTaskOptions = {},
   ): Promise<{ ok: boolean; transitioned: boolean }> {
+    const { resume } = opts;
     const now = new Date();
     return withOrg(this.deps.db, probe.orgId, async (tx) => {
+      if (opts.fromPause) {
+        const rows = await tx
+          .update(schema.aiTask)
+          .set({
+            status: TASK_STATUS.RUNNING,
+            startedAt: sql`coalesce(${schema.aiTask.startedAt}, ${now})`,
+            updatedAt: now,
+          })
+          .where(and(eq(schema.aiTask.id, probe.id), eq(schema.aiTask.status, TASK_STATUS.PAUSED)))
+          .returning({ id: schema.aiTask.id });
+        if (rows.length === 0) {
+          const [row] = await tx
+            .select({ status: schema.aiTask.status })
+            .from(schema.aiTask)
+            .where(eq(schema.aiTask.id, probe.id))
+            .limit(1);
+          if (row?.status === TASK_STATUS.RUNNING) {
+            return { ok: true, transitioned: false }; // API 已置 running，幂等续跑
+          }
+          this.deps.logger.warn(
+            { taskId: probe.id, status: row?.status },
+            '手动恢复领取未命中，任务已非 paused',
+          );
+          return { ok: false, transitioned: false };
+        }
+        await tx
+          .update(schema.aiEmployee)
+          .set({ status: EMPLOYEE_STATUS.WORKING, statusDetail: probe.title, updatedAt: now })
+          .where(eq(schema.aiEmployee.id, probe.employeeId));
+        return { ok: true, transitioned: true };
+      }
+
+      // 自动重投（04 §5.3）：failed → running，终态字段复位（error/finishedAt 清空，
+      // startedAt 保留首次），失败步骤由 beginStep 的 upsert 自动重置为 running。
+      if (opts.retry) {
+        const rows = await tx
+          .update(schema.aiTask)
+          .set({
+            status: TASK_STATUS.RUNNING,
+            error: null,
+            finishedAt: null,
+            startedAt: sql`coalesce(${schema.aiTask.startedAt}, ${now})`,
+            updatedAt: now,
+          })
+          .where(and(eq(schema.aiTask.id, probe.id), eq(schema.aiTask.status, TASK_STATUS.FAILED)))
+          .returning({ id: schema.aiTask.id });
+        if (rows.length === 0) {
+          const [row] = await tx
+            .select({ status: schema.aiTask.status })
+            .from(schema.aiTask)
+            .where(eq(schema.aiTask.id, probe.id))
+            .limit(1);
+          if (row?.status === TASK_STATUS.RUNNING) {
+            return { ok: true, transitioned: false }; // 已被其它路径置 running，幂等续跑
+          }
+          this.deps.logger.warn(
+            { taskId: probe.id, status: row?.status },
+            '自动重投领取未命中，任务已非 failed（可能已被手动重试/取消）',
+          );
+          return { ok: false, transitioned: false };
+        }
+        await tx
+          .update(schema.aiEmployee)
+          .set({ status: EMPLOYEE_STATUS.WORKING, statusDetail: probe.title, updatedAt: now })
+          .where(eq(schema.aiEmployee.id, probe.employeeId));
+        return { ok: true, transitioned: true };
+      }
+
       if (resume) {
         const rows = await tx
           .update(schema.aiTask)
@@ -430,7 +557,10 @@ export class TaskRunner {
         .where(and(eq(schema.aiTask.id, taskId), eq(schema.aiTask.status, TASK_STATUS.RUNNING)))
         .returning({ id: schema.aiTask.id });
       if (rows.length === 0) {
-        this.deps.logger.warn({ taskId }, '任务终态写回未命中（已被外部暂停/置终态），跳过完成回写');
+        this.deps.logger.warn(
+          { taskId },
+          '任务终态写回未命中（已被外部暂停/置终态），跳过完成回写',
+        );
         return false;
       }
       // M3-06：终态回写前置校验——员工仍持有其它 active 任务则保持状态（防并发覆盖）
@@ -456,12 +586,18 @@ export class TaskRunner {
     });
   }
 
+  /**
+   * 失败收尾。
+   * `willRetry`（还有自动重投机会，04 §5.3）：仍落 failed + error 留痕（可观测），
+   * 但**不发 done 事件、不发失败通知**——重试仍在进行，终态未定，避免前端提前收流与重复通知。
+   */
   private async fail(
     taskId: string,
     orgId: string,
     employeeId: string,
     error: string,
     title = '',
+    opts: { willRetry?: boolean } = {},
   ): Promise<boolean> {
     const now = new Date();
     const ok = await withOrg(this.deps.db, orgId, async (tx) => {
@@ -472,7 +608,10 @@ export class TaskRunner {
         .where(and(eq(schema.aiTask.id, taskId), eq(schema.aiTask.status, TASK_STATUS.RUNNING)))
         .returning({ id: schema.aiTask.id });
       if (rows.length === 0) {
-        this.deps.logger.warn({ taskId }, '任务失败回写未命中（已被外部暂停/置终态），跳过失败落库');
+        this.deps.logger.warn(
+          { taskId },
+          '任务失败回写未命中（已被外部暂停/置终态），跳过失败落库',
+        );
         return false;
       }
       // M3-06：同 complete，终态回写前置校验
@@ -493,6 +632,10 @@ export class TaskRunner {
       taskId,
       buildStatusEvent({ status: TASK_STATUS.FAILED, error }),
     );
+    if (opts.willRetry) {
+      this.deps.logger.warn({ taskId, error }, '任务失败（可重试，等待自动退避重投）');
+      return true;
+    }
     await this.deps.publisher.publish(
       taskId,
       buildDoneEvent({ status: TASK_STATUS.FAILED, outputs: [], error }),

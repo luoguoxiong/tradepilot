@@ -3,7 +3,7 @@
 | 项 | 内容 |
 |---|---|
 | 对应需求文档 | [01-Dashboard工作台](../01-Dashboard工作台.md) |
-| 版本 | v0.2（2026-09-05，补 P0 阶段 KPI/pendingItems/dailyReport 降级行为，对齐 [00-产品总览 §5.1](../00-产品总览与MVP规划.md) 降级矩阵 D1～D3）<br>v0.1（2026-09-04） |
+| 版本 | v0.3（2026-09-13，`comparePeriod` 环比基准修正为 `vs_yesterday`，对齐实现）<br>v0.2（2026-09-05，补 P0 阶段 KPI/pendingItems/dailyReport 降级行为，对齐 [00-产品总览 §5.1](../00-产品总览与MVP规划.md) 降级矩阵 D1～D3）<br>v0.1（2026-09-04） |
 | 页面 | 工作台 Dashboard（只读聚合视图） |
 
 ---
@@ -29,7 +29,7 @@
 | currency | string | — | 金额类 KPI 的币种，默认 USD |
 | changePct | number | ✓ | 环比变化百分比，如 20 表示 ↑20% |
 | trend | string | ✓ | `up` / `down` / `flat` |
-| comparePeriod | string | ✓ | 环比基准（如 `vs_last_week`） |
+| comparePeriod | string | ✓ | 环比基准；P0 恒为 `vs_yesterday`（前值取昨日 org 时区当地日历日） |
 
 > **P0 降级（v0.2，对齐 [00 §5.1](../00-产品总览与MVP规划.md) D1）**：`new_quotes` / `estimated_revenue` 依赖 09/10（P1）——P0 阶段 `kpis[]` 仅返回 `new_customers / new_inquiries`，**不返回未启用 metric**（而非返回 0）；前端 KPI 区自适应 2/4 卡布局。
 
@@ -88,8 +88,8 @@
 {
   "greeting": { "onlineEmployeeCount": 5, "onlineEmployeeTotal": 6 },
   "kpis": [
-    { "metric": "new_customers", "value": 28, "changePct": 20, "trend": "up", "comparePeriod": "vs_last_week" },
-    { "metric": "new_inquiries", "value": 8, "changePct": 15, "trend": "up", "comparePeriod": "vs_last_week" }
+    { "metric": "new_customers", "value": 28, "changePct": 20, "trend": "up", "comparePeriod": "vs_yesterday" },
+    { "metric": "new_inquiries", "value": 8, "changePct": 15, "trend": "up", "comparePeriod": "vs_yesterday" }
   ],
   "aiEmployees": [
     { "employeeId": "emp_1", "name": "AI 获客员工", "role": "lead_hunter", "status": "working",

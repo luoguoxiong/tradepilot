@@ -16,6 +16,7 @@ export type TaskType =
   | 'business_analysis'
   | 'knowledge_index'
   | 'product_analysis'
+  | 'product_knowledge'
 
 /** 任务列表行（14 §1.1） */
 export interface TaskItem {
@@ -45,10 +46,19 @@ export interface TaskLog {
   leadId?: string
 }
 
-/** 任务产出物（14 §1.2） */
+/** 任务产出物（14 §1.2）；handoff 为转人工交接摘要（P1-X-31，append 语义） */
 export interface TaskOutput {
-  type: 'leads' | 'report' | 'draft' | 'insight'
+  type: 'leads' | 'report' | 'draft' | 'insight' | 'handoff'
   payload: unknown
+}
+
+/** 任务执行步骤（14 §1.2；status 复用 taskStatus 枚举） */
+export interface TaskStep {
+  seq?: number
+  name: string
+  status: TaskStatus
+  startedAt?: string | null
+  finishedAt?: string | null
 }
 
 /** 任务详情（14 §1.2，进度卡 + 抽屉数据源） */
@@ -63,13 +73,16 @@ export interface TaskDetail {
   employeeName?: string
   goal?: string
   input?: unknown
-  steps?: { name: string; status: string; startedAt?: string; finishedAt?: string }[]
+  steps?: TaskStep[]
   outputs?: TaskOutput[] | null
   targetCount?: number
   foundCount?: number
   error?: string
   linkedApprovalId?: string
+  retryOf?: string | null
   createdAt?: string
+  startedAt?: string | null
+  finishedAt?: string | null
 }
 
 /** logs 增量响应（14 §3.3） */
@@ -101,4 +114,96 @@ export interface TaskDoneEvent {
 export interface TaskRetryResp {
   taskId: string
   status: 'running' | 'scheduled'
+}
+
+/** 状态 Tab（14 FR-01）：all = 全部，其余为单状态精确筛选 */
+export type TaskTab = 'all' | 'running' | 'waiting_approval' | 'completed' | 'failed'
+
+/** 任务列表查询（14 §3.1；status 由 Tab 下发，all 时不传） */
+export interface TaskListReq {
+  status?: TaskStatus
+  employeeId?: string
+  type?: TaskType
+  keyword?: string
+  page?: number
+  pageSize?: number
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
+}
+
+/** POST /tasks 通用新建（14 §3.2，`+ 新任务` 统一入口） */
+export interface CreateTaskReq {
+  employeeId: string
+  type: TaskType
+  title: string
+  input?: Record<string, unknown>
+  /** 定时触发（UTC ISO；缺省即时/排队） */
+  scheduledAt?: string
+}
+
+/** POST /tasks 响应（14 §3.2：running 已即时投递 / scheduled 排队或定时） */
+export interface CreateTaskResp {
+  taskId: string
+  status: 'running' | 'scheduled'
+}
+
+/** pause / cancel 响应（14 §3.6） */
+export interface TaskOpResp {
+  taskId: string
+  status: TaskStatus
+}
+
+/** resume 响应（14 §3.6）：fromCheckpoint 标记是否从检查点续跑 */
+export interface TaskResumeResp {
+  taskId: string
+  status: TaskStatus
+  fromCheckpoint: boolean
+}
+
+/** POST /tasks/{id}/transfer-to-human 请求（14 §3.6，全部可选） */
+export interface TransferToHumanReq {
+  reason?: string
+  assignee?: string
+  summary?: string
+}
+
+/** 转人工交接摘要（outputs 中 type='handoff' 的 payload） */
+export interface TaskHandoffPayload {
+  fromStatus: string
+  reason: string | null
+  summary: string
+  assignee: string | null
+  transferredAt: string
+  transferredBy: string
+}
+
+/** POST /tasks/{id}/transfer-to-human 响应 */
+export interface TransferToHumanResp {
+  taskId: string
+  status: TaskStatus
+  handoff: { type: 'handoff'; payload: TaskHandoffPayload }
+}
+
+/** POST /tasks/batch 失败批量处理（14 §3.7，P1-X-33） */
+export interface BatchTaskActionReq {
+  action: 'retry' | 'transfer_to_human'
+  taskIds: string[]
+  reason?: string
+}
+
+/** 批量逐条处理结果（单条失败不阻断其余） */
+export interface BatchTaskItemResult {
+  taskId: string
+  ok: boolean
+  status?: TaskStatus
+  newTaskId?: string
+  error?: string
+}
+
+export interface BatchTaskActionResp {
+  action: string
+  total: number
+  succeeded: number
+  failed: number
+  results: BatchTaskItemResult[]
 }

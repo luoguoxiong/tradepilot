@@ -13,12 +13,14 @@ import { notifyEmailSent, useApprovalDispose } from '../composables/useApprovalD
 import ApprovalCard from '../components/ApprovalCard.vue'
 import ApprovalDetailDrawer from '../components/ApprovalDetailDrawer.vue'
 import EditApproveDialog from '../components/EditApproveDialog.vue'
+import { visibleApprovalTabs } from '../utils/tabs'
 
 defineOptions({ name: 'ApprovalsView' })
 
 /**
  * 12 AI 审核中心主视图（12 §2/§3）：
- * - Tab 待审数来源 summary（all/email_send/customer_delete，D10：Tab 只渲染服务端返回类型）；
+ * - Tab 待审数来源 summary（all + email_send/customer_delete/quote/order_change 常驻），
+ *   D10：报价 / 订单变更 Tab 随 09/10 模块启用渲染（见 `utils/tabs.ts`）；
  * - 待审/已处置分段 + 分页卡片列表；三态处置入口 + 详情抽屉 + 编辑后批准；
  * - 06 waiting_approval 态「去审核中心」深链 ?approvalId=xxx 自动打开详情。
  */
@@ -39,8 +41,8 @@ const summaryQuery = useQuery({
   refetchInterval: 15_000,
 })
 
-/** D10：Tab 按服务端返回渲染（只含 P0 两类型 + all） */
-const tabs = computed(() => summaryQuery.data.value?.tabs ?? [])
+/** D10：Tab 按启用模块裁剪（utils/tabs.ts；报价随 09、订单变更随 10） */
+const tabs = computed(() => visibleApprovalTabs(summaryQuery.data.value?.tabs ?? []))
 
 const listFilters = computed(() => ({
   // 12 §3.2：「全部」Tab 不传 type（后端枚举无 all 语义，缺省即全量）

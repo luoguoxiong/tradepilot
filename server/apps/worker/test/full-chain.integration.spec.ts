@@ -32,13 +32,13 @@ const KEY = '0'.repeat(64);
  * 入队（BullMQ jobId=taskId）→ TaskRunner 领取 → 图执行（真实 LLM + 真实工具）→ 落库
  * （ai_task/steps/logs/llm_call/ai_lead/message/follow_up_execution）→ SSE 推送（task:{id}:events）。
  * 附带审批挂起 → 批准 → resume 续跑 → 排期下一步 的完整闸门链路。
- * 前置：docker compose up（PG 5432 / Redis 6380 + GreenMail 1025/1114）+ `pnpm --filter @tradepilot/db migrate`。
+ * 前置：docker compose up（PG 5432 / Redis 6379 + GreenMail 1025/1114）+ `pnpm --filter @tradepilot/db migrate`。
  */
 
 const SUPER_URL =
   process.env.TEST_SUPER_DATABASE_URL ??
   'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
-const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6380';
+const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 
 const logger = pino({ level: process.env.TEST_LOG_LEVEL ?? 'silent' });
 
@@ -283,7 +283,8 @@ async function insertLeadTask(): Promise<string> {
     type: 'lead_hunting',
     title: 'M3 获客全链路',
     status: 'scheduled',
-    input: { goal: '寻找美国机械零件采购商', targetCount: 1 },
+    // 键名须与服务层契约一致：工作流 parse_goal 提示词消费 {{input.goalText}}
+    input: { goalText: '寻找美国机械零件采购商', targetCount: 1 },
   });
   return taskId;
 }

@@ -160,6 +160,15 @@ export const mailbox = pgTable(
   (t) => [uniqueIndex('uq_mailbox_org_account').on(t.orgId, sql`lower(${t.account})`)],
 );
 
+/**
+ * CRM 字段映射条目（16 FR-06 / ER 01 §2.5 `mapping` jsonb）：
+ * `local` 为 05 CRM 本地字段（如 `customer.companyName`），`remote` 为外部 CRM 字段名。
+ */
+export interface CrmFieldMapping {
+  local: string;
+  remote: string;
+}
+
 export const crmIntegration = pgTable('crm_integration', {
   id: text('id').primaryKey(),
   orgId: text('org_id')
@@ -168,7 +177,7 @@ export const crmIntegration = pgTable('crm_integration', {
   provider: text('provider').notNull(),
   status: text('status').notNull(),
   syncDirection: text('sync_direction').notNull(),
-  mapping: jsonb('mapping'),
+  mapping: jsonb('mapping').$type<CrmFieldMapping[]>(),
   lastSyncAt: timestamp('last_sync_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -277,7 +286,7 @@ export const aiModelSetting = pgTable(
  * - provider/model/baseUrl/apiKey 决定该模型的实际调用端点（llm / embedding / search 通用）；
  * - isSelected 标记该 type 下当前生效模型（部分唯一索引保证同 type 至多一个 selected）；
  * - apiKeyEnc 为 AES-256-GCM 信封加密密文（08 §2），任何接口永不回显明文；
- * - dimensions 仅 embedding 使用（对齐既有 knowledge_chunk.embedding 1536 维度）；
+ * - dimensions 仅 embedding 使用（对齐既有 knowledge_chunk.embedding 向量列维度）；
  * - search 无「模型标识」概念，model 列以 provider 名占位（列 NOT NULL，06 §3）。
  */
 export const aiModel = pgTable(

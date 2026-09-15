@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useQuery } from '@tanstack/vue-query'
-import { Clock } from '@element-plus/icons-vue'
+import { Clock, Upload } from '@element-plus/icons-vue'
 
 import type { ConversationMessage } from '@/api/types/conversations'
 import { fetchConversationDetail } from '@/api/resources/conversations'
@@ -13,10 +13,11 @@ import { qk } from '@/query/keys'
 
 import DraftComposer from './DraftComposer.vue'
 import MailHtmlFrame from './MailHtmlFrame.vue'
+import KnowledgeIngestDialog from './KnowledgeIngestDialog.vue'
 
 /**
  * 会话消息 Pane（06 §2 中栏 / §1.2 消息流）：
- * - 头部：客户/联系人/阶段 + 客户 360° 跳转入口；
+ * - 头部：客户/联系人/阶段 + 客户 360° 跳转入口 + 「存入知识库」（11 FR-07，source=email_attachment）；
  * - 消息流：in 左 / out 右气泡，MailHtmlFrame 沙箱渲染正文；
  * - 状态语义：draft（可编辑草稿）/ waiting_approval（12 联动态，跳审核中心）/ failed；
  * - 草稿操作区由 B3 DraftEditor 接管（generateDraft/editDraft 事件上抛）。
@@ -64,6 +65,9 @@ function insertIntoDraft(content: string, draftId?: string): void {
 }
 
 defineExpose({ insertIntoDraft })
+
+/** 11 FR-07：会话上下文内把邮件附件存入知识库 */
+const knowledgeVisible = ref(false)
 </script>
 
 <template>
@@ -82,6 +86,14 @@ defineExpose({ insertIntoDraft })
           <span class="conv-pane__contact">{{ detail.contactName }}</span>
           <el-tag size="small" effect="plain">{{ stageText }}</el-tag>
         </div>
+        <el-button
+          size="small"
+          :icon="Upload"
+          data-testid="ingest-knowledge"
+          @click="knowledgeVisible = true"
+        >
+          {{ t('inbox.knowledge.action') }}
+        </el-button>
       </header>
 
       <div class="conv-pane__scroll">
@@ -147,6 +159,12 @@ defineExpose({ insertIntoDraft })
 
       <!-- 草稿操作区：生成/编辑/保存/发送双分支 -->
       <DraftComposer v-if="detail" ref="composerRef" :detail="detail" />
+
+      <!-- 11 FR-07：邮件附件存入知识库 -->
+      <KnowledgeIngestDialog
+        v-model:visible="knowledgeVisible"
+        :company-name="detail.companyName"
+      />
     </template>
 
     <el-empty

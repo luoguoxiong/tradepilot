@@ -6,6 +6,7 @@ import {
   createEmbeddingProvider,
   createSearchProvider,
   KNOWLEDGE_EMBEDDING_DIMENSIONS,
+  probeApolloConnection,
 } from '@tradepilot/integrations';
 import {
   probeLlmConnection,
@@ -28,6 +29,9 @@ const EMBEDDING_PROVIDERS: readonly string[] = ['openai'];
 /** search 支持的 provider（生产仅 http 即 Serper 兼容搜索 API，06 §3；mock 不再可选） */
 const SEARCH_PROVIDERS: readonly string[] = ['http'];
 
+/** apollo 支持的 provider（Apollo.io 获客数据源；mock 不再可选） */
+const APOLLO_PROVIDERS: readonly string[] = ['apollo'];
+
 /** llm 支持的 provider（与 runtime LlmProvider 白名单对齐；mock 不再可选） */
 const LLM_PROVIDERS: readonly string[] = ['openai', 'anthropic', 'deepseek', 'azure'];
 
@@ -46,7 +50,7 @@ const PROBE_TIMEOUT_MS = 15_000;
 
 export interface AiModelView {
   id: string;
-  type: 'llm' | 'embedding' | 'search';
+  type: 'llm' | 'embedding' | 'search' | 'apollo';
   name: string;
   provider: string;
   model: string;
@@ -64,7 +68,12 @@ export interface AiModelView {
 
 export interface AiModelsView {
   models: AiModelView[];
-  selection: { llm: string | null; embedding: string | null; search: string | null };
+  selection: {
+    llm: string | null;
+    embedding: string | null;
+    search: string | null;
+    apollo: string | null;
+  };
 }
 
 /** 保存前连通性验证结果（不落库；ok=false 由前端阻断保存） */
@@ -93,6 +102,8 @@ export class AiModelsService {
     // 按 type 收窄：字段必填性与 provider 白名单随类型而异（与 embedding 维度校验同口径）
     if (dto.type === 'search') {
       assertSearchUsable(dto.provider, dto.baseUrl ?? null, Boolean(dto.apiKey));
+    } else if (dto.type === 'apollo') {
+      assertApolloUsable(dto.provider, Boolean(dto.apiKey));
     } else {
       if (!dto.model) {
         throw new BizException(ErrorCode.BIZ_VALIDATION, '模型标识必填');
@@ -181,6 +192,11 @@ export class AiModelsService {
         assertSearchUsable(
           dto.provider ?? current.provider,
           dto.baseUrl !== undefined ? dto.baseUrl : current.baseUrl,
+          dto.apiKey !== undefined || current.apiKeyEnc !== null,
+        );
+      } else if (current.type === 'apollo') {
+        assertApolloUsable(
+          dto.provider ?? current.provider,
           dto.apiKey !== undefined || current.apiKeyEnc !== null,
         );
       } else if (current.type === 'embedding') {
@@ -298,7 +314,9 @@ export class AiModelsService {
         ? LLM_PROVIDERS
         : dto.type === 'embedding'
           ? EMBEDDING_PROVIDERS
-          : SEARCH_PROVIDERS;
+          : dto.type === 'apollo'
+            ? APOLLO_PROVIDERS
+            : SEARCH_PROVIDERS;
     if (!allowed.includes(dto.provider)) {
       return { ok: false, message: `该类型不支持 ${dto.provider} 提供方`, latencyMs: 0 };
     }
@@ -320,6 +338,9 @@ export class AiModelsService {
     }
     if (dto.type === 'embedding') {
       return probeEmbedding({ baseUrl, apiKey, model, dimensions });
+    }
+    if (dto.type === 'apollo') {
+      return probeApollo({ baseUrl, apiKey });
     }
     return probeSearch({ baseUrl, apiKey });
   }
@@ -343,7 +364,7 @@ export class AiModelsService {
    */
   async resolveActiveModel(
     orgId: string,
-    type: 'llm' | 'embedding' | 'search',
+    type: 'llm' | 'embedding' | 'search' | 'apollo',
   ): Promise<ActiveAiModel | null> {
     return resolveActiveModel(this.db, orgId, type, this.encryptionKey);
   }
@@ -354,7 +375,12 @@ export class AiModelsService {
       .from(schema.aiModel)
       .where(eq(schema.aiModel.orgId, orgId))
       .orderBy(asc(schema.aiModel.type), asc(schema.aiModel.createdAt));
-    const selection: AiModelsView['selection'] = { llm: null, embedding: null, search: null };
+    const selection: AiModelsView['selection'] = {
+      llm: null,
+      embedding: null,
+      search: null,
+      apollo: null,
+    };
     for (const row of rows) {
       if (row.isSelected) {
         selection[row.type] = row.id;
@@ -440,6 +466,29 @@ async function probeSearch(input: {
   }
 }
 
+/** Apollo 供应商探活：真实发起一次最小公司检索，验证端点与凭据可用 */
+async function probeApollo(input: {
+  baseUrl: string | null;
+  apiKey: string | undefined;
+}): Promise<AiModelVerifyResult> {
+  if (!input.apiKey) {
+    return { ok: false, message: '缺少 API Key，无法验证连通性', latencyMs: 0 };
+  }
+  const startedAt = Date.now();
+  try {
+    await withTimeout(
+      probeApolloConnection({
+        ...(input.baseUrl !== null && { baseUrl: input.baseUrl }),
+        apiKey: input.apiKey,
+      }),
+      PROBE_TIMEOUT_MS,
+    );
+    return { ok: true, latencyMs: Date.now() - startedAt };
+  } catch (err) {
+    return { ok: false, message: errText(err), latencyMs: Date.now() - startedAt };
+  }
+}
+
 function errText(err: unknown): string {
   return (err instanceof Error ? err.message : String(err)).slice(0, 300);
 }
@@ -496,6 +545,22 @@ function assertSearchUsable(provider: string, baseUrl: string | null, hasApiKey:
   }
   if (provider === 'http' && !hasApiKey) {
     throw new BizException(ErrorCode.BIZ_VALIDATION, 'http 搜索供应商需配置 API Key');
+  }
+}
+
+/**
+ * Apollo 供应商可用性校验：provider 必须已实现；API Key 必填（baseUrl 缺省回落
+ * https://api.apollo.io），否则获客工作流会在首次调用时才失败（前置拦截给出可读错误）。
+ */
+function assertApolloUsable(provider: string, hasApiKey: boolean): void {
+  if (!APOLLO_PROVIDERS.includes(provider)) {
+    throw new BizException(
+      ErrorCode.BIZ_VALIDATION,
+      `Apollo 供应商仅支持 ${APOLLO_PROVIDERS.join(' / ')} 提供方`,
+    );
+  }
+  if (!hasApiKey) {
+    throw new BizException(ErrorCode.BIZ_VALIDATION, 'Apollo 供应商需配置 API Key');
   }
 }
 

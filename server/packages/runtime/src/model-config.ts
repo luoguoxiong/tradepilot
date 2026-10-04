@@ -11,7 +11,7 @@ import { and, eq } from 'drizzle-orm';
 import { decryptSecret } from '@tradepilot/core';
 import { schema, withOrg, type Db, type Tx } from '@tradepilot/db';
 
-export type AiModelKind = 'llm' | 'embedding' | 'search';
+export type AiModelKind = 'llm' | 'embedding' | 'search' | 'apollo';
 
 /** 运行时可消费的模型配置（apiKey 已解密） */
 export interface ActiveModelConfig {
@@ -176,6 +176,52 @@ export function toSearchProviderConfig(
   }
   return {
     provider: 'http',
+    baseUrl: active.baseUrl ?? fallback.baseUrl,
+    apiKey: active.apiKey ?? fallback.apiKey,
+  };
+}
+
+/**
+ * apollo 字段级缺省（baseUrl/apiKey 未显式给出时逐项回落）。
+ * Apollo.io 获客数据源与 search（Serper web 搜索）分属不同 type，互不影响选用。
+ */
+export interface ApolloFallbackOptions {
+  provider: 'apollo';
+  baseUrl: string;
+  apiKey: string;
+}
+
+/** apollo 字段级缺省（Apollo.io 官方 API 端点），仅用于补齐台账未显式给出的字段 */
+export const APOLLO_FIELD_DEFAULTS: ApolloFallbackOptions = {
+  provider: 'apollo',
+  baseUrl: 'https://api.apollo.io',
+  apiKey: '',
+};
+
+/** 与 integrations `ApolloOptions` 结构一致（此处不引包，避免 runtime → integrations 依赖） */
+export interface ApolloProviderConfig {
+  provider: 'apollo';
+  baseUrl: string;
+  apiKey: string;
+}
+
+/**
+ * 台账选用 → Apollo 供应商配置：org 选用优先，字段缺省逐项回落字段级缺省。
+ * provider 口径：仅 apollo；其余值视为不支持的供应商（明确报错，不再回落 mock）。
+ * 注：active=null 时原样回落 fallback（供测试/离线显式注入），生产装配在调用前已对 null 明确报错。
+ */
+export function toApolloProviderConfig(
+  active: ActiveModelConfig | null,
+  fallback: ApolloFallbackOptions,
+): ApolloProviderConfig {
+  if (!active) {
+    return { ...fallback };
+  }
+  if (active.provider !== 'apollo') {
+    throw new Error(`不支持的 Apollo 供应商：${active.provider}（仅支持 apollo）`);
+  }
+  return {
+    provider: 'apollo',
     baseUrl: active.baseUrl ?? fallback.baseUrl,
     apiKey: active.apiKey ?? fallback.apiKey,
   };

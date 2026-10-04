@@ -106,6 +106,10 @@ const workspaceTaskId = computed(() => activeTaskId.value ?? currentTaskId.value
 function goDiscover() {
   void router.push({ name: 'lead-discover' })
 }
+
+function goApollo() {
+  void router.push({ name: 'apollo-acquisition' })
+}
 </script>
 
 <template>
@@ -163,6 +167,9 @@ function goDiscover() {
           </template>
           <el-button link type="primary" @click="goDiscover">
             {{ t('leadGen.viewLeads') }} →
+          </el-button>
+          <el-button link type="primary" @click="goApollo">
+            {{ t('apolloAcq.title') }} →
           </el-button>
         </div>
       </template>

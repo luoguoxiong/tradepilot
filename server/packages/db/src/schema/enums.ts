@@ -183,10 +183,19 @@ export const memberStatus = pgEnum('member_status', ['active', 'disabled', 'invi
 export const mailboxProvider = pgEnum('mailbox_provider', ['gmail', 'outlook', 'smtp_imap']);
 export const mailboxStatus = pgEnum('mailbox_status', ['connected', 'error', 'disconnected']);
 
-// AI 模型配置（16 FR-10 扩展）：普通大模型 / 向量化（Embedding）模型 / 搜索供应商
+// AI 模型配置（16 FR-10 扩展）：普通大模型 / 向量化（Embedding）模型 / 搜索供应商 / 客户数据供应商
 // 备注：'search' 标签由 manual/0011_manual_ai_model_type_search.sql 幂等补齐（drizzle 生成的
 // 0004 不含该标签，避免存量库重放报 enum label already exists）。
-export const aiModelType = pgEnum('ai_model_type', ['llm', 'embedding', 'search']);
+// 'apollo' 由 manual/0012_manual_ai_model_type_apollo.sql 幂等补齐（Apollo.io 获客数据源）。
+export const aiModelType = pgEnum('ai_model_type', ['llm', 'embedding', 'search', 'apollo']);
+
+// Apollo 获客运行状态（Apollo 相似客户获客工作流：关键词 → 搜索 → AI 复筛）
+export const apolloRunStatus = pgEnum('apollo_run_status', [
+  'keywords_ready',
+  'searched',
+  'analyzed',
+  'failed',
+]);
 
 // 经理与报告
 export const discoveryType = pgEnum('discovery_type', ['opportunity', 'risk']);

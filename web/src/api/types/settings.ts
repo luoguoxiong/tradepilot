@@ -82,17 +82,19 @@ export interface NotificationSettings {
   >
 }
 
-/** AI 模型类型（16 FR-10 扩展）：普通大模型 / 向量化模型 / 搜索供应商 */
-export type AiModelType = 'llm' | 'embedding' | 'search'
+/** AI 模型类型（16 FR-10 扩展）：普通大模型 / 向量化模型 / 搜索供应商 / Apollo 获客数据源 */
+export type AiModelType = 'llm' | 'embedding' | 'search' | 'apollo'
 
-/** 模型提供方（与后端 LlmProvider / EmbeddingOptions / SearchOptions 并集对齐） */
-export type AiModelProvider = 'mock' | 'openai' | 'anthropic' | 'deepseek' | 'azure' | 'http'
+/** 模型提供方（与后端 LlmProvider / EmbeddingOptions / SearchOptions / ApolloOptions 并集对齐） */
+export type AiModelProvider =
+  'mock' | 'openai' | 'anthropic' | 'deepseek' | 'azure' | 'http' | 'apollo'
 
 /** 各模型类型可选的提供方（与后端 service 的按 type 白名单同口径） */
 export const AI_MODEL_PROVIDERS: Record<AiModelType, readonly AiModelProvider[]> = {
   llm: ['openai', 'anthropic', 'deepseek', 'azure', 'mock'],
   embedding: ['openai', 'mock'],
   search: ['http', 'mock'],
+  apollo: ['apollo'],
 }
 
 /**
@@ -122,7 +124,12 @@ export interface AiModel {
 /** GET /settings/ai-models/catalog 响应 */
 export interface AiModelCatalog {
   models: AiModel[]
-  selection: { llm: string | null; embedding: string | null; search: string | null }
+  selection: {
+    llm: string | null
+    embedding: string | null
+    search: string | null
+    apollo: string | null
+  }
 }
 
 export interface CreateAiModelReq {

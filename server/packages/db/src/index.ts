@@ -33,6 +33,9 @@ export type {
   UserAccount,
   Mailbox,
   AiModel,
+  ApolloSearchParams,
+  ApolloOrgResult,
+  ApolloAnalyzeResult,
 } from './schema/index.js';
 export * from './scope.js';
 export { seedOrg } from './seed/register-seed.js';

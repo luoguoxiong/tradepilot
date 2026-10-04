@@ -34,13 +34,17 @@ export {
 } from './llm-gateway.js';
 export { probeLlmConnection, type LlmProbeOptions, type LlmProbeResult } from './llm-probe.js';
 export {
+  APOLLO_FIELD_DEFAULTS,
   EMBEDDING_FIELD_DEFAULTS,
   SEARCH_FIELD_DEFAULTS,
   resolveActiveModel,
+  toApolloProviderConfig,
   toEmbeddingProviderConfig,
   toSearchProviderConfig,
   type ActiveModelConfig,
   type AiModelKind,
+  type ApolloFallbackOptions,
+  type ApolloProviderConfig,
   type EmbeddingFallbackOptions,
   type EmbeddingProviderConfig,
   type SearchFallbackOptions,

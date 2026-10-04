@@ -11,14 +11,22 @@ import { z } from 'zod';
  * 权限：仅 admin（03 §4）——模型/供应商配置属敏感配置，不开放给 manager。
  */
 
-export const aiModelTypes = ['llm', 'embedding', 'search'] as const;
+export const aiModelTypes = ['llm', 'embedding', 'search', 'apollo'] as const;
 
 /**
- * 与 runtime LlmGateway / integrations EmbeddingOptions / SearchOptions 的 provider 并集对齐。
- * 各 type 可用子集由 service 按 type 白名单收窄（llm：openai/anthropic/deepseek/azure；
- * embedding：openai；search：http）。mock 不再作为可选提供方（仅保留为测试设施）。
+ * 与 runtime LlmGateway / integrations EmbeddingOptions / SearchOptions / ApolloOptions 的
+ * provider 并集对齐。各 type 可用子集由 service 按 type 白名单收窄（llm：openai/anthropic/
+ * deepseek/azure；embedding：openai；search：http；apollo：apollo）。mock 不再作为可选提供方
+ * （仅保留为测试设施）。
  */
-export const aiModelProviders = ['openai', 'anthropic', 'deepseek', 'azure', 'http'] as const;
+export const aiModelProviders = [
+  'openai',
+  'anthropic',
+  'deepseek',
+  'azure',
+  'http',
+  'apollo',
+] as const;
 
 export const createAiModelSchema = z.object({
   type: z.enum(aiModelTypes),

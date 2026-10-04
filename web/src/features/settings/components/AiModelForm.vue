@@ -38,6 +38,9 @@ const dict = useDictStore()
 const formRef = ref<FormInstance>()
 const isEmbedding = computed(() => props.type === 'embedding')
 const isSearch = computed(() => props.type === 'search')
+/** search / apollo 均为「无模型标识」的供应商台账（baseUrl + apiKey） */
+const isProviderLike = computed(() => props.type === 'search' || props.type === 'apollo')
+const isApollo = computed(() => props.type === 'apollo')
 const isEdit = computed(() => props.model !== null)
 
 const form = reactive({
@@ -78,6 +81,15 @@ const rules = computed<FormRules>(() => {
     }
     return base
   }
+  if (isApollo.value) {
+    // Apollo：apiKey 必填；baseUrl 可省（后端缺省 https://api.apollo.io）；编辑留空表示不变更
+    if (!isEdit.value) {
+      base.apiKey = [
+        { required: true, message: t('settings.modelApiKeyRequired'), trigger: 'blur' },
+      ]
+    }
+    return base
+  }
   base.model = [{ required: true, message: t('settings.modelIdentifierRequired'), trigger: 'blur' }]
   if (isEmbedding.value) {
     base.dimensions = [
@@ -110,8 +122,8 @@ function submit() {
     const baseUrl = form.baseUrl.trim()
     const apiKey = form.apiKey.trim()
 
-    // search：无模型标识/温度/维度，仅 provider + baseUrl + apiKey（06 §3）
-    if (isSearch.value) {
+    // search / apollo：无模型标识/温度/维度，仅 provider + baseUrl + apiKey（06 §3）
+    if (isProviderLike.value) {
       const base = { name, provider: form.provider, ...(apiKey ? { apiKey } : {}) }
       if (isEdit.value) {
         // baseUrl 显式传 null 以支持清空自定义端点
@@ -181,20 +193,22 @@ function submit() {
       </el-select>
     </el-form-item>
 
-    <el-form-item v-if="!isSearch" :label="t('settings.modelIdentifier')" prop="model">
+    <el-form-item v-if="!isProviderLike" :label="t('settings.modelIdentifier')" prop="model">
       <el-input v-model="form.model" :placeholder="t('settings.modelIdentifierPlaceholder')" />
     </el-form-item>
 
     <el-form-item
-      :label="isSearch ? t('settings.modelSearchBaseUrl') : t('settings.modelBaseUrl')"
+      :label="isProviderLike ? t('settings.modelSearchBaseUrl') : t('settings.modelBaseUrl')"
       prop="baseUrl"
     >
       <el-input
         v-model="form.baseUrl"
         :placeholder="
-          isSearch
-            ? t('settings.modelSearchBaseUrlPlaceholder')
-            : t('settings.modelBaseUrlPlaceholder')
+          isApollo
+            ? 'https://api.apollo.io'
+            : isSearch
+              ? t('settings.modelSearchBaseUrlPlaceholder')
+              : t('settings.modelBaseUrlPlaceholder')
         "
       />
     </el-form-item>
@@ -215,7 +229,7 @@ function submit() {
       </el-form-item>
     </template>
 
-    <template v-else-if="!isSearch">
+    <template v-else-if="!isProviderLike">
       <el-form-item :label="t('settings.modelTemperature')">
         <el-input-number v-model="form.temperature" :min="0" :max="2" :step="0.1" :precision="2" />
       </el-form-item>

@@ -36,7 +36,7 @@ const dict = useDictStore()
 const loading = ref(false)
 const catalog = ref<AiModelCatalog>({
   models: [],
-  selection: { llm: null, embedding: null, search: null },
+  selection: { llm: null, embedding: null, search: null, apollo: null },
 })
 const activeType = ref<AiModelType>('llm')
 
@@ -47,6 +47,10 @@ const selectingId = ref<string | null>(null)
 
 const models = computed(() => catalog.value.models.filter((m) => m.type === activeType.value))
 const formType = computed<AiModelType>(() => editing.value?.type ?? activeType.value)
+/** search / apollo 均为「无模型标识」的供应商台账 */
+const isProviderLike = computed(
+  () => activeType.value === 'search' || activeType.value === 'apollo',
+)
 
 async function load() {
   loading.value = true
@@ -151,6 +155,7 @@ async function onDelete(row: AiModel) {
       <el-tab-pane :label="t('settings.tabLlm')" name="llm" />
       <el-tab-pane :label="t('settings.tabEmbedding')" name="embedding" />
       <el-tab-pane :label="t('settings.tabSearch')" name="search" />
+      <el-tab-pane :label="t('settings.tabApollo')" name="apollo" />
     </el-tabs>
 
     <div class="ai-models__toolbar">
@@ -160,7 +165,9 @@ async function onDelete(row: AiModel) {
             ? t('settings.aiModelsLlmHint')
             : activeType === 'embedding'
               ? t('settings.aiModelsEmbeddingHint')
-              : t('settings.aiModelsSearchHint')
+              : activeType === 'apollo'
+                ? t('settings.aiModelsApolloHint')
+                : t('settings.aiModelsSearchHint')
         }}
       </span>
       <el-button type="primary" @click="openCreate">{{ t('settings.addModel') }}</el-button>
@@ -176,22 +183,20 @@ async function onDelete(row: AiModel) {
         <template #default="{ row }">{{ dict.label('aiModelProvider', row.provider) }}</template>
       </el-table-column>
       <el-table-column
-        :label="
-          activeType === 'search' ? t('settings.modelBaseUrl') : t('settings.modelIdentifier')
-        "
+        :label="isProviderLike ? t('settings.modelBaseUrl') : t('settings.modelIdentifier')"
         min-width="220"
       >
         <template #default="{ row }">
           <div class="ai-models__model">
-            {{ activeType === 'search' ? (row.baseUrl ?? '—') : row.model }}
+            {{ isProviderLike ? (row.baseUrl ?? '—') : row.model }}
           </div>
-          <div v-if="activeType !== 'search' && row.baseUrl" class="ai-models__base-url">
+          <div v-if="!isProviderLike && row.baseUrl" class="ai-models__base-url">
             {{ row.baseUrl }}
           </div>
         </template>
       </el-table-column>
       <el-table-column
-        v-if="activeType !== 'search'"
+        v-if="!isProviderLike"
         :label="
           activeType === 'embedding'
             ? t('settings.modelDimensions')

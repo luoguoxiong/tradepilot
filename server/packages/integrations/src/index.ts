@@ -57,3 +57,19 @@ export type {
   SiteCrawlResult,
   HttpSearchOptions,
 } from './search/index.js';
+
+// ===== Apollo 相似客户获客数据源 =====
+export {
+  createApolloProvider,
+  probeApolloConnection,
+  APOLLO_DEFAULT_BASE_URL,
+  normalizeApolloDomain,
+} from './apollo/index.js';
+export type {
+  ApolloProvider,
+  ApolloOptions,
+  ApolloOrgSearchParams,
+  ApolloOrg,
+  ApolloPerson,
+  ApolloPeopleSearchParams,
+} from './apollo/index.js';

@@ -39,6 +39,12 @@ export const appRoutes: RouteRecordRaw[] = [
         meta: { title: 'menu.leadDiscover' },
       },
       {
+        path: 'lead-gen/apollo',
+        name: 'apollo-acquisition',
+        component: () => import('@/features/lead-gen/views/ApolloAcquisitionView.vue'),
+        meta: { title: 'menu.apolloAcquisition', icon: 'Connection', menu: true, order: 3.5 },
+      },
+      {
         path: 'crm',
         name: 'crm',
         component: () => import('@/features/crm/views/CrmView.vue'),

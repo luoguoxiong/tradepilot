@@ -6,7 +6,7 @@
  * - send 双分支：分支 B（缺省无 autoApprove → approval_request 挂起 + waiting_approval）；
  *   分支 A（role 补 email_send autoApprove → 进入外发出口，无邮箱 42201，证明不再走审批）；
  * - ask-ai：RAG 检索问答 + 无依据兜底文案（D9）；
- * - copilot/suggestions/apply：insert_draft 要点合并（多次追加）/ create_tasks 仅建跟进任务（D8：不产「创建报价」）+ 每客户单进行中任务；
+ * - copilot/suggestions/apply：insert_draft 要点合并（多次追加）/ create_tasks 仅建跟进任务（「创建报价」为前端跳 09 流程，见 06 §7.2 / D8）+ 每客户单进行中任务；
  * - 越权：sales(self) 对他人客户会话写操作全部 40301；sales 可写自己的会话（主路径）。
  * 前置：docker compose up（PG 5432 / Redis 6379）+ 迁移已执行，且已提供 server/.env.test
  * （真实 provider 配置：org 级 AI 模型台账指向真实 LLM，无 mock 兜底）。
@@ -238,7 +238,7 @@ afterAll(async () => {
 // ============================== C1 草稿生成 ==============================
 
 describe('M5-E1 · 06 写侧：ai-draft / regenerate / PUT messages（06 §3.2）', () => {
-  it('ai-draft 主路径：mock LLM 产出 + 新草稿落库；无知识库命中 → missingKnowledge 兜底', async () => {
+  it('ai-draft 主路径：真实 LLM 产出 + 新草稿落库；无知识库命中 → missingKnowledge 兜底', async () => {
     const res = await conversations.aiDraft(adminCtx, CONV_A, { basedOnMessageId: MSG_IN_A });
 
     expect(res.draftId).toBeTruthy();

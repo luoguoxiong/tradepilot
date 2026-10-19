@@ -78,6 +78,16 @@ export const followUpContentSchema = z
   })
   .strict();
 
+/** 产品知识四类条目（08 §3.2；draft 待人工确认后启用） */
+export const productKnowledgeSchema = z
+  .object({
+    advantages: z.array(z.string().min(1)).min(1),
+    faqs: z.array(z.object({ question: z.string().min(1), answer: z.string().min(1) }).strict()),
+    scenarios: z.array(z.string().min(1)),
+    salesScripts: z.array(z.string().min(1)),
+  })
+  .strict();
+
 const REGISTRY: Record<string, z.ZodType> = {
   parsedGoal: parsedGoalSchema,
   searchPlan: searchPlanSchema,
@@ -86,6 +96,7 @@ const REGISTRY: Record<string, z.ZodType> = {
   copilot: copilotSchema,
   draftReply: draftReplySchema,
   followUpContent: followUpContentSchema,
+  productKnowledge: productKnowledgeSchema,
 };
 
 /** 注册到具体实现类（register 方法在 Simple 实现上，接口仅暴露 get/has） */

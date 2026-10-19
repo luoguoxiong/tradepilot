@@ -25,7 +25,9 @@ export default defineConfig(({ mode }) => {
       port: 5173,
       proxy: {
         '/api': {
-          target: env.VITE_PROXY_TARGET || 'http://localhost:8080',
+          // 默认端口与 server/.env 的 API_PORT 保持一致（3000）；用 127.0.0.1 而非
+          // localhost：Node 会把 localhost 优先解析为 ::1，而 API 仅监听 IPv4
+          target: env.VITE_PROXY_TARGET || 'http://127.0.0.1:3000',
           changeOrigin: true,
           // SSE 代理需关闭响应缓冲（技术方案 01 §5.2）
           configure(proxy) {

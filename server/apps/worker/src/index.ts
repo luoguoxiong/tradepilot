@@ -39,6 +39,7 @@ import { createProcessor } from './queues/processor.js';
 import { EmailSyncProcessor } from './queues/email-sync.js';
 import { KnowledgeIndexProcessor } from './queues/knowledge-index.js';
 import { NotifyProcessor } from './queues/notify.js';
+import { WebhookDeliveryProcessor } from './queues/webhook.js';
 import { Dispatcher, DISPATCH_INTERVAL_MS } from './scheduler/dispatcher.js';
 import { FollowUpScanner, FOLLOW_UP_SCAN_INTERVAL_MS } from './scheduler/follow-up-scanner.js';
 import { MailboxSyncScheduler, MAILBOX_SYNC_INTERVAL_MS } from './scheduler/mailbox-sync.js';
@@ -46,6 +47,7 @@ import { ApprovalExpiryScanner, APPROVAL_EXPIRY_INTERVAL_MS } from './scheduler/
 import { DelayedJobReconciler, RECONCILE_INTERVAL_MS } from './scheduler/delayed-reconciler.js';
 import { ZombieReaper, ZOMBIE_SCAN_INTERVAL_MS } from './scheduler/zombie-reaper.js';
 import { QuotaResetScanner, QUOTA_RESET_INTERVAL_MS } from './scheduler/quota-reset.js';
+import { AnalyticsEtl, ANALYTICS_ETL_INTERVAL_MS } from './scheduler/analytics-etl.js';
 import { startLoop } from './scheduler/loop.js';
 
 // 入口先补齐本地 .env（仅补缺失键，不覆盖 k8s/CI/shell 已注入变量）
@@ -227,12 +229,24 @@ async function bootstrap(): Promise<void> {
     driverOptions: mailboxDriverOptions,
   });
   const knowledgeIndex = new KnowledgeIndexProcessor({ db, logger });
-  const notify = new NotifyProcessor({ db, logger, driverOptions: mailboxDriverOptions });
+  // q:notify 分发命中 Webhook 订阅后派生 q:webhook 投递 job（P1-X-21，06 §5.2）
+  const notify = new NotifyProcessor({
+    db,
+    logger,
+    driverOptions: mailboxDriverOptions,
+    enqueueWebhook: (job) => enqueuer.enqueueWebhook(job),
+  });
+  // 出站投递：每次按 webhookId 回库解密 secret_enc（明文不进 Redis），HMAC 签名 + 10s 超时
+  const webhook = new WebhookDeliveryProcessor({
+    db,
+    logger,
+    encryptionKey: env.ENCRYPTION_KEY,
+  });
   const workers = createWorkers(
     env,
     env.REDIS_URL,
     logger,
-    createProcessor({ runner, logger, emailSync, knowledgeIndex, notify }),
+    createProcessor({ runner, logger, emailSync, knowledgeIndex, notify, webhook }),
   );
   const summary = workers.map(
     (w) => `${w.name}(${QUEUE_CONCURRENCY[w.name as keyof typeof QUEUE_CONCURRENCY] ?? '?'})`,
@@ -246,6 +260,7 @@ async function bootstrap(): Promise<void> {
   const reconciler = new DelayedJobReconciler({ db, enqueuer, logger });
   const reaper = new ZombieReaper({ db, redis, publisher, logger });
   const quotaReset = new QuotaResetScanner({ db, redis, logger });
+  const analyticsEtl = new AnalyticsEtl({ db, logger });
   const stopLoops = [
     startLoop('Dispatcher', DISPATCH_INTERVAL_MS, () => dispatcher.tick(), logger),
     startLoop('FollowUpScanner', FOLLOW_UP_SCAN_INTERVAL_MS, () => followUpScanner.tick(), logger),
@@ -254,6 +269,7 @@ async function bootstrap(): Promise<void> {
     startLoop('Reconciler', RECONCILE_INTERVAL_MS, () => reconciler.tick(), logger),
     startLoop('ZombieReaper', ZOMBIE_SCAN_INTERVAL_MS, () => reaper.tick(), logger),
     startLoop('QuotaReset', QUOTA_RESET_INTERVAL_MS, () => quotaReset.tick(), logger),
+    startLoop('AnalyticsEtl', ANALYTICS_ETL_INTERVAL_MS, () => analyticsEtl.tick(), logger),
   ];
 
   logger.info(
@@ -267,6 +283,7 @@ async function bootstrap(): Promise<void> {
         'Reconciler',
         'ZombieReaper',
         'QuotaReset',
+        'AnalyticsEtl',
       ],
       pid: process.pid,
     },

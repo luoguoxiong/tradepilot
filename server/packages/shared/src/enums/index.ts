@@ -38,15 +38,27 @@ export const EMPLOYEE_STATUS = {
 } as const;
 export type EmployeeStatus = (typeof EMPLOYEE_STATUS)[keyof typeof EMPLOYEE_STATUS];
 
-/** 任务类型（14 §1.1，决定队列归属 04 §1） */
+/**
+ * 任务类型（14 §1.1，决定 SOP 与队列归属 04 §1）。
+ * task_type → queue 的映射见 contracts/queues.ts `TASK_TYPE_QUEUE`（多对一：多个类型可共用同一队列）。
+ */
 export const TASK_TYPE = {
+  /** 获客：目标解析 → 搜索 → 产品匹配 → 找联系人（q.lead_hunting，分钟级长任务，并发 2） */
   LEAD_HUNTING: 'lead_hunting',
+  /** 邮件回复：收信/询盘驱动的话术草拟与回信（q.email_reply，并发 5） */
   EMAIL_REPLY: 'email_reply',
+  /** 自动跟进：Scheduler 扫描到点的 follow_up_task 派发（q.follow_up，受频控约束 05） */
   FOLLOW_UP: 'follow_up',
+  /** 订单监控：订单状态/交期巡检，异常即触发告警与跟进（q.analysis） */
   ORDER_MONITOR: 'order_monitor',
+  /** 经营分析：周期性报表，产出 business_report 五段 Markdown（q.analysis，并发 1） */
   BUSINESS_ANALYSIS: 'business_analysis',
+  /** 知识索引：文档切片 → 向量化 → RAG 入库（q.knowledge_index，07 §2） */
   KNOWLEDGE_INDEX: 'knowledge_index',
+  /** 产品分析（M5-C4）：客户/询盘视角的产品匹配与卖点分析（q.knowledge_index） */
   PRODUCT_ANALYSIS: 'product_analysis',
+  /** 08 产品中心：产品资料解析 → 结构化入库 → 产品知识生成（与 M5-C4 product_analysis 客户分析区分） */
+  PRODUCT_KNOWLEDGE: 'product_knowledge',
 } as const;
 export type TaskType = (typeof TASK_TYPE)[keyof typeof TASK_TYPE];
 

@@ -218,8 +218,11 @@ export interface Customer360Insight {
 export interface Customer360Profile {
   customerId: string
   companyName: string
-  /** 评分百分比（🔥 Score；无数据为 undefined → 前端显示 —） */
-  score?: number
+  /**
+   * 评分百分比（🔥 Score）。
+   * 未分析的客户后端返回 `null`（与 insights 的 null 契约一致），前端统一按「—」展示。
+   */
+  score?: number | null
   country?: string
   website?: string
   industryTags: string[]

@@ -5,6 +5,7 @@ export * from './module-enablement.js';
 export * from './contracts/pagination.js';
 export * from './contracts/queues.js';
 export * from './contracts/notify.js';
+export * from './contracts/open-api.js';
 export * from './contracts/env.js';
 export * from './sse/events.js';
 export * from './insight/schema.js';

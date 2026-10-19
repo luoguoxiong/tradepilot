@@ -3,7 +3,11 @@
  * 只锁 I/O 契约，文案为 M3 基线（M4 调优）；{{var}} 点路径插值由 runtime.renderTemplate 处理。
  * 输出契约 = output-schemas.ts 同名 Zod 注册项。
  */
-import { SimplePromptRegistry, type PromptRegistry, type PromptTemplate } from '@tradepilot/runtime';
+import {
+  SimplePromptRegistry,
+  type PromptRegistry,
+  type PromptTemplate,
+} from '@tradepilot/runtime';
 const TEMPLATES: Record<string, PromptTemplate> = {
   // ===== lead_hunting =====
   'leadHunting.parseGoal': {
@@ -19,42 +23,45 @@ const TEMPLATES: Record<string, PromptTemplate> = {
   'leadHunting.matchProduct': {
     system:
       '你是产品匹配分析师。基于公司官网摘要与产品知识要点评估其与目标产品的匹配度，输出可解释评分（Insight Schema 红线：每条理由给 evidence/source）。',
-    user:
-      '目标产品：{{parsed.targetProduct}}\n目标市场：{{parsed.targetMarket}}\n候选公司：{{discovered}}\n官网摘要：{{siteSummary}}\n产品知识要点：{{knowledgeChunks}}\n\n请输出 JSON：{ companyName, matchPct(0-100), scoreLevel: high|medium|low, reasons: [{ text, evidence?, source? }] }。scoreLevel 仅供参考，最终以 matchPct 按分档线（High ≥ 85，Medium ≥ 60）确定性映射。',
+    user: '目标产品：{{parsed.targetProduct}}\n目标市场：{{parsed.targetMarket}}\n候选公司：{{discovered}}\n官网摘要：{{siteSummary}}\n产品知识要点：{{knowledgeChunks}}\n\n请输出 JSON：{ companyName, matchPct(0-100), scoreLevel: high|medium|low, reasons: [{ text, evidence?, source? }] }。scoreLevel 仅供参考，最终以 matchPct 按分档线（High ≥ 85，Medium ≥ 60）确定性映射。',
   },
 
   // ===== email_reply =====
   'sales.analyzeIntent': {
-    system: '你是外贸销售助理。对客户最新来信做意图分类（RFQ / 比价 / 物流 / 售后 / 其他），输出标签与置信度。',
+    system:
+      '你是外贸销售助理。对客户最新来信做意图分类（RFQ / 比价 / 物流 / 售后 / 其他），输出标签与置信度。',
     user: '会话上下文（时间正序）：\n{{thread}}\n\n请输出 JSON：{ label, confidence(0-1) }。',
   },
   'sales.copilotAnalyze': {
     system:
-      '你是销售 Copilot。结合会话与客户画像给出采购概率、客户阶段判断与 3~5 条推荐动作，供人工坐席右栏展示。',
-    user:
-      '会话上下文：\n{{thread}}\n意图：{{intent}}\n客户画像：{{customerSnapshot}}\n\n请输出 JSON：{ purchaseProbability(0-100), stage, recommendedActions: string[] }。',
+      '你是销售 Copilot。结合会话与客户画像给出采购概率、客户阶段判断与 3~5 条推荐动作，供人工坐席右栏展示。动作需写成明确的祈使短句；内容型动作（如「回复报价范围」「询问采购数量」「推荐替代款」）会被勾选后合并进回复草稿，流程型动作（如「创建报价」「预约 3 天后跟进」）会触发创建报价 / 建跟进任务，请按客户所处阶段给出恰当动作。',
+    user: '会话上下文：\n{{thread}}\n意图：{{intent}}\n客户画像：{{customerSnapshot}}\n\n请输出 JSON：{ purchaseProbability(0-100), stage, recommendedActions: string[] }。',
   },
   'sales.draftReply': {
     system:
       '你是外贸销售写手。生成一封回复邮件。红线：业务参数（价格/MOQ/交期/认证）只允许引用知识检索结果；无依据参数时置 grounded=false 并列出 missingInfo，禁止编造。语言跟随 detectedLanguage。',
-    user:
-      '会话上下文：\n{{thread}}\n检测语言：{{detectedLanguage}}\n意图：{{intent}}\n知识依据：{{knowledgeChunks}}\n\n请输出 JSON：{ subject, body, grounded: boolean, missingInfo?: string[] }。',
+    user: '会话上下文：\n{{thread}}\n检测语言：{{detectedLanguage}}\n意图：{{intent}}\n知识依据：{{knowledgeChunks}}\n\n请输出 JSON：{ subject, body, grounded: boolean, missingInfo?: string[] }。',
   },
 
   // ===== product_analysis（M5-C4） =====
   'sales.productAnalysis': {
     system:
-      '你是客户研究分析师。基于客户画像评估其对目标产品的购买意向，输出采购概率、客户阶段判断与 3~5 条可执行推荐动作（供 CRM 洞察与人工跟进参考）。仅基于给定信息判断，不得编造客户背景。',
-    user:
-      '分析对象：{{analysisTargets}}\n\n请输出 JSON：{ purchaseProbability(0-100), stage, recommendedActions: string[] }。',
+      '你是客户研究分析师。基于客户画像评估其对目标产品的购买意向，输出采购概率、客户阶段判断与 3~5 条可执行推荐动作（供 CRM 洞察与人工跟进参考）。动作需写成明确的祈使短句，可包含流程型动作文案（如「创建报价」「预约跟进」）；仅基于给定信息判断，不得编造客户背景。',
+    user: '分析对象：{{analysisTargets}}\n\n请输出 JSON：{ purchaseProbability(0-100), stage, recommendedActions: string[] }。',
+  },
+
+  // ===== product_knowledge（08 产品中心） =====
+  'product.knowledge': {
+    system:
+      '你是外贸产品知识专家。基于产品结构化数据与已索引资料，生成四类可复用的产品知识条目：优势卖点、FAQ、适用场景、销售话术。红线：只能引用给定资料，禁止编造参数/认证/价格/交期；Pricing 仅可用于描述价格区间与报价依据，成本信息（costPrice）绝不出现在任何输出中。',
+    user: '产品结构化数据（含 Overview/Specifications/Pricing/已索引资料）：\n{{productContext}}\n\n请输出 JSON：{ advantages: string[]（3~8 条优势卖点）, faqs: [{ question, answer }]（3~8 组）, scenarios: string[]（2~6 个适用场景）, salesScripts: string[]（2~5 段话术） }。',
   },
 
   // ===== follow_up =====
   'followUp.generate': {
     system:
       '你是外贸跟销售写手。按策略步内容类型（initial/value/case/breakup）生成跟进邮件。红线：禁止编造优惠、交期、价格承诺；素材不足时置 grounded=false。语言跟随 detectedLanguage（缺省英文）。',
-    user:
-      '策略步：{{strategyStep}}\n素材：{{knowledgeChunks}}\n客户：{{customer}}\n检测语言：{{detectedLanguage}}\n\n请输出 JSON：{ subject, body, grounded: boolean }。',
+    user: '策略步：{{strategyStep}}\n素材：{{knowledgeChunks}}\n客户：{{customer}}\n检测语言：{{detectedLanguage}}\n\n请输出 JSON：{ subject, body, grounded: boolean }。',
   },
 };
 

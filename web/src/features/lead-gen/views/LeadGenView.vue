@@ -30,6 +30,8 @@ const summaryQuery = useQuery({
   staleTime: staleTime.DETAIL,
 })
 
+// org 内可能尚无 lead_hunter 员工（后端返回 employee: null），模板需按缺失态渲染
+const hunterEmployee = computed(() => summaryQuery.data.value?.employee ?? null)
 const currentTaskId = computed(() => summaryQuery.data.value?.currentTask?.taskId ?? null)
 const currentTaskFinished = computed(() => {
   const status = summaryQuery.data.value?.currentTask?.status
@@ -114,14 +116,12 @@ function goDiscover() {
     <el-card shadow="never" class="lead-gen__header" v-loading="summaryQuery.isLoading.value">
       <template v-if="summaryQuery.data.value">
         <div class="lead-gen__hunter">
-          <div class="lead-gen__hunter-info">
-            <span class="lead-gen__hunter-name">
-              🤖 {{ summaryQuery.data.value.employee.name }}
-            </span>
+          <div v-if="hunterEmployee" class="lead-gen__hunter-info">
+            <span class="lead-gen__hunter-name"> 🤖 {{ hunterEmployee.name }} </span>
             <AiStatusTag
               group="employeeStatus"
-              :value="summaryQuery.data.value.employee.status"
-              :detail="summaryQuery.data.value.employee.statusDetail"
+              :value="hunterEmployee.status"
+              :detail="hunterEmployee.statusDetail"
             />
           </div>
           <div class="lead-gen__today">

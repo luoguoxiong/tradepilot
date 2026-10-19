@@ -344,6 +344,10 @@ importers:
       zod:
         specifier: ^3.24.1
         version: 3.25.76
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@20.19.43)(terser@5.51.2)
 
   packages/workflows:
     dependencies:
@@ -365,6 +369,13 @@ importers:
       zod:
         specifier: ^3.24.1
         version: 3.25.76
+    devDependencies:
+      '@tradepilot/tools':
+        specifier: workspace:*
+        version: link:../tools
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@20.19.43)(terser@5.51.2)
 
 packages:
 

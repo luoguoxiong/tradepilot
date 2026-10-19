@@ -257,6 +257,28 @@ export class GraphCompiler {
     return compiled;
   }
 
+  /**
+   * 是否存在可续跑检查点（任务级重投判定，04 §5.3）。
+   * 有检查点 → 重投走 `invoke(null)` 从最近检查点续跑（只重跑失败节点，不重复已完成节点成本）；
+   * 无检查点（checkpointer 未装配 / 图从未落盘 / 读取失败）→ 返回 false，调用方按全量重跑处理。
+   */
+  async hasCheckpoint(threadId: string): Promise<boolean> {
+    const saver = this.deps.checkpointer;
+    if (!saver) {
+      return false;
+    }
+    try {
+      const tuple = await saver.getTuple({ configurable: { thread_id: threadId } });
+      return Boolean(tuple);
+    } catch (err: unknown) {
+      this.deps.logger.warn(
+        { threadId, err: err instanceof Error ? err.message : String(err) },
+        '读取任务检查点失败，按无检查点处理（重投将全量重跑）',
+      );
+      return false;
+    }
+  }
+
   private doCompile(sop: SopGraphDefinition, stateKeys: readonly string[]): CompiledTaskGraph {
     const spec: Record<string, BaseChannel> = {};
     for (const key of stateKeys) {
@@ -268,9 +290,13 @@ export class GraphCompiler {
     // 动态节点名（SOP data 驱动）超出 StateGraph 静态字面量推断能力，边界处放宽为松散接口
     const wf = new StateGraph(StateAnnotation) as unknown as LooseStateGraph;
 
+    // SOP 图声明的工具集合（校验链① 的授权并集之一：SOP 由 admin/manager 选配，声明即授权，
+    // 避免「SOP 用了某工具但员工 tools 漏勾」导致任务在 tool 节点必失败 Runtime §4.5）
+    const sopTools = sop.nodes.flatMap((n) => (n.kind === 'tool' ? [n.tool] : []));
+
     sop.nodes.forEach((node, idx) => {
       const seq = idx + 1; // smallint 步骤序号（upsert 幂等锚点 [taskId, seq]）
-      const exec = this.buildExec(node);
+      const exec = this.buildExec(node, sopTools);
       wf.addNode(node.id, this.wrapNode(node, seq, exec));
     });
     wf.addEdge(START, sop.entry);
@@ -390,12 +416,12 @@ export class GraphCompiler {
     };
   }
 
-  private buildExec(node: SopNode): NodeExec {
+  private buildExec(node: SopNode, sopTools: readonly string[] = []): NodeExec {
     if (node.kind === 'llm') {
       return this.llmExec(node);
     }
     if (node.kind === 'tool') {
-      return this.toolExec(node);
+      return this.toolExec(node, sopTools);
     }
     return this.flowExec(node);
   }
@@ -434,10 +460,11 @@ export class GraphCompiler {
 
   // ===== tool 节点 =====
 
-  private toolExec(node: SopToolNode): NodeExec {
+  private toolExec(node: SopToolNode, sopTools: readonly string[] = []): NodeExec {
     return async (state, ctx) => {
       const tool = this.deps.tools.get(node.tool);
-      this.deps.tools.assertAllowed(tool, ctx.employee.tools);
+      // 授权 = 员工 tools 白名单 ∪ 当前 SOP 声明的工具（Runtime §4.5 校验链①）
+      this.deps.tools.assertAllowed(tool, ctx.employee.tools, sopTools);
       const input = this.deps.tools.parseInput(tool, buildToolInput(node, state));
       // M4 #6：配额日 key 按 org 时区墙钟日分片（06 §3），时区取 org 运行时快照
       await this.deps.tools.assertQuota(

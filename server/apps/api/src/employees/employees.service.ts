@@ -1,6 +1,6 @@
 /**
  * 02 AI 数字员工中心服务（接口 02 §3，M5-C3）：
- * - list：员工卡片列表（status 语义 / todayStats 今日任务计数 / kpi / currentTask 只读聚合 ai_task / workspacePath）；
+ * - list：员工卡片列表（status 语义 / todayStats 与 kpi 同源（业务表聚合，P1 精化）/ currentTask 只读聚合 ai_task / workspacePath）；
  * - roles：创建向导预填（sop_template is_preset=true + 预置 ai_employee 派生 RoleTemplate）；
  * - create：仅 admin/manager（sales 越权 40301）；role / kpiConfig.metric / approvalPolicy.quote
  *   业务校验（42201）；sopParams 合并进 org 级 sop_template 副本（is_preset=false）；
@@ -10,8 +10,23 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Redis } from 'ioredis';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
-import { BizException, ErrorCode, createId } from '@tradepilot/core';
-import { schema, withOrg, type Db, type OrgScopeContext, type Tx } from '@tradepilot/db';
+import {
+  BizException,
+  ErrorCode,
+  computeKpiPct,
+  createId,
+  zonedDayRangeUtc,
+} from '@tradepilot/core';
+import {
+  fetchEmployeeKpiCounts,
+  kpiCountOf,
+  schema,
+  withOrg,
+  type Db,
+  type EmployeeKpiCounts,
+  type OrgScopeContext,
+  type Tx,
+} from '@tradepilot/db';
 import { buildStatusEvent, TaskEventPublisher } from '@tradepilot/runtime';
 import { DB } from '../db/db.module.js';
 import { REDIS } from '../redis/redis.module.js';
@@ -23,28 +38,33 @@ import {
   type EmployeeRole,
 } from './employees.dto.js';
 
-/** 工作台路由（02 §1.2 承载决策；D4：跟单/经理占位 → null 禁用入口） */
+/**
+ * 工作台路由（02 §1.2 承载决策）：六角色工作台 P1 全部启用——
+ * 跟单随订单中心（10）解开占位（P1-02-01），经理随 13 解开占位（D4）。
+ */
 const WORKSPACE_PATH: Record<EmployeeRole, string | null> = {
   lead_hunter: '/lead-gen',
   customer_researcher: '/crm',
   sales: '/inbox',
   follow_up: '/follow-up',
-  merchandiser: null,
-  manager: null,
+  merchandiser: '/orders',
+  manager: '/manager',
 };
 
-/** todayStats 文案（02 §1.1 今日工作量；MVP 口径 = 今日任务计数，02 §3 兜底） */
+/**
+ * todayStats 文案（02 §1.1 今日工作量）。
+ * 数值与 `kpi.achieved` **同源**（同一业务表聚合口径，见 `employeeKpiCounts`）；
+ * 文案与 01 Dashboard `TODAY_OUTPUT_LABEL` 保持同角色同文案同单位。
+ * 跟单为存量指标（在跟订单数，02 §3.2），故文案不含「今日」。
+ */
 const TODAY_STAT_LABEL: Record<EmployeeRole, { label: string; unit: string }> = {
-  lead_hunter: { label: '今日获客任务', unit: '个' },
-  customer_researcher: { label: '今日分析任务', unit: '个' },
-  sales: { label: '今日询盘任务', unit: '个' },
-  follow_up: { label: '今日跟进任务', unit: '个' },
-  merchandiser: { label: '今日跟单任务', unit: '个' },
-  manager: { label: '今日经营任务', unit: '个' },
+  lead_hunter: { label: '今日找到客户', unit: '个' },
+  customer_researcher: { label: '今日分析客户', unit: '个' },
+  sales: { label: '今日回复', unit: '封' },
+  follow_up: { label: '今日跟进', unit: '个' },
+  merchandiser: { label: '在跟订单', unit: '单' },
+  manager: { label: '今日经营', unit: '个' },
 };
-
-/** D4 占位角色（跟单/经理）：KPI 随 P1 模块启用后展示 → null */
-const PLACEHOLDER_ROLES: readonly EmployeeRole[] = ['merchandiser', 'manager'];
 
 /** db employee_status → 前端卡片状态（02 §1.1 四种语义色；scheduled 归 idle、risk/failed 归 error） */
 const CARD_STATUS: Record<string, 'working' | 'idle' | 'waiting_approval' | 'error'> = {
@@ -75,6 +95,21 @@ export interface EmployeeKpi {
   achieved: number;
   target: number;
   progressPct: number;
+  period: 'daily';
+}
+
+/**
+ * 13 §1.3 团队效率行（经理页 KPI 卡片）：
+ * 与 02 员工卡片 **同一口径**（业务表聚合达成值 + `computeKpiPct`），仅把 progressPct 命名为页面契约的 kpiPct。
+ */
+export interface TeamEfficiencyItem {
+  employeeId: string;
+  name: string;
+  role: EmployeeRole;
+  metric: string | null;
+  achieved: number;
+  target: number | null;
+  kpiPct: number | null;
   period: 'daily';
 }
 
@@ -126,7 +161,7 @@ export class EmployeesService {
     this.publisher = new TaskEventPublisher(redis);
   }
 
-  /** 02 §3.1 员工卡片列表（全量 6 卡；status 语义 / todayStats / kpi / currentTask / workspacePath） */
+  /** 02 §3.1 员工卡片列表（全量 6 卡；status 语义 / todayStats 与 kpi 同源 / currentTask / workspacePath） */
   async list(
     ctx: OrgScopeContext,
     page: number,
@@ -139,24 +174,8 @@ export class EmployeesService {
         .where(eq(schema.aiEmployee.orgId, ctx.orgId))
         .orderBy(asc(schema.aiEmployee.createdAt));
 
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      // 今日任务计数（按员工分组；02 §3.1 今日工作量 MVP 口径）
-      const todayRows = await tx
-        .select({
-          employeeId: schema.aiTask.employeeId,
-          n: sql<number>`count(*)::int`,
-        })
-        .from(schema.aiTask)
-        .where(
-          and(
-            eq(schema.aiTask.orgId, ctx.orgId),
-            sql`${schema.aiTask.createdAt} >= ${today.toISOString()}`,
-          ),
-        )
-        .groupBy(schema.aiTask.employeeId);
-      const todayCount = new Map(todayRows.map((r) => [r.employeeId, r.n]));
+      // KPI 达成值（02 §3.2 P1 精化：业务表实时聚合；与 13 §1.3 团队效率同源）
+      const kpiCounts = await this.employeeKpiCounts(tx, ctx.orgId);
 
       // 当前任务（FR-04/D5）：该员工最新一条非终态 ai_task（不依赖 14 接口）
       const activeRows = await tx
@@ -199,15 +218,15 @@ export class EmployeesService {
           currentTask?.status === 'running' ? 'working' : (CARD_STATUS[emp.status] ?? 'idle');
         const statLabel = TODAY_STAT_LABEL[role] ?? { label: '今日任务', unit: '个' };
 
-        // KPI（02 §1.1）：占位角色（跟单/经理 D4）→ null；其余取 kpiConfig + 今日任务计数
+        // KPI（02 §1.1）：取 kpiConfig.target 与企业本地日达成值（P1 精化口径，非任务计数）
+        const achieved = kpiCountOf(kpiCounts, ROLE_KPI_METRIC[role], emp.id);
         let kpi: EmployeeKpi | null = null;
-        if (emp.kpiConfig && !PLACEHOLDER_ROLES.includes(role)) {
-          const achieved = todayCount.get(emp.id) ?? 0;
+        if (emp.kpiConfig) {
           kpi = {
             metric: emp.kpiConfig.metric,
             achieved,
             target: emp.kpiConfig.target,
-            progressPct: Math.min(100, Math.round((achieved / emp.kpiConfig.target) * 100)),
+            progressPct: computeKpiPct(achieved, emp.kpiConfig.target) ?? 0,
             period: 'daily',
           };
         }
@@ -219,9 +238,7 @@ export class EmployeesService {
           ...(emp.avatar ? { avatar: emp.avatar } : {}),
           status,
           statusDetail: emp.statusDetail ?? null,
-          todayStats: [
-            { label: statLabel.label, count: todayCount.get(emp.id) ?? 0, unit: statLabel.unit },
-          ],
+          todayStats: [{ label: statLabel.label, count: achieved, unit: statLabel.unit }],
           kpi,
           currentTask,
           workspacePath: WORKSPACE_PATH[role] ?? null,
@@ -233,6 +250,56 @@ export class EmployeesService {
       const items = cards.slice(start, start + pageSize);
 
       return { items, total, page, pageSize };
+    });
+  }
+
+  /**
+   * 13 §1.3 团队效率（经理页 KPI 卡片）：全员 6 卡（无 kpiConfig 的异常数据 → kpiPct=null）。
+   * 口径与 02 `list` 完全一致（org 时区当地日 + 业务表聚合 + computeKpiPct），
+   * 故两页数字必然对齐（13 §4 红线），差异仅在字段命名与不分页。
+   */
+  async teamEfficiency(ctx: OrgScopeContext): Promise<TeamEfficiencyItem[]> {
+    return withOrg(this.db, ctx.orgId, async (tx) => {
+      const employees = await tx
+        .select({
+          id: schema.aiEmployee.id,
+          name: schema.aiEmployee.name,
+          role: schema.aiEmployee.role,
+          kpiConfig: schema.aiEmployee.kpiConfig,
+        })
+        .from(schema.aiEmployee)
+        .where(eq(schema.aiEmployee.orgId, ctx.orgId))
+        .orderBy(asc(schema.aiEmployee.createdAt));
+
+      const kpiCounts = await this.employeeKpiCounts(tx, ctx.orgId);
+
+      return employees.map((emp) => {
+        const role = emp.role as EmployeeRole;
+        const config = emp.kpiConfig ?? null;
+        const achieved = kpiCountOf(kpiCounts, ROLE_KPI_METRIC[role], emp.id);
+        if (!config) {
+          return {
+            employeeId: emp.id,
+            name: emp.name,
+            role,
+            metric: null,
+            achieved,
+            target: null,
+            kpiPct: null,
+            period: 'daily' as const,
+          };
+        }
+        return {
+          employeeId: emp.id,
+          name: emp.name,
+          role,
+          metric: config.metric,
+          achieved,
+          target: config.target,
+          kpiPct: computeKpiPct(achieved, config.target) ?? 0,
+          period: 'daily' as const,
+        };
+      });
     });
   }
 
@@ -293,7 +360,10 @@ export class EmployeesService {
     });
   }
 
-  /** 02 §3.2 创建 AI 员工（仅 admin/manager；sales 越权 40301） */
+  /**
+   * 02 §3.2 创建 AI 员工（仅 admin/manager；sales 越权 40301）。
+   * 严格一类一个（02 §2）：同 org 同角色已存在员工 → 42201（见 assertRoleVacant）。
+   */
   async create(ctx: OrgScopeContext, dto: CreateEmployeeDto): Promise<{ employeeId: string }> {
     // 创建/修改员工为高权限操作（02 §3.1：role ∈ {admin, manager}）
     this.assertManager(ctx);
@@ -329,6 +399,9 @@ export class EmployeesService {
           `sopParams 含模板未定义的参数键: ${unknownKeys.join(', ')}`,
         );
       }
+      // 严格一类一个（02 §2）：同 org 同角色仅允许一个 AI 员工（置于其它 42201 校验之后，保持错误语义可区分）
+      await this.assertRoleVacant(tx, ctx.orgId, role);
+
       const sopTemplateId = await this.copySopTemplate(tx, ctx.orgId, role, dto, source);
 
       const employeeId = createId('emp');
@@ -466,6 +539,30 @@ export class EmployeesService {
     }
   }
 
+  /**
+   * 严格一类一个（02 §2）：同 org 同角色已存在 AI 员工 → 42201。
+   *
+   * 唯一性的判定点收敛在本方法（`create` 是 AI 员工的唯一产品写入路径），
+   * 未同时加 DB `UNIQUE(org_id, role)`：worker/runtime 侧的集成测试以「一个 org 内多员工」
+   * 构造调度/并发场景（单 org 最多 11 人，超 6 角色上限），该约束会与之冲突；
+   * 如需 DB 层兜底，须先重构这些 fixture（前后端之外的后续硬化项）。
+   * 残余并发窗口：两个 create 同时通过预检（TOCTOU）属理论边界——创建员工是 admin/manager
+   * 低频人工操作，且 UI 已对已占用角色置灰（02 §3.1）。
+   */
+  private async assertRoleVacant(tx: Tx, orgId: string, role: EmployeeRole): Promise<void> {
+    const [existing] = await tx
+      .select({ name: schema.aiEmployee.name })
+      .from(schema.aiEmployee)
+      .where(and(eq(schema.aiEmployee.orgId, orgId), eq(schema.aiEmployee.role, role)))
+      .limit(1);
+    if (existing) {
+      throw new BizException(
+        ErrorCode.BIZ_VALIDATION,
+        `角色 ${role} 已存在 AI 员工（${existing.name}），同一角色仅允许创建一个`,
+      );
+    }
+  }
+
   /** 解析 SOP 模板：传入 id 优先（须属本 org），否则取该角色模板（预置优先） */
   private async resolveSopTemplate(
     tx: Tx,
@@ -571,5 +668,26 @@ export class EmployeesService {
   /** 去掉预置 SOP 名后缀（`·预置SOP`）作为员工名称兜底 */
   private stripSopSuffix(name: string): string {
     return name.replace(/·预置SOP$/, '');
+  }
+
+  /**
+   * KPI 达成值聚合（02 §3.2 P1 精化口径）：org 时区当地日半开区间 + 各角色业务表实时聚合。
+   * 单一实现点：02 员工卡片 todayStats/kpi 与 13 §1.3 团队效率共用（聚合 SQL 见 db/employee-kpi.ts），
+   * 避免两处口径漂移（13 §4 红线）。
+   */
+  private async employeeKpiCounts(tx: Tx, orgId: string): Promise<EmployeeKpiCounts> {
+    const timeZone = await this.orgTimeZone(tx, orgId);
+    const { start, end } = zonedDayRangeUtc(new Date(), timeZone);
+    return fetchEmployeeKpiCounts(tx, orgId, { start, end });
+  }
+
+  /** 读取 org 时区（缺省 Asia/Shanghai）——「今日」口径基准（01 Dashboard / 07 §4 同口径） */
+  private async orgTimeZone(tx: Tx, orgId: string): Promise<string> {
+    const [orgRow] = await tx
+      .select({ timezone: schema.org.timezone })
+      .from(schema.org)
+      .where(eq(schema.org.id, orgId))
+      .limit(1);
+    return orgRow?.timezone ?? 'Asia/Shanghai';
   }
 }

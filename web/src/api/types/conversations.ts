@@ -66,19 +66,21 @@ export interface AiDraft {
   missingKnowledge?: boolean
 }
 
-/** Copilot 推荐动作（06 §1.3 勾选式建议；D8 P0 不产出「创建报价」流程型） */
+/** Copilot 推荐动作（06 §1.3 勾选式建议；流程型含「创建报价」「预约跟进」，D8 随 09/14 启用） */
 export interface CopilotSuggestion {
   suggestionId: string
   label: string
   checked: boolean
-  /** 建议类别：content 内容型（insert_draft）/ process 流程型（create_tasks） */
+  /** 建议类别：content 内容型（insert_draft）/ process 流程型（create_quote | create_tasks） */
   kind: 'content' | 'process'
-  /** 流程型动作标识（如 create_task；P0 不产出 create_quote） */
-  action?: string
+  /** 流程型动作标识：create_quote 跳 09 报价中心（带客深链）/ create_tasks 建跟进任务 */
+  action?: 'create_quote' | 'create_tasks'
 }
 
 /** GET /conversations/{id}/copilot（06 §1.3） */
 export interface CopilotData {
+  /** 会话所属客户（流程型「创建报价」跳 09 深链用） */
+  customerId: string
   intent: 'rfq' | 'price_compare' | 'logistics' | 'sample' | 'other'
   purchaseProbability: number
   stage: string

@@ -8,7 +8,7 @@
  * - batch-analyze（异步 → product_analysis 任务）
  * - convert 单条转化形状（04 §2）
  * - 360° 双源入口（04 §3.1：GET /customers/{id} 支持 leadId）
- * 前置：docker compose up（PG 5432 / Redis 6380）+ 迁移已执行。
+ * 前置：docker compose up（PG 5432 / Redis 6379）+ 迁移已执行。
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
@@ -26,7 +26,7 @@ import { TaskEnqueuer } from '@tradepilot/runtime';
 
 process.env.JWT_SECRET ||= 'it_only_test_secret_0123456789abcdef0123456789abcdef';
 process.env.ENCRYPTION_KEY ||= '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-process.env.REDIS_URL ||= 'redis://localhost:6380';
+process.env.REDIS_URL ||= 'redis://localhost:6379';
 process.env.DATABASE_URL ||= 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
 
 const SUPER_URL = 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
@@ -147,6 +147,11 @@ afterAll(async () => {
       await tx.delete(schema.aiModelSetting).where(eq(schema.aiModelSetting.orgId, orgId));
       await tx.delete(schema.sopTemplate).where(eq(schema.sopTemplate.orgId, orgId));
       await tx.delete(schema.rolePermission).where(eq(schema.rolePermission.orgId, orgId));
+      // 通知由审批/任务等业务事件生成（notification.org_id FK → org，必须先清）
+      await tx.delete(schema.notification).where(eq(schema.notification.orgId, orgId));
+      await tx
+        .delete(schema.notificationSetting)
+        .where(eq(schema.notificationSetting.orgId, orgId));
       await tx.delete(schema.userAccount).where(eq(schema.userAccount.orgId, orgId));
       await tx.delete(schema.org).where(eq(schema.org.id, orgId));
     });

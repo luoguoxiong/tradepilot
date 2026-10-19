@@ -84,6 +84,7 @@ export {
   TaskRunner,
   heartbeatKey,
   type ResumeHint,
+  type RunTaskOptions,
   type RunTaskResult,
   type TaskRunnerDeps,
   type TaskSopProvider,

@@ -49,11 +49,28 @@ const auth = useAuthStore()
 
 const timezone = computed(() => auth.org?.timezone)
 
+// 01 §3.1 深链：/crm?overdue=7d → 客户列表超期未联系筛选（Dashboard「高价值客户超期未联系」待办跳转）
+const overdueDays = computed<number | undefined>(() => {
+  const raw = route.query.overdue
+  const parsed = typeof raw === 'string' ? Number.parseInt(raw.replace(/\D/g, ''), 10) : Number.NaN
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
+})
+
 // ===== 四页签 =====
 // /crm 与 /crm/contacts 为不同路由（keep-alive key 按 path 隔离为独立实例，02 §6），
-// 初始页签由 route.path 决定即可；无需 watch path —— keep-alive 返回时保留内部页签态。
+// 初始页签优先读 ?tab=（侧边栏「潜在客户 / 客户列表 / 客户活动」深链），其次按 path，回落 潜在客户；
+// 无需 watch —— keep-alive key 含 query.tab，各深链各自独立缓存，返回时保留内部页签态。
+const VALID_TABS: readonly CrmTab[] = ['potential', 'formal', 'contacts', 'activities']
+
+function initialTab(): CrmTab {
+  const tab = route.query.tab
+  if (typeof tab === 'string' && (VALID_TABS as readonly string[]).includes(tab))
+    return tab as CrmTab
+  return route.path.endsWith('/crm/contacts') ? 'contacts' : 'potential'
+}
+
 const isCustomerTab = (tab: CrmTab) => tab === 'potential' || tab === 'formal'
-const activeTab = ref<CrmTab>(route.path.endsWith('/crm/contacts') ? 'contacts' : 'potential')
+const activeTab = ref<CrmTab>(initialTab())
 
 // ===== owner 候选（当前用户 + 团队活跃成员，05 §4） =====
 const membersQuery = useQuery({
@@ -190,11 +207,21 @@ const fetchActivities = (params: Record<string, unknown>) =>
       <el-tabs v-model="activeTab" class="crm__tabs">
         <el-tab-pane lazy name="potential">
           <template #label>{{ t('crm.tabPotential') }}</template>
-          <CustomerListTable tab="potential" :owner-options="ownerOptions" @edit="openEdit" />
+          <CustomerListTable
+            tab="potential"
+            :owner-options="ownerOptions"
+            :overdue-days="overdueDays"
+            @edit="openEdit"
+          />
         </el-tab-pane>
         <el-tab-pane lazy name="formal">
           <template #label>{{ t('crm.tabFormal') }}</template>
-          <CustomerListTable tab="formal" :owner-options="ownerOptions" @edit="openEdit" />
+          <CustomerListTable
+            tab="formal"
+            :owner-options="ownerOptions"
+            :overdue-days="overdueDays"
+            @edit="openEdit"
+          />
         </el-tab-pane>
         <el-tab-pane lazy name="contacts">
           <template #label>{{ t('crm.tabContacts') }}</template>

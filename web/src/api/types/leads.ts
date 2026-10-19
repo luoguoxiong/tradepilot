@@ -108,7 +108,8 @@ export interface AddToCrmResp {
 
 /** GET /lead-hunter/summary 响应（03 §1.1） */
 export interface LeadHunterSummary {
-  employee: { employeeId: string; name: string; status: string; statusDetail?: string }
+  /** 本 org 的 lead_hunter 员工；org 内无该角色员工时后端返回 null（03 §3.1） */
+  employee: { employeeId: string; name: string; status: string; statusDetail?: string } | null
   todaySummary: { found: number; analyzed: number; highValue: number }
   currentTask: {
     taskId: string

@@ -8,12 +8,7 @@ import type { InsightCitation, InsightReason } from '@/api/types/insight'
 
 /** 审批类型（12 §7.1；P0 实际审批来源 = email_send + customer_delete） */
 export type ApprovalType =
-  | 'quote'
-  | 'email_send'
-  | 'contract'
-  | 'order_change'
-  | 'bulk_marketing'
-  | 'customer_delete'
+  'quote' | 'email_send' | 'contract' | 'order_change' | 'bulk_marketing' | 'customer_delete'
 
 /** GET /approvals/summary 响应（接口文档 12 §3.1）：Tab 待审数，notifyStore 轮询数据源 */
 export interface ApprovalSummary {
@@ -25,12 +20,7 @@ export type RiskLevel = 'high' | 'medium' | 'low'
 
 /** 审批状态（12 §1.2；expired 超时终态 / auto_approved 自动通过留痕，工程约定） */
 export type ApprovalStatus =
-  | 'pending'
-  | 'approved'
-  | 'edited_approved'
-  | 'rejected'
-  | 'expired'
-  | 'auto_approved'
+  'pending' | 'approved' | 'edited_approved' | 'rejected' | 'expired' | 'auto_approved'
 
 /** email_send 上下文（12 §1.3） */
 export interface EmailSendContext {
@@ -48,8 +38,41 @@ export interface CustomerDeleteContext {
   relatedCounts: { quotes: number; orders: number }
 }
 
-/** context 按 approvalType 差异化（12 §1.3；P0 收敛两形，其余类型 P1 启用） */
-export type ApprovalContext = EmailSendContext | CustomerDeleteContext
+/** quote 上下文（12 §1.3 / 09 §3.3：报价提交审核落库口径） */
+export interface QuoteContext {
+  quoteId: string
+  quoteNo: string
+  customerId: string
+  totalAmount: string
+  currency: string
+  customerName?: string
+}
+
+/** order_change 上下文（12 §1.3 / 10 FR-03：变更审批 before/changes 双态） */
+export interface OrderChangeContext {
+  orderId: string
+  orderNo: string
+  before: { deliveryDate: string | null; amount: string }
+  changes: {
+    deliveryDate?: string
+    amount?: string
+    items?: {
+      seq: number
+      productId: string
+      productName: string
+      quantity: number
+      unitPrice: string
+      lineTotal: string
+    }[]
+  }
+}
+
+/**
+ * context 按 approvalType 差异化（12 §1.3）：
+ * P0 两形（email_send / customer_delete）+ P1 两形（quote / order_change，随 09/10 启用 —— D10）。
+ */
+export type ApprovalContext =
+  EmailSendContext | CustomerDeleteContext | QuoteContext | OrderChangeContext
 
 /** 审批列表行 / 详情卡片（12 §1.2 全字段） */
 export interface ApprovalItem {

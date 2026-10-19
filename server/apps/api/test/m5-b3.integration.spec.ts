@@ -11,7 +11,7 @@
  * - GET /customers/{id}/activities 活动时间线
  * - POST /contacts/{id}/generate-outreach 生成开发信
  * - POST /leads/{id}/convert 单条 lead 转 CRM
- * 前置：docker compose up（PG 5432 / Redis 6380）+ 迁移已执行。
+ * 前置：docker compose up（PG 5432 / Redis 6379）+ 迁移已执行。
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
@@ -258,6 +258,11 @@ afterAll(async () => {
       await tx.delete(schema.aiModelSetting).where(eq(schema.aiModelSetting.orgId, orgId));
       await tx.delete(schema.sopTemplate).where(eq(schema.sopTemplate.orgId, orgId));
       await tx.delete(schema.rolePermission).where(eq(schema.rolePermission.orgId, orgId));
+      // 通知由审批/任务等业务事件生成（notification.org_id FK → org，必须先清）
+      await tx.delete(schema.notification).where(eq(schema.notification.orgId, orgId));
+      await tx
+        .delete(schema.notificationSetting)
+        .where(eq(schema.notificationSetting.orgId, orgId));
       await tx.delete(schema.userAccount).where(eq(schema.userAccount.orgId, orgId));
       await tx.delete(schema.org).where(eq(schema.org.id, orgId));
     });

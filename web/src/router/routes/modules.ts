@@ -137,18 +137,20 @@ export const appRoutes: RouteRecordRaw[] = [
             component: () => import('@/features/settings/views/AiEmployeesEntryView.vue'),
             meta: { title: 'settings.aiEmployees' },
           },
-          // ===== P1 占位（FR-06/07/10/11，菜单占位先例）=====
+          // ===== P1 设置页（FR-06/07/10/11 全量交付）=====
           {
             path: 'crm-integration',
             name: 'settings-crm-integration',
-            component: () => import('@/features/settings/views/SettingsPlaceholderView.vue'),
-            meta: { title: 'settings.crmIntegration' },
+            component: () => import('@/features/settings/views/CrmIntegrationView.vue'),
+            // 读取 admin+manager、写入仅 admin（与后端 @Roles 一致）
+            meta: { title: 'settings.crmIntegration', roles: ['admin', 'manager'] },
           },
           {
             path: 'pricing-rules',
             name: 'settings-pricing-rules',
-            component: () => import('@/features/settings/views/SettingsPlaceholderView.vue'),
-            meta: { title: 'settings.pricingRules' },
+            component: () => import('@/features/settings/views/PricingRulesView.vue'),
+            // 读取 admin+manager、写入仅 admin（与后端 @Roles 一致）
+            meta: { title: 'settings.pricingRules', roles: ['admin', 'manager'] },
           },
           {
             path: 'ai-models',
@@ -160,8 +162,9 @@ export const appRoutes: RouteRecordRaw[] = [
           {
             path: 'api-keys',
             name: 'settings-api-keys',
-            component: () => import('@/features/settings/views/SettingsPlaceholderView.vue'),
-            meta: { title: 'settings.apiKeys' },
+            component: () => import('@/features/settings/views/ApiKeysView.vue'),
+            // API Key / Webhook 凭证属敏感配置，仅 admin 可见（与后端 @Roles('admin') 一致）
+            meta: { title: 'settings.apiKeys', roles: ['admin'] },
           },
         ],
       },
@@ -174,70 +177,78 @@ export const appRoutes: RouteRecordRaw[] = [
       },
 
       // ===== P1（features.ts 控制，p0 构建期剔除） =====
+      // 14 AI 任务中心（P1）：状态 Tab 列表 + 详情（步骤/日志/产出物 + 操作/审批联动）
       {
         path: 'tasks',
         name: 'tasks',
-        component: placeholder,
+        component: () => import('@/features/tasks/views/TasksListView.vue'),
         meta: { title: 'menu.tasks', icon: 'List', menu: true, order: 20, feature: 'taskCenter' },
       },
+      // 详情类路由（不进菜单，与 04 customers/:id 同构：列表视图不含内层 router-view）
+      {
+        path: 'tasks/:id',
+        name: 'task-detail',
+        component: () => import('@/features/tasks/views/TaskDetailView.vue'),
+        meta: { title: 'menu.tasks', feature: 'taskCenter' },
+      },
+      // 08 产品中心（P1）：列表 + 详情（5 页签，?tab= 同步）
       {
         path: 'products',
         name: 'products',
-        component: placeholder,
+        component: () => import('@/features/products/views/ProductsListView.vue'),
         meta: { title: 'menu.products', icon: 'Goods', menu: true, order: 21, feature: 'products' },
-        children: [
-          {
-            path: ':id',
-            name: 'product-detail',
-            component: placeholder,
-            meta: { title: 'menu.products' },
-          },
-        ],
+      },
+      // 详情类路由（不进菜单；列表视图不含内层 router-view，故与 04 customers/:id 同构平铺）
+      {
+        path: 'products/:id',
+        name: 'product-detail',
+        component: () => import('@/features/products/views/ProductDetailView.vue'),
+        meta: { title: 'menu.products', feature: 'products' },
       },
       {
         path: 'quotes',
         name: 'quotes',
-        component: placeholder,
+        component: () => import('@/features/quotes/views/QuotesListView.vue'),
         meta: { title: 'menu.quotes', icon: 'Ticket', menu: true, order: 22, feature: 'quotes' },
-        children: [
-          {
-            path: ':id',
-            name: 'quote-detail',
-            component: placeholder,
-            meta: { title: 'menu.quotes' },
-          },
-        ],
+      },
+      {
+        path: 'quotes/:id',
+        name: 'quote-detail',
+        component: () => import('@/features/quotes/views/QuoteDetailView.vue'),
+        meta: { title: 'menu.quotes', feature: 'quotes' },
       },
       {
         path: 'orders',
         name: 'orders',
-        component: placeholder,
+        component: () => import('@/features/orders/views/OrdersListView.vue'),
         meta: { title: 'menu.orders', icon: 'Tickets', menu: true, order: 23, feature: 'orders' },
-        children: [
-          {
-            path: ':id',
-            name: 'order-detail',
-            component: placeholder,
-            meta: { title: 'menu.orders' },
-          },
-        ],
       },
+      // 详情类路由（不进菜单，与 04 customers/:id 同构：列表视图不含内层 router-view）
+      {
+        path: 'orders/:id',
+        name: 'order-detail',
+        component: () => import('@/features/orders/views/OrderDetailView.vue'),
+        meta: { title: 'menu.orders', feature: 'orders' },
+      },
+      // 13 AI 外贸经理（P1）：今日经营概览 + AI 发现 + 团队效率 + 经营报告
       {
         path: 'manager',
         name: 'manager',
-        component: placeholder,
+        component: () => import('@/features/manager/views/ManagerView.vue'),
         meta: {
           title: 'menu.manager',
           icon: 'UserFilled',
           menu: true,
           order: 24,
           feature: 'manager',
+          // 经理视角全量经营数据，仅经理及以上（与后端 @Roles('admin','manager') 一致）
+          roles: ['admin', 'manager'],
         },
       },
       {
         path: 'data-center',
         name: 'data-center',
-        component: placeholder,
+        component: () => import('@/features/data-center/views/DataCenterView.vue'),
         meta: {
           title: 'menu.dataCenter',
           icon: 'DataAnalysis',

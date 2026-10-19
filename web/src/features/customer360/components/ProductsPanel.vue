@@ -1,22 +1,26 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { useQuery } from '@tanstack/vue-query'
 
 import EmptyState from '@/components/business/EmptyState.vue'
 import ProductDetailDrawer from '@/components/business/ProductDetailDrawer.vue'
 import { getCustomerProducts } from '@/api/resources/customers'
 import type { CustomerProductItem } from '@/api/types/customers'
+import { features } from '@/features'
 import { qk } from '@/query/keys'
 import { staleTime } from '@/query/options'
 
 /**
  * ProductsPanel Products 页签（04 §1.5 / D7）：
- * productMatches 列表；行点击展开行内详情抽屉（P0 不跳 08，跳转随产品中心启用）。
+ * productMatches 列表；行点击跳 08 产品详情（`features.products` 启用后恢复跳转），
+ * P0（08 未启用）降级为行内详情抽屉展示 insight/overview 数据。
  */
 const props = defineProps<{ entityId: string }>()
 
 const { t } = useI18n()
+const router = useRouter()
 
 const productsQuery = useQuery({
   queryKey: computed(() => qk.customer360.products(props.entityId)),
@@ -38,6 +42,11 @@ const drawerVisible = ref(false)
 const selected = ref<CustomerProductItem | null>(null)
 
 function openDetail(product: CustomerProductItem) {
+  // D7：08 启用后行点击跳产品详情（产品页签与 08 详情同源）
+  if (features.products) {
+    void router.push({ name: 'product-detail', params: { id: product.productId } })
+    return
+  }
   selected.value = product
   drawerVisible.value = true
 }

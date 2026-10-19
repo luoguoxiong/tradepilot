@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import { useQuery } from '@tanstack/vue-query'
 import { Search } from '@element-plus/icons-vue'
 
@@ -31,10 +32,13 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
+const route = useRoute()
+
 // ===== 过滤态 =====
 const keyword = ref('')
 const priority = ref<ConversationPriority | ''>('')
-const unreadOnly = ref(false)
+// 01 §3.1 深链：/inbox?unread=true → 默认勾选「仅未读」（Dashboard「客户新回复」待办跳转）
+const unreadOnly = ref(route.query.unread === 'true')
 const mailboxId = ref('')
 
 const filters = computed<ConversationListReq>(() => ({

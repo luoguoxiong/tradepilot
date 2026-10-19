@@ -177,7 +177,7 @@ const PRESET_EMPLOYEES: PresetEmployee[] = [
   {
     role: 'merchandiser',
     name: 'AI 跟单员工',
-    goal: '监控订单履约进度与风险，异常及时预警（随订单中心 P1 启用）',
+    goal: '监控订单履约进度与风险，异常及时预警',
     skills: ['progress_tracking', 'risk_alert'],
     tools: ['order_read'],
     kpi: { metric: 'active_orders', target: 99 },

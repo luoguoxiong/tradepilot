@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 |---|---|
-| 前置文档 | 需求口径 = [11-知识中心](../产品需求文档/11-知识中心.md)（格式/上限/软删/权限已澄清）；数据层 = [ER 06](../产品需求文档/PostgreSQL%20数据库%20ER%20图/06-产品与知识模块.md)（knowledge_document / knowledge_chunk，vector(1536)）；嵌入 = [06 §4](./06-外部集成设计.md) |
+| 前置文档 | 需求口径 = [11-知识中心](../产品需求文档/11-知识中心.md)（格式/上限/软删/权限已澄清）；数据层 = [ER 06](../产品需求文档/PostgreSQL%20数据库%20ER%20图/06-产品与知识模块.md)（knowledge_document / knowledge_chunk，vector(2048)，迁移 0005）；嵌入 = [06 §4](./06-外部集成设计.md) |
 | 版本 | v0.1（2026-09-06） |
 
 ---
@@ -25,7 +25,7 @@ POST /knowledge/documents（multipart，白名单 pdf/docx/md/txt，≤50MB 超�
    ② clean：去页眉页脚、全角归一、去重空白
    ③ chunk：结构感知分块——标题层级优先切分，块长 ~500 token（overlap ~10%），
       每块带 { heading_path, page? } 元数据
-   ④ embed：批量嵌入（100/批）→ knowledge_chunk 批量插入（embedding vector(1536)，
+   ④ embed：批量嵌入（100/批）→ knowledge_chunk 批量插入（embedding vector(2048)，
       tsv 全文列同步生成，§4）
    ⑤ status='indexed' + SSE/轮询可见（Documents/Chunks 统计实时聚合，FR-05）
    失败 → status='failed' + error 文案；重试仅 manager/admin（重跑 ①起）

@@ -46,7 +46,11 @@ describe('GET /customers/:id Profile（04 §3.1，05 详情复用）', () => {
     expect(profile.inCrm).toBe(true)
     expect(profile.companyName).toBeTruthy()
     expect(Array.isArray(profile.industryTags)).toBe(true)
-    expect(typeof profile.score).toBe('number')
+    // 未分析客户 score 为 null（与 insights 双 null 契约一致，前端按「—」展示）；已分析则为 0–100 数值
+    expect(
+      profile.score === null || (typeof profile.score === 'number' && profile.score >= 0),
+      `score 应为 null 或 0–100 数值，实际 ${JSON.stringify(profile.score)}`,
+    ).toBe(true)
     for (const key of ['stage', 'ownerId', 'isFormal', 'deleteLocked']) {
       expect(key in profile, `缺少字段 ${key}`).toBe(true)
     }

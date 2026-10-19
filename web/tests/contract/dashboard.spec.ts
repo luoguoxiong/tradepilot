@@ -1,10 +1,11 @@
 // @vitest-environment node
 /**
- * 01 Dashboard 工作台契约测试（真实后端 · 01 接口文档 v0.2）：
- * 覆盖首屏聚合结构与 P0 降级行为（00 §5.1 D1~D3）：
- * - kpis 仅 new_customers/new_inquiries（未启用 metric 不返回而非返回 0）；
- * - pendingItems 仅 high_value_overdue/customer_reply；
- * - 无 dailyReport 字段；daily-report 两接口恒 40401。
+ * 01 Dashboard 工作台契约测试（真实后端 · 01 接口文档 v0.3）：
+ * 覆盖首屏聚合结构与 D1~D3 恢复后的契约：
+ * - kpis 全量 4 项（new_customers/new_inquiries/new_quotes/estimated_revenue，金额类带 currency）；
+ * - pendingItems 全量四类（quote_approval/high_value_overdue/customer_reply/order_delay_risk）；
+ * - 首屏仍不内联 dailyReport 正文（经 /dashboard/daily-report 单独拉取）：
+ *   新 org 无日报 → 40401；POST generate 建任务 → 再 GET 状态为 generating|ready|failed。
  *
  * 运行前需启动后端；本文件在 beforeAll 注册独立 org。
  */
@@ -28,22 +29,31 @@ describe('GET /dashboard/summary 聚合契约（01 §3.1）', () => {
     }
   })
 
-  it('D1：kpis 仅返回 new_customers/new_inquiries，每卡字段完整', async () => {
+  it('D1：kpis 全量 4 项且顺序对齐原型，每卡字段完整（金额类带 currency）', async () => {
     const data = expectOk((await api<DashboardSummary>('/dashboard/summary')).json)
     const metrics = data.kpis.map((k) => k.metric)
-    expect(metrics).toEqual(['new_customers', 'new_inquiries'])
+    expect(metrics).toEqual(['new_customers', 'new_inquiries', 'new_quotes', 'estimated_revenue'])
     for (const kpi of data.kpis) {
       for (const key of ['metric', 'value', 'changePct', 'trend', 'comparePeriod']) {
         expect(key in kpi, `KPI 缺少字段 ${key}`).toBe(true)
       }
       expect(['up', 'down', 'flat']).toContain(kpi.trend)
+      expect(kpi.comparePeriod).toBe('vs_yesterday')
+      if (kpi.metric === 'estimated_revenue') {
+        expect(kpi.currency).toBe('USD')
+      }
     }
   })
 
-  it('D2：pendingItems 仅 high_value_overdue/customer_reply，level/link 有效', async () => {
+  it('D2：pendingItems 全量四类且顺序对齐原型，level/link 有效', async () => {
     const data = expectOk((await api<DashboardSummary>('/dashboard/summary')).json)
     const types = data.pendingItems.map((p) => p.type)
-    expect(types).toEqual(['high_value_overdue', 'customer_reply'])
+    expect(types).toEqual([
+      'quote_approval',
+      'high_value_overdue',
+      'customer_reply',
+      'order_delay_risk',
+    ])
     for (const item of data.pendingItems) {
       expect(['danger', 'warning', 'info']).toContain(item.level)
       expect(item.link.startsWith('/')).toBe(true)
@@ -81,17 +91,37 @@ describe('GET /dashboard/summary 聚合契约（01 §3.1）', () => {
   })
 })
 
-describe('daily-report 接口 P0 保留 40401（01 §3.2/§3.3 D3）', () => {
-  it('GET /dashboard/daily-report → 40401', async () => {
+describe('daily-report 接口（01 §3.2/§3.3 D3 恢复：委托 13 经营报告）', () => {
+  it('新 org 无日报：GET /dashboard/daily-report → 40401', async () => {
     const { json } = await api('/dashboard/daily-report')
     expectFail(json, ErrorCode.NOT_FOUND)
   })
 
-  it('POST /dashboard/daily-report/generate → 40401', async () => {
-    const { json } = await api('/dashboard/daily-report/generate', {
+  it('POST /dashboard/daily-report/generate → 建异步任务并返回 taskId/reportId', async () => {
+    const { json } = await api<{
+      taskId: string
+      reportId: string
+      status: string
+      period: string
+    }>('/dashboard/daily-report/generate', {
       method: 'POST',
       body: JSON.stringify({ period: 'daily' }),
     })
-    expectFail(json, ErrorCode.NOT_FOUND)
+    const data = expectOk(json)
+    expect(data.taskId).toBeTruthy()
+    expect(data.reportId).toBeTruthy()
+    expect(data.period).toBe('daily')
+    // status 为异步任务状态（报告自身状态经 GET /dashboard/daily-report 轮询）
+    expect(['queued', 'running']).toContain(data.status)
+  })
+
+  it('生成后 GET /dashboard/daily-report 返回该日报（状态 generating/ready/failed）', async () => {
+    const { json } = await api<{ reportId: string; status: string; period: string }>(
+      '/dashboard/daily-report',
+    )
+    const data = expectOk(json)
+    expect(data.reportId).toBeTruthy()
+    expect(data.period).toBe('daily')
+    expect(['generating', 'ready', 'failed']).toContain(data.status)
   })
 })

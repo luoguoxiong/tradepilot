@@ -9,8 +9,8 @@ import { expect } from 'vitest'
 
 import type { ApiResponse, PageResp } from '@/api/types/common'
 
-/** 真实后端基址：默认 API_PORT=3000，可用 CONTRACT_API_BASE 覆盖 */
-export const BASE = process.env.CONTRACT_API_BASE ?? 'http://localhost:3000/api/v1'
+/** 真实后端基址：默认 API_PORT=3000，可用 CONTRACT_API_BASE 覆盖（用 127.0.0.1 而非 localhost，避免 Node fetch 优先解析 ::1 而后端仅监听 IPv4） */
+export const BASE = process.env.CONTRACT_API_BASE ?? 'http://127.0.0.1:3000/api/v1'
 
 /** 进程内唯一后缀，规避 org 内唯一约束（公司名 / 联系人邮箱） */
 export function uniq(prefix = 'ct'): string {

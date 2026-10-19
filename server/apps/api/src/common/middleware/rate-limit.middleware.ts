@@ -13,9 +13,20 @@ import { REDIS } from '../../redis/redis.module.js';
 const WINDOW_SECONDS = 60;
 const EXEMPT_PREFIXES = ['/healthz', '/readyz', '/metrics'];
 
+const DEFAULT_LIMIT = 600;
+
+/**
+ * 注意：`Number('')` 为 0，若直接 `Number(env ?? '')` 会把「未配置」当作
+ * 「显式配置 0（关闭）」而静默关闭限流（实测 1200 次突发无 429，Redis 无 rl:* 键）。
+ * 因此未配置或空白时回落到默认 600，仅当显式写出 `0` 时才关闭。
+ */
 function resolveLimit(): number {
-  const raw = Number(process.env['RATE_LIMIT_PER_MINUTE'] ?? '');
-  return Number.isFinite(raw) && raw >= 0 ? raw : 600;
+  const raw = process.env['RATE_LIMIT_PER_MINUTE'];
+  if (raw === undefined || raw.trim() === '') {
+    return DEFAULT_LIMIT;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_LIMIT;
 }
 
 @Injectable()

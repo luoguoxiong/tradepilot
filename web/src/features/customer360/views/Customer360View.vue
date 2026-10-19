@@ -10,10 +10,18 @@ import ActivitiesPanel from '@/features/customer360/components/ActivitiesPanel.v
 import ContactsPanel from '@/features/customer360/components/ContactsPanel.vue'
 import ConversationsPanel from '@/features/customer360/components/ConversationsPanel.vue'
 import InsightsPanel from '@/features/customer360/components/InsightsPanel.vue'
+import OrdersPanel from '@/features/customer360/components/OrdersPanel.vue'
 import OverviewPanel from '@/features/customer360/components/OverviewPanel.vue'
 import ProductsPanel from '@/features/customer360/components/ProductsPanel.vue'
+import QuotesPanel from '@/features/customer360/components/QuotesPanel.vue'
 import { useCustomerAnalyze } from '@/features/customer360/composables/useCustomerAnalyze'
 import { useOutreachDraft } from '@/features/customer360/composables/useOutreachDraft'
+import {
+  DEFAULT_TAB,
+  CRM_TABS,
+  visibleC360Tabs,
+  type C360Tab,
+} from '@/features/customer360/utils/tabs'
 import EmptyState from '@/components/business/EmptyState.vue'
 import AnalyzeTaskDialog from '@/components/business/AnalyzeTaskDialog.vue'
 import OutreachDraftDialog from '@/components/business/OutreachDraftDialog.vue'
@@ -33,16 +41,13 @@ import { qk } from '@/query/keys'
 import { staleTime } from '@/query/options'
 import { useAuthStore } from '@/stores/auth'
 
-type C360Tab = 'overview' | 'contacts' | 'products' | 'conversations' | 'activities' | 'insights'
-
-const DEFAULT_TAB: C360Tab = 'overview'
-
 /**
  * Customer360View 客户 360°（04 §1/§3）：
  * - 头部 = 返回入口 + 公司信息/标签 + 评分 + 语境化动作（lead 预览 → 加入 CRM；CRM 客户 →
  *   AI 分析 / 联系客户）+ 阶段 Stepper（可改阶段，走 05 stage 接口）；
- * - 页签懒加载：Overview / Contacts / Products / Conversations / Activities / AI Insights，
- *   lead 预览（inCrm=false）仅前三个页签；Quotes/Orders 按 features（D6）不渲染；
+ * - 页签懒加载：Overview / Contacts / Products / Conversations / Quotes / Orders / Activities /
+ *   AI Insights（懒加载 = el-tab-pane lazy，首次进入才请求）；
+ *   lead 预览（inCrm=false）仅前三页签；Quotes / Orders 随 09/10 启用（D6，见 utils/tabs.ts）；
  * - AI 分析（头部与 Insights 页签共用 useCustomerAnalyze）→ 弹层轮询 → 终态 invalidate。
  */
 const route = useRoute()
@@ -75,14 +80,13 @@ watch(
 )
 const backPath = computed(() => backTo.value ?? '/crm')
 
-// ===== 页签（lead 预览仅前三个；客户全量；Quotes/Orders D6 剔除） =====
-const LEAD_TABS: C360Tab[] = ['overview', 'contacts', 'products']
-const CRM_TABS: C360Tab[] = [...LEAD_TABS, 'conversations', 'activities', 'insights']
+// ===== 页签（lead 预览仅前三个；客户全量；Quotes/Orders 随 09/10 启用 —— D6） =====
+const visibleTabs = computed<C360Tab[]>(() => visibleC360Tabs(Boolean(profile.value?.inCrm)))
 
 function queryTab(): C360Tab {
   const raw = route.query.tab
-  const list: C360Tab[] = CRM_TABS
-  return typeof raw === 'string' && (list as string[]).includes(raw)
+  // 深链校验收敛在 CRM 全量页签（未启用模块的页签由下方 watch 归一）
+  return typeof raw === 'string' && (CRM_TABS as string[]).includes(raw)
     ? (raw as C360Tab)
     : DEFAULT_TAB
 }
@@ -92,13 +96,12 @@ const activeTab = ref<C360Tab>(queryTab())
 watch(
   [entityId, profile],
   () => {
-    const list = profile.value?.inCrm ? CRM_TABS : LEAD_TABS
-    if (!(list as string[]).includes(activeTab.value)) activeTab.value = DEFAULT_TAB
+    if (!visibleTabs.value.includes(activeTab.value)) activeTab.value = DEFAULT_TAB
   },
   { immediate: true },
 )
 
-const tabVisible = (name: C360Tab) => (profile.value?.inCrm ? CRM_TABS : LEAD_TABS).includes(name)
+const tabVisible = (name: C360Tab) => visibleTabs.value.includes(name)
 
 // ===== 头部信息 =====
 function countryLabel(code?: string): string {
@@ -384,7 +387,7 @@ watch(entityId, () => {
         </div>
       </section>
 
-      <!-- 页签（懒加载；lead 预览仅前三个；Quotes/Orders 随 features D6 隐藏） -->
+      <!-- 页签（懒加载；lead 预览仅前三个；Quotes/Orders 随 09/10 启用 D6） -->
       <el-tabs v-model="activeTab" class="c360__tabs">
         <el-tab-pane v-if="tabVisible('overview')" name="overview" lazy>
           <template #label>{{ t('c360.tabOverview') }}</template>
@@ -401,6 +404,14 @@ watch(entityId, () => {
         <el-tab-pane v-if="tabVisible('conversations')" name="conversations" lazy>
           <template #label>{{ t('c360.tabConversations') }}</template>
           <ConversationsPanel :key="entityId" :entity-id="entityId" :timezone="timezone" />
+        </el-tab-pane>
+        <el-tab-pane v-if="tabVisible('quotes')" name="quotes" lazy>
+          <template #label>{{ t('c360.tabQuotes') }}</template>
+          <QuotesPanel :key="entityId" :entity-id="entityId" :timezone="timezone" />
+        </el-tab-pane>
+        <el-tab-pane v-if="tabVisible('orders')" name="orders" lazy>
+          <template #label>{{ t('c360.tabOrders') }}</template>
+          <OrdersPanel :key="entityId" :entity-id="entityId" :timezone="timezone" />
         </el-tab-pane>
         <el-tab-pane v-if="tabVisible('activities')" name="activities" lazy>
           <template #label>{{ t('c360.tabActivities') }}</template>

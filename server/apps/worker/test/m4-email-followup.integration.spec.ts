@@ -40,13 +40,13 @@ const KEY = '0'.repeat(64);
  *   Break-up 强制人工（例外优先于 autoApprove）、策略走完 → follow_up_task completed。
  * 真实依赖：GreenMail 真实邮箱（SMTP 1025 / IMAP 1114）+ 真实 LLM + 真实外发驱动。
  * email_reply 的 grounded 分支由 LLM 决定，非 grounded 断言均与 provider 输出无关。
- * 前置：docker compose up（PG 5432 / Redis 6380 + GreenMail 1025/1114）+ `pnpm --filter @tradepilot/db migrate`。
+ * 前置：docker compose up（PG 5432 / Redis 6379 + GreenMail 1025/1114）+ `pnpm --filter @tradepilot/db migrate`。
  */
 
 const SUPER_URL =
   process.env.TEST_SUPER_DATABASE_URL ??
   'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
-const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6380';
+const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 
 const logger = pino({ level: process.env.TEST_LOG_LEVEL ?? 'silent' });
 
@@ -183,18 +183,16 @@ beforeAll(async () => {
       title: '采购经理',
       email: `m42-to-${ORG_ER.slice(-6)}@test.local`,
     });
-    await tx
-      .insert(schema.conversation)
-      .values([
-        {
-          id: CONV1,
-          orgId: ORG_ER,
-          customerId: C1,
-          contactId: CT1,
-          channel: 'email',
-          subject: '中文询价',
-        },
-      ]);
+    await tx.insert(schema.conversation).values([
+      {
+        id: CONV1,
+        orgId: ORG_ER,
+        customerId: C1,
+        contactId: CT1,
+        channel: 'email',
+        subject: '中文询价',
+      },
+    ]);
     // 触发消息 language=null + 中文正文 → 检测兜底判 zh（06 §7 / M4-2）
     await tx.insert(schema.message).values({
       id: MSG_ZH,

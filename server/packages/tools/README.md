@@ -93,13 +93,13 @@ src/
 
 **`ToolRegistry` 方法**：
 
-| 方法                                 | 链路        | 说明                                                                          |
-| ------------------------------------ | ----------- | ----------------------------------------------------------------------------- |
-| `register(tool)`                     | —           | 重复注册同名工具直接抛错                                                      |
-| `get(name)` / `has(name)`            | —           | 未注册 `get` 抛 `BizException(NOT_FOUND)`                                     |
-| `assertAllowed(tool, employeeTools)` | **①白名单** | 员工 `tools` 不含该工具 → `FORBIDDEN`（40301）                                |
-| `parseInput(tool, input)`            | **②入参**   | `safeParse` 失败 → `BAD_REQUEST`（错误信息汇总 issues）                       |
-| `assertQuota(ctx, tool, dailyLimit)` | **④配额**   | 员工级外部调用日额度令牌桶；`weight=0` 直接放行；超限 `RATE_LIMITED`（42901） |
+| 方法                                            | 链路      | 说明                                                                          |
+| ----------------------------------------------- | --------- | ----------------------------------------------------------------------------- |
+| `register(tool)`                                | —         | 重复注册同名工具直接抛错                                                      |
+| `get(name)` / `has(name)`                       | —         | 未注册 `get` 抛 `BizException(NOT_FOUND)`                                     |
+| `assertAllowed(tool, employeeTools, sopTools?)` | **①授权** | 员工 `tools` 与当前 SOP 声明工具均不含该工具 → `FORBIDDEN`（40301）           |
+| `parseInput(tool, input)`                       | **②入参** | `safeParse` 失败 → `BAD_REQUEST`（错误信息汇总 issues）                       |
+| `assertQuota(ctx, tool, dailyLimit)`            | **④配额** | 员工级外部调用日额度令牌桶；`weight=0` 直接放行；超限 `RATE_LIMITED`（42901） |
 
 > 配额日 key 按 **org 时区墙钟日**分片（`zonedDayKey`，`quota:{orgId}:{employeeId}:{day}`，TTL 48h），
 > `timezone` 由调用方从 `TaskRunContext.org.timezone` 快照传入，此处不查库。
@@ -107,11 +107,12 @@ src/
 
 ### builtin/search-tools.ts — 外部信息类工具
 
-| 导出                            | 说明                                                                                                                                                                                 |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `DEFAULT_JOB_TITLES`            | 默认职衔白名单：`Purchasing Manager` / `Buyer` / `Sourcing Manager` / `Procurement Director`                                                                                         |
-| `mapDecisionInfluence(title)`   | 决策影响力确定性映射：**90**（Director/VP/Head/Chief/CPO **且**采购职能）/ **75**（采购执行层 Manager/Buyer/Merchandiser）/ **40**（Engineer/R&D/Quality）/ `null`（未命中，不猜测） |
-| `registerSearchTools(register)` | 注册 5 个外部信息类工具                                                                                                                                                              |
+| 导出                            | 说明                                                                                                                                                                                                                                                                                                      |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DEFAULT_JOB_TITLES`            | 默认职衔白名单：`Purchasing Manager` / `Buyer` / `Sourcing Manager` / `Procurement Director`                                                                                                                                                                                                              |
+| `mapDecisionInfluence(title)`   | 决策影响力确定性映射：**90**（Director/VP/Head/Chief/CPO **且**采购职能）/ **75**（采购执行层 Manager/Buyer/Merchandiser）/ **40**（Engineer/R&D/Quality）/ `null`（未命中，不猜测）                                                                                                                      |
+| 公开渠道抽取（纯函数）          | `buildPeopleQuery` 构造人物检索式；`contactsFromHits` 搜索结果 → 联系人（须同时抽到人名与职衔，且命中文本提及本公司域名）；`extractPersonName` / `extractJobTitle` 姓名与职衔抽取；`extractCompanyEmails` 仅收公司域名下的公开邮箱；`emailMatchesName` / `isRoleMailbox` 自然人邮箱绑定判据与角色邮箱识别 |
+| `registerSearchTools(register)` | 注册 5 个外部信息类工具                                                                                                                                                                                                                                                                                   |
 
 工具要点：
 
@@ -119,10 +120,15 @@ src/
   解析搜索供应商 → hit 转公司候选（域名 + 标题派生公司名）。mock 供应商额外补确定性 `employeeCount`/`country`。
 - `site_crawl`（quota ×2）：抓官网关键页生成摘要；**单站不可达不中断任务**——记日志后以空摘要降级
   （`reachable:false` + `note`）。
-- `find_contact`：从确定性 mock 池产出联系人，按 `jobTitles` 白名单排序（命中优先）+ 影响力降档；
-  **仅产职衔/姓名，不产联系方式**；跨轮累积写入 `bag.contactsAll`。
-- `lookup_contact`（quota ×1）：为已有联系人补全**公开商务渠道**邮箱（GDPR/CCPA 边界，03 §4）；
-  按去重键（域名优先）匹配，不跨公司串数据。
+- `find_contact`（quota ×1 检索 + ×2 抓页）：**公开渠道**联系人发现。两个数据源：①按「公司域名/名称 +
+  jobTitles 白名单」构造人物检索式走真实搜索供应商，从标题/摘要确定性抽取「英文人名 + 采购/供应链职衔」；
+  ②**抓官网联系页**（首页 → 首页 contact/about/team 链接 → `/contact`、`/contact.htm` 等兜底路径）从页面正文
+  抽「姓名 + 职衔」与公司域名邮箱（非角色邮箱按 local-part 还原姓名；`info@`/`sales@` 仅留痕不挂自然人）。
+  按白名单顺序 + 影响力降档排序（上限 5 名），跨轮累积写入 `bag.contactsAll`；**抽不到即跳过**。
+- `lookup_contact`（quota ×1 + 抓页复用 `bag.contactPages` 缓存，同域名不重复抓）：`site:<domain> contact`
+  检索 + **官网联系页正文**，仅收**公司域名下真实出现**的邮箱（自由邮箱不入库）；自然人邮箱按
+  local-part 与姓名组合（或还原姓名一致）才绑定，角色邮箱不挂到人名下；无域名即跳过；未发现则保留 `email`
+  为空，**不按格式猜测合成**（08 §6/§7）。
 - `lead_scoring`：确定性规则评分（关键词 +10/项封顶 30、地区 +5，基线 55，封顶 97）+ 可解释 `reasons`；
   M4-1 后 `match_product` 以 LLM 直出，本工具保留为降级/独立评分入口。
 
@@ -178,7 +184,7 @@ src/
 
 | 导出                                | 说明                                                                                                     |
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `getOrgTimezone(orgId, tx)`         | 读 `org.timezone`（缺省 UTC），**60s 进程内 memo**                                                       |
+| `getOrgTimezone(orgId, tx)`         | 读 `org.timezone`（缺省 `Asia/Shanghai`），**60s 进程内 memo**                                           |
 | `configureOrgSearchQuota(limit)`    | 注入 org 级日额度上限（worker 启动由 env 传入；缺省 2000）                                               |
 | `assertOrgSearchQuota(ctx, weight)` | org 级搜索/抓取日额度令牌桶，key `orgsearch:{orgId}:{day}`（org 时区日界，TTL 48h），超限 `RATE_LIMITED` |
 
@@ -230,7 +236,7 @@ src/
 
 ```
 1. tools.get(node.tool)                         → 未注册 404
-2. assertAllowed(tool, ctx.employee.tools)      → ① 员工白名单，越权 40301
+2. assertAllowed(tool, ctx.employee.tools, sopTools) → ① 授权（员工白名单 ∪ SOP 声明），越权 40301
 3. parseInput(tool, buildToolInput(node,state)) → ② 入参 schema，非法 BAD_REQUEST
 4. assertQuota({...ctx, timezone}, tool, dailyLimit) → ④ 员工级外部配额，超限 42901
 5. riskLevel = node.risk ?? tool.riskLevel      → ③ 风险分流（非 low 且非 resume）
@@ -261,8 +267,8 @@ const compiler = new GraphCompiler({ /* … */ tools /* … */ });
 - **失败路径独立事务**：`email_send` 的失败留痕必须走独立连接（`config.db`），因为主事务会随抛错回滚。
 - **降级不中断**：单站抓取失败、嵌入服务异常、知识无命中均降级返回（记日志/置标记），不拖垮整条任务。
 - **归并一律按去重键**：公司/联系人归并键 = 归一化域名优先、名称兜底；禁止按公司名归并。
-- **真实供应商不产伪数据**：无依据字段缺失（如 `find_contact`/`lookup_contact` 当前返回空并留痕，
-  联系人池留待 P1 扩展）；测试确定性由真实服务副作用落点 + 结构化断言保证。
+- **真实供应商不产伪数据**：所有字段须有真实来源证据（`find_contact`/`lookup_contact` 的姓名/职衔/邮箱
+  一律取自搜索供应商返回的公开文本，抽取不到置空或跳过）；测试确定性由真实服务副作用落点 + 结构化断言保证。
 
 ---
 

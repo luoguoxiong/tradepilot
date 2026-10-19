@@ -108,11 +108,96 @@ function productAnalysisOutputs(state: State): Record<string, unknown>[] {
   ];
 }
 
+/** product_knowledge（08）：insight（知识四类条目 + 引用溯源；analyze 预览 / generate 已落 draft） */
+function productKnowledgeOutputs(state: State): Record<string, unknown>[] {
+  const knowledge = obj(state, 'knowledge');
+  if (!knowledge) {
+    return [];
+  }
+  const productId = state['productId'];
+  const citations = arr(state, 'productCitations');
+  return [
+    {
+      type: 'insight',
+      payload: {
+        ...knowledge,
+        ...(typeof productId === 'string' && productId ? { productId } : {}),
+        ...(citations.length > 0 ? { citations } : {}),
+      },
+    },
+  ];
+}
+
+/**
+ * order_monitor（10 FR-04）：insight（规则引擎判定 + 订单标识 + 告警标记）。
+ * at_risk 的告警文案与任务日志同源（alert.content），normal 场景仅留存评估数值。
+ */
+function orderMonitorOutputs(state: State): Record<string, unknown>[] {
+  const assessment = obj(state, 'assessment');
+  if (!assessment) {
+    return [];
+  }
+  const order = obj(state, 'order');
+  const alert = obj(state, 'alert');
+  return [
+    {
+      type: 'insight',
+      payload: {
+        ...assessment,
+        ...(order
+          ? {
+              orderId: order['id'],
+              orderNo: order['orderNo'],
+              customerId: order['customerId'],
+              deliveryDate: order['deliveryDate'],
+            }
+          : {}),
+        ...(alert
+          ? {
+              alerted: alert['atRisk'] === true,
+              ...(typeof alert['content'] === 'string' ? { alertContent: alert['content'] } : {}),
+              ...(typeof alert['suggestionId'] === 'string'
+                ? { suggestionId: alert['suggestionId'] }
+                : {}),
+            }
+          : {}),
+      },
+    },
+  ];
+}
+
+/**
+ * business_analysis（13 §7）：insight（报告标识 + 周期 + 发现数 + citations）。
+ * 正文落在 business_report.content（长文本不塞 outputs），outputs 只留任务详情可追溯的摘要。
+ */
+function businessAnalysisOutputs(state: State): Record<string, unknown>[] {
+  const content = state['reportContent'];
+  if (typeof content !== 'string' || content.length === 0) {
+    return [];
+  }
+  const citations = arr(state, 'reportCitations');
+  return [
+    {
+      type: 'insight',
+      payload: {
+        ...(typeof state['reportId'] === 'string' ? { reportId: state['reportId'] } : {}),
+        ...(typeof state['period'] === 'string' ? { period: state['period'] } : {}),
+        status: typeof state['reportStatus'] === 'string' ? state['reportStatus'] : 'ready',
+        discoveryCount: typeof state['discoveryCount'] === 'number' ? state['discoveryCount'] : 0,
+        ...(citations.length > 0 ? { citations } : {}),
+      },
+    },
+  ];
+}
+
 const BUILDERS: Record<string, (state: State) => Record<string, unknown>[]> = {
   lead_hunting: leadHuntingOutputs,
   email_reply: emailReplyOutputs,
   follow_up: followUpOutputs,
   product_analysis: productAnalysisOutputs,
+  product_knowledge: productKnowledgeOutputs,
+  order_monitor: orderMonitorOutputs,
+  business_analysis: businessAnalysisOutputs,
 };
 
 /** 按 taskType 组装类型化 outputs；未注册类型返回 null（runner 回落通用 result 包裹） */

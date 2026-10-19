@@ -10,7 +10,7 @@ import { OrgService } from '../src/org/org.service.js';
 import { MailboxService } from '../src/settings/mailbox.service.js';
 import { SettingsService } from '../src/settings/settings.service.js';
 import { updateOrgSchema } from '../src/org/org.dto.js';
-import { rolePermissionsSchema } from '../src/settings/settings.dto.js';
+import { rolePermissionsSchema, updatePricingRulesSchema } from '../src/settings/settings.dto.js';
 import { testMail } from './setup/providers.js';
 
 /**
@@ -23,7 +23,7 @@ import { testMail } from './setup/providers.js';
 
 process.env.JWT_SECRET ||= 'it_only_test_secret_0123456789abcdef0123456789abcdef';
 process.env.ENCRYPTION_KEY ||= '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-process.env.REDIS_URL ||= 'redis://localhost:6380';
+process.env.REDIS_URL ||= 'redis://localhost:6379';
 process.env.DATABASE_URL ||= 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
 
 const SUPER_URL = 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
@@ -83,6 +83,7 @@ afterAll(async () => {
         .delete(schema.notificationSetting)
         .where(eq(schema.notificationSetting.orgId, orgId));
       await tx.delete(schema.aiModelSetting).where(eq(schema.aiModelSetting.orgId, orgId));
+      await tx.delete(schema.pricingRuleSetting).where(eq(schema.pricingRuleSetting.orgId, orgId));
       await tx
         .delete(schema.followUpStrategyStep)
         .where(eq(schema.followUpStrategyStep.orgId, orgId));
@@ -441,6 +442,83 @@ describe('通知设置（16 §1.8 FR-09）', () => {
       .limit(1);
     expect(row2?.channels).toMatchObject({ site: false, email: false });
     expect(view.events.approval_pending).toEqual({ site: false, email: false });
+  });
+});
+
+describe('产品与报价规则（16 §1.6/§3.5 FR-07）', () => {
+  it('GET 缺行自动落默认（org 单例，五项成本项）', async () => {
+    const view = await settings.getPricingRules(orgId);
+    expect(view).toEqual({
+      productCategories: [],
+      costItems: ['purchase', 'freight', 'insurance', 'tax', 'fx'],
+      profitFloorPct: 10,
+      discountLadder: [3, 2, 1],
+      defaultIncoterms: 'FOB',
+      defaultCurrency: 'USD',
+      exchangeRateSource: 'manual',
+    });
+  });
+
+  it('PUT 持久化并回读；单例不新增行', async () => {
+    const updated = await settings.updatePricingRules(orgId, adminId, {
+      productCategories: ['鞋类', '箱包'],
+      costItems: ['purchase', 'freight', 'tax'],
+      profitFloorPct: 25,
+      discountLadder: [5, 3, 2],
+      defaultIncoterms: 'CIF',
+      defaultCurrency: 'EUR',
+      exchangeRateSource: 'manual',
+    });
+    expect(updated).toMatchObject({
+      profitFloorPct: 25,
+      defaultCurrency: 'EUR',
+      defaultIncoterms: 'CIF',
+      discountLadder: [5, 3, 2],
+    });
+
+    const [row] = await superDb
+      .select()
+      .from(schema.pricingRuleSetting)
+      .where(eq(schema.pricingRuleSetting.orgId, orgId))
+      .limit(1);
+    expect(row?.profitFloorPct).toBe('25.00');
+    expect(row?.updatedBy).toBe(adminId);
+    expect(row?.costItems).toEqual(['purchase', 'freight', 'tax']);
+
+    // 单例：再次 GET/PUT 不新增行
+    const reread = await settings.getPricingRules(orgId);
+    expect(reread.productCategories).toEqual(['鞋类', '箱包']);
+    const rows = await superDb
+      .select({ id: schema.pricingRuleSetting.id })
+      .from(schema.pricingRuleSetting)
+      .where(eq(schema.pricingRuleSetting.orgId, orgId));
+    expect(rows).toHaveLength(1);
+  });
+
+  it('DTO 校验：成本项/币种/汇率源/红线越界被拒', () => {
+    const base = {
+      productCategories: ['鞋类'],
+      costItems: ['purchase'],
+      profitFloorPct: 20,
+      discountLadder: [3],
+      defaultIncoterms: 'FOB',
+      defaultCurrency: 'USD',
+      exchangeRateSource: 'manual',
+    };
+    expect(updatePricingRulesSchema.safeParse(base).success).toBe(true);
+    expect(updatePricingRulesSchema.safeParse({ ...base, costItems: ['unknown'] }).success).toBe(
+      false,
+    );
+    expect(updatePricingRulesSchema.safeParse({ ...base, costItems: [] }).success).toBe(false);
+    expect(updatePricingRulesSchema.safeParse({ ...base, defaultCurrency: 'usd' }).success).toBe(
+      false,
+    );
+    expect(
+      updatePricingRulesSchema.safeParse({ ...base, exchangeRateSource: 'auto' }).success,
+    ).toBe(false);
+    expect(updatePricingRulesSchema.safeParse({ ...base, profitFloorPct: 120 }).success).toBe(
+      false,
+    );
   });
 });
 

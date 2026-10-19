@@ -8,9 +8,15 @@ import { Redis as IORedis } from 'ioredis';
 import {
   ALL_QUEUES,
   QUEUE_NAME,
+  TASK_MAX_ATTEMPTS,
+  TASK_QUEUE_NAMES,
+  TASK_RETRY_BACKOFF_MS,
   TASK_TYPE_QUEUE,
+  WEBHOOK_BACKOFF_MS,
+  WEBHOOK_MAX_ATTEMPTS,
   type QueueName,
   type TaskType,
+  type WebhookJob,
 } from '@tradepilot/shared';
 import type { ResumeHint } from './runner.js';
 
@@ -26,7 +32,12 @@ export class TaskEnqueuer {
     redisUrl: string,
     private readonly logger?: { warn(msg: string, err?: unknown): void },
   ) {
+    const taskQueues = new Set<string>(TASK_QUEUE_NAMES);
     for (const name of ALL_QUEUES) {
+      // 04 §5.3（修订）：承载 ai_task 的队列开启「可重试错误」自动重投（attempts=3 + 指数退避），
+      // 系统队列（q:notify/q:email_sync…）保持 attempts=1（投递/同步失败重投无益，留痕即可）；
+      // q:webhook 出站投递另行覆盖 attempts=5（06 §5.2）。
+      const autoRetry = taskQueues.has(name);
       this.queues.set(
         name,
         new Queue(name, {
@@ -34,7 +45,10 @@ export class TaskEnqueuer {
           defaultJobOptions: {
             removeOnComplete: { age: 3600, count: 1000 },
             removeOnFail: { age: 24 * 3600 },
-            attempts: 1, // 04 §5.3：任务级不自动重投，失败走手动重试（retry_of 新任务）
+            attempts: autoRetry ? TASK_MAX_ATTEMPTS : 1,
+            ...(autoRetry
+              ? { backoff: { type: 'exponential' as const, delay: TASK_RETRY_BACKOFF_MS } }
+              : {}),
           },
         }),
       );
@@ -98,6 +112,23 @@ export class TaskEnqueuer {
       return;
     }
     await queue.add('notify', payload);
+  }
+
+  /**
+   * webhook 队列（P1-X-21 出站投递，06 §5.2）：
+   * 由 q:notify 分发后按订阅逐条派生，job 级覆盖 attempts=5 + 指数退避 1m 起
+   * （队列默认 attempts=1「任务级不自动重投」不适用于出站投递）。
+   * job 名含 webhookId 以便同一事件多订阅并存。
+   */
+  async enqueueWebhook(payload: WebhookJob): Promise<void> {
+    const queue = this.queues.get(QUEUE_NAME.WEBHOOK);
+    if (!queue) {
+      return;
+    }
+    await queue.add(`webhook:${payload.webhookId}`, payload, {
+      attempts: WEBHOOK_MAX_ATTEMPTS,
+      backoff: { type: 'exponential', delay: WEBHOOK_BACKOFF_MS },
+    });
   }
 
   /**
@@ -172,6 +203,7 @@ export class TaskEnqueuer {
   /**
    * 审批 resume 投递（M4 12 接口回调）：approve/reject（编辑留痕已在 approval_request 落库）后
    * 按原 jobId=taskId 重投 task 队列，job.data.resume={ nodeId, approvalId } 供 Runner 恢复图执行。
+   * 原 job 已完成（终态留存期内）时 add 会被 BullMQ 幂等吞掉 → 先移除终态历史 job 再投。
    */
   async enqueueResume(taskId: string, taskType: TaskType, resume: ResumeHint): Promise<void> {
     const queueName = TASK_TYPE_QUEUE[taskType];
@@ -179,7 +211,23 @@ export class TaskEnqueuer {
     if (!queue) {
       return;
     }
+    await this.removeTerminalJob(queue, taskId, '审批续跑');
     await queue.add(taskType, { taskId, taskType, resume }, { jobId: taskId });
+  }
+
+  /**
+   * 手动恢复投递（P1-X-30 / 04 §5.4）：暂停任务（已产生检查点）按原 jobId=taskId 重投 task 队列，
+   * job.data.fromPause=true 供 Runner invoke(null) 从最近检查点续跑当前节点（工具幂等防重复）。
+   * 同 enqueueResume，先移除终态历史 job 以免 add 被幂等 no-op 吞掉。
+   */
+  async enqueueResumeFromPause(taskId: string, taskType: TaskType): Promise<void> {
+    const queueName = TASK_TYPE_QUEUE[taskType];
+    const queue = this.queues.get(queueName);
+    if (!queue) {
+      return;
+    }
+    await this.removeTerminalJob(queue, taskId, '任务恢复');
+    await queue.add(taskType, { taskId, taskType, fromPause: true }, { jobId: taskId });
   }
 
   async close(): Promise<void> {

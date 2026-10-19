@@ -3,15 +3,25 @@ import type {
   AiModel,
   AiModelCatalog,
   AiModelVerifyResult,
+  ApiKey,
+  ApiKeyCreated,
+  CrmIntegration,
   CreateAiModelReq,
+  CreateApiKeyReq,
+  CreateCrmIntegrationReq,
   CreateMailboxReq,
+  CreateWebhookReq,
   Mailbox,
   MailboxTestResult,
   NotificationSettings,
+  PricingRules,
   RolePermissions,
   SelectAiModelReq,
   UpdateAiModelReq,
+  UpdateCrmIntegrationReq,
+  UpdatePricingRulesReq,
   VerifyAiModelReq,
+  Webhook,
 } from '@/api/types/settings'
 
 import { request } from '../http'
@@ -97,4 +107,68 @@ export function selectAiModel(data: SelectAiModelReq) {
     method: 'PUT',
     data,
   })
+}
+
+// ===== 产品与报价规则（16 §1.6/§3.5 FR-07：GET/PUT /settings/pricing-rules）=====
+
+export function fetchPricingRules() {
+  return request<PricingRules>({ url: '/settings/pricing-rules', method: 'GET' })
+}
+
+export function updatePricingRules(data: UpdatePricingRulesReq) {
+  return request<PricingRules>({ url: '/settings/pricing-rules', method: 'PUT', data })
+}
+
+// ===== CRM 集成（16 FR-06 / ER 01 §2.5：GET/POST/PUT/DELETE /settings/integrations）=====
+
+export function fetchCrmIntegrations() {
+  return request<CrmIntegration[]>({ url: '/settings/integrations', method: 'GET' })
+}
+
+/** 授权连接：同一供应商每组织至多一条（重复提交 → 40901） */
+export function createCrmIntegration(data: CreateCrmIntegrationReq) {
+  return request<CrmIntegration>({ url: '/settings/integrations', method: 'POST', data })
+}
+
+/** 更新同步方向 / 字段映射 / 连接状态（供应商不可改） */
+export function updateCrmIntegration(id: string, data: UpdateCrmIntegrationReq) {
+  return request<CrmIntegration>({ url: `/settings/integrations/${id}`, method: 'PUT', data })
+}
+
+/** 断开连接：删除集成配置（不回溯已同步数据） */
+export function deleteCrmIntegration(id: string) {
+  return request<{ id: string }>({ url: `/settings/integrations/${id}`, method: 'DELETE' })
+}
+
+// ===== 开放 API Key（16 FR-11 / 06 §5.1：GET/POST/DELETE /settings/api-keys）=====
+
+export function fetchApiKeys() {
+  return request<ApiKey[]>({ url: '/settings/api-keys', method: 'GET' })
+}
+
+/** 创建 API Key：响应携带明文密钥，仅本次返回一次（16 FR-11） */
+export function createApiKey(data: CreateApiKeyReq) {
+  return request<ApiKeyCreated>({ url: '/settings/api-keys', method: 'POST', data })
+}
+
+/** 撤销 API Key：即时失效、不可恢复 */
+export function revokeApiKey(keyId: string) {
+  return request<{ id: string; status: string }>({
+    url: `/settings/api-keys/${keyId}`,
+    method: 'DELETE',
+  })
+}
+
+// ===== 出站 Webhook 订阅（16 FR-11 / 06 §5.2：GET/POST/DELETE /settings/webhooks）=====
+
+export function fetchWebhooks() {
+  return request<Webhook[]>({ url: '/settings/webhooks', method: 'GET' })
+}
+
+export function createWebhook(data: CreateWebhookReq) {
+  return request<Webhook>({ url: '/settings/webhooks', method: 'POST', data })
+}
+
+export function deleteWebhook(webhookId: string) {
+  return request<{ id: string }>({ url: `/settings/webhooks/${webhookId}`, method: 'DELETE' })
 }

@@ -23,14 +23,14 @@ import { testMail, testMailboxRow } from './setup/providers.js';
  *   客户频控（minTouchIntervalDays）拦截 42901；
  * - 凭据信封加密往返（credential_enc → 驱动可见明文）。
  * 驱动契约：真实 SmtpImapDriver 对接本地 GreenMail（docker compose），无 mock 驱动。
- * 前置：docker compose up（PG 5432 / Redis 6380 / GreenMail 1025+1114）
+ * 前置：docker compose up（PG 5432 / Redis 6379 / GreenMail 1025+1114）
  * + `pnpm --filter @tradepilot/db migrate`，且已提供 server/.env.test（真实 provider 配置）。
  */
 
 const SUPER_URL =
   process.env.TEST_SUPER_DATABASE_URL ??
   'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
-const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6380';
+const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 
 const logger = pino({ level: process.env.TEST_LOG_LEVEL ?? 'silent' });
 
@@ -61,6 +61,13 @@ const CRED_KEY = '0'.repeat(64);
 
 /** GreenMail：邮箱地址即账号（任意地址自动建箱、任意凭据可登录），按租户唯一避免串箱 */
 const MBX_ACCOUNT = `sales-${ORG.slice(-6)}@tradepilot.local`;
+
+/**
+ * 坏端点邮箱专用账号：`mailbox` 存在 org 级唯一约束 `uq_mailbox_org_account`
+ * （UNIQUE(org_id, lower(account))），同一 org 内两个邮箱不能共用一个账号，
+ * 否则第二条 insert 直接 23505，整个 suite 无法装配。
+ */
+const MBX_BAD_ACCOUNT = `sales-bad-${ORG.slice(-6)}@tradepilot.local`;
 
 /** 通过真实 SMTP 向被同步邮箱投递一封来信（GreenMail 收件，替代 mock 收件箱） */
 async function deliverMail(params: {
@@ -134,13 +141,13 @@ beforeAll(async () => {
       status: 'disconnected',
     });
     // 坏端点邮箱：SMTP 指向 1 端口（连接拒绝），用于发信失败路径
-    const badRow = testMailboxRow(MBX_ACCOUNT, MBX_BAD, ORG, CRED_KEY);
+    const badRow = testMailboxRow(MBX_BAD_ACCOUNT, MBX_BAD, ORG, CRED_KEY);
     await tx.insert(schema.mailbox).values({
       id: MBX_BAD,
       orgId: ORG,
       ownerUserId: ADMIN,
       provider: 'smtp_imap',
-      account: MBX_ACCOUNT,
+      account: MBX_BAD_ACCOUNT,
       imap: badRow.imap,
       smtp: { ...badRow.smtp, port: 1 },
       syncScope: { historyDays: 90, folders: ['INBOX'] },

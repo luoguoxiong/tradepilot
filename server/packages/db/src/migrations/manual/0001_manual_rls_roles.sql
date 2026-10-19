@@ -172,4 +172,7 @@ CREATE INDEX IF NOT EXISTS idx_customer_name_trgm ON customer USING gin (company
 CREATE INDEX IF NOT EXISTS idx_product_name_trgm ON product USING gin (name gin_trgm_ops);
 
 -- 向量检索（pgvector；数据量上来后启用）
-CREATE INDEX IF NOT EXISTS idx_kchunk_embedding ON knowledge_chunk USING hnsw (embedding vector_cosine_ops);
+-- 向量索引（hnsw）：P1 迁移 0005 将 embedding 调整为 vector(2048)，超出 pgvector 对 vector 的
+-- hnsw 索引上限（2000 维）→ 暂不创建，检索走精确余弦最近邻（MVP 量级可接受）。
+-- 需要 ANN 时改用 halfvec(2048)：CREATE INDEX ... USING hnsw (embedding halfvec_cosine_ops);
+-- CREATE INDEX IF NOT EXISTS idx_kchunk_embedding ON knowledge_chunk USING hnsw (embedding vector_cosine_ops);

@@ -117,3 +117,101 @@ export const updateAiModelsSchema = z.object({
     .max(16),
 });
 export type UpdateAiModelsDto = z.infer<typeof updateAiModelsSchema>;
+
+// ===== 产品与报价规则（16 §1.6/§3.5 FR-07：org 单例）=====
+
+/**
+ * 成本项白名单（09 §7.1 五项，技术键对应中文：采购/运费/保费/税费/汇兑）。
+ * 与 @tradepilot/core 定价引擎 COST_ITEM_KEYS 同源，避免脏数据导致引擎缺项。
+ */
+export const pricingCostItemKeys = ['purchase', 'freight', 'insurance', 'tax', 'fx'] as const;
+
+/** 贸易条款白名单（Incoterms 2020；MVP 默认 FOB） */
+export const incotermsOptions = [
+  'EXW',
+  'FCA',
+  'FAS',
+  'FOB',
+  'CFR',
+  'CIF',
+  'CPT',
+  'CIP',
+  'DAP',
+  'DPU',
+  'DDP',
+] as const;
+
+export const updatePricingRulesSchema = z.object({
+  productCategories: z.array(z.string().min(1).max(64)).max(50),
+  costItems: z.array(z.enum(pricingCostItemKeys)).min(1).max(pricingCostItemKeys.length),
+  /** 利润红线：报价提交 100% 拦截（09 §3.2），修改后立即生效 */
+  profitFloorPct: z.number().min(0).max(100),
+  /** 让价梯度（如 [3,2,1]），每轮一个正整数百分比 */
+  discountLadder: z.array(z.number().int().min(1).max(100)).max(10),
+  defaultIncoterms: z.enum(incotermsOptions),
+  /** 默认币种：ISO 4217 三位大写字母 */
+  defaultCurrency: z.string().regex(/^[A-Z]{3}$/, '币种须为 3 位大写字母代码'),
+  /** 汇率源：MVP 固定 manual（16 §1.6） */
+  exchangeRateSource: z.literal('manual'),
+});
+export type UpdatePricingRulesDto = z.infer<typeof updatePricingRulesSchema>;
+
+// ===== CRM 集成（16 §1.8 / FR-06：crm_integration，ER 01 §2.5）=====
+
+/**
+ * CRM 供应商白名单（16 FR-06「小满 / 富通天下」；ER 01 §2.5 provider 为 text，可扩展）。
+ * MVP 仅落地「授权连接 + 字段映射 + 同步方向」配置（06 §6：不做任何外呼），
+ * 实际拉取/推送由后续 CrmDriver 消费本配置（`CrmDriver { pullCustomers / pushCustomer / mapFields }`）。
+ */
+export const crmProviders = ['xiaoman', 'futong'] as const;
+
+/** 同步方向（ER 01 §2.5）：pull=外部→本地 / push=本地→外部 / both=双向 */
+export const crmSyncDirections = ['pull', 'push', 'both'] as const;
+
+/** 连接状态（ER 01 §2.5）：connected=已授权 / disconnected=已断开 */
+export const crmStatuses = ['connected', 'disconnected'] as const;
+
+/**
+ * 可映射的本地字段白名单（05 CRM 口径：customer / contact 业务字段）。
+ * 之所以白名单化：mapping 直接驱动 CrmDriver.mapFields，脏字段名只会在同步时才暴露。
+ */
+export const crmLocalFields = [
+  'customer.companyName',
+  'customer.country',
+  'customer.website',
+  'customer.industry',
+  'customer.remark',
+  'contact.name',
+  'contact.title',
+  'contact.email',
+  'contact.phone',
+] as const;
+
+/** 字段映射：本地字段（白名单）→ 外部 CRM 字段名（自由文本，各供应商命名不一） */
+export const crmMappingSchema = z
+  .array(
+    z.object({
+      local: z.enum(crmLocalFields),
+      remote: z.string().min(1, '外部字段名必填').max(64),
+    }),
+  )
+  .max(crmLocalFields.length)
+  .refine(
+    (fields) => new Set(fields.map((f) => f.local)).size === fields.length,
+    '同一本地字段只能映射一次',
+  );
+
+export const createCrmIntegrationSchema = z.object({
+  provider: z.enum(crmProviders),
+  syncDirection: z.enum(crmSyncDirections),
+  mapping: crmMappingSchema.optional(),
+});
+export type CreateCrmIntegrationDto = z.infer<typeof createCrmIntegrationSchema>;
+
+export const updateCrmIntegrationSchema = z.object({
+  syncDirection: z.enum(crmSyncDirections).optional(),
+  /** 显式 null = 清空映射 */
+  mapping: crmMappingSchema.nullable().optional(),
+  status: z.enum(crmStatuses).optional(),
+});
+export type UpdateCrmIntegrationDto = z.infer<typeof updateCrmIntegrationSchema>;

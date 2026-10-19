@@ -1,10 +1,11 @@
 import type { Job, Processor } from 'bullmq';
-import type { ResumeHint, TaskRunner } from '@tradepilot/runtime';
-import { notifyJobSchema, QUEUE_NAME, TASK_TYPE_QUEUE } from '@tradepilot/shared';
+import type { ResumeHint, RunTaskOptions, TaskRunner } from '@tradepilot/runtime';
+import { notifyJobSchema, QUEUE_NAME, TASK_TYPE_QUEUE, webhookJobSchema } from '@tradepilot/shared';
 import type { Logger } from 'pino';
 import type { EmailSyncProcessor } from './email-sync.js';
 import type { KnowledgeIndexProcessor } from './knowledge-index.js';
 import type { NotifyProcessor } from './notify.js';
+import type { WebhookDeliveryProcessor } from './webhook.js';
 
 /** worker 内部装配依赖（index.ts 构建，避免循环 import queues/registry） */
 export interface WorkerRuntime {
@@ -16,6 +17,8 @@ export interface WorkerRuntime {
   knowledgeIndex?: KnowledgeIndexProcessor;
   /** q:notify 通知分发消费者（M5-A2 通知服务；缺省 = 降级留痕） */
   notify?: NotifyProcessor;
+  /** q:webhook 出站投递消费者（P1-X-21；缺省 = 降级留痕） */
+  webhook?: WebhookDeliveryProcessor;
 }
 
 /**
@@ -26,17 +29,15 @@ export interface WorkerRuntime {
  * 各自的系统处理器。避免全队列复用 runner.run——系统队列 job.id 不是任务 id，
  * 走 runner 只会误查落空（missing/skipped 静默吞掉载荷）。
  *
- * task job：job.data = { taskId, taskType }（enqueue.ts 投递契约）；审批 resume 场景随 job.data.resume 携带。
+ * task job：job.data = { taskId, taskType }（enqueue.ts 投递契约）；审批 resume 场景随 job.data.resume 携带，
+ * 手动恢复场景随 job.data.fromPause 携带（P1-X-30）。
  * 返回 RunTaskResult（skipped/missing 亦为正常完成——痕迹在 DB，job 侧不重投，attempts=1）。
  */
 export function createProcessor(rt: WorkerRuntime): Processor {
   return async (job: Job) => {
     // q:knowledge_index 双语义分流（M4 #7）：job.data.docId → 知识索引流水线（jobId=`kidx.{docId}`）；
     // 其余（job.id=ai_task.id，14 接口创建的 knowledge_index/product_analysis 任务）→ TaskRunner。
-    if (
-      job.queueName === QUEUE_NAME.KNOWLEDGE_INDEX &&
-      typeof job.data?.['docId'] === 'string'
-    ) {
+    if (job.queueName === QUEUE_NAME.KNOWLEDGE_INDEX && typeof job.data?.['docId'] === 'string') {
       if (!rt.knowledgeIndex) {
         rt.logger.warn(
           { queue: job.queueName, jobId: job.id, docId: job.data?.['docId'] },
@@ -54,7 +55,37 @@ export function createProcessor(rt: WorkerRuntime): Processor {
     const taskId = String(job.id);
     const resumeRaw: unknown = job.data?.['resume'];
     const resume = isResumeHint(resumeRaw) ? (resumeRaw as unknown as ResumeHint) : undefined;
-    const result = await rt.runner.run(taskId, resume ? { resume } : undefined);
+    // 手动恢复（P1-X-30 / 04 §5.4）：job.data.fromPause=true → Runner 从最近检查点续跑
+    const fromPause = job.data?.['fromPause'] === true;
+    // 任务级自动重投（04 §5.3）：attemptsMade>0 的重投 job 走 failed→running 续跑；
+    // 审批 resume / 手动恢复各自的状态机优先（两者都带 job.data 标记，不按重投处理）。
+    const attempts = job.opts?.attempts ?? 1;
+    const runOpts: RunTaskOptions = { attempt: { made: job.attemptsMade, total: attempts } };
+    if (resume) {
+      runOpts.resume = resume;
+    }
+    if (fromPause) {
+      runOpts.fromPause = true;
+    }
+    if (!resume && !fromPause && job.attemptsMade > 0) {
+      runOpts.retry = true;
+    }
+    const result = await rt.runner.run(taskId, runOpts);
+    // 可重试错误 + 仍有重投机会 → 抛错交由 BullMQ 按 backoff 重投（确定性失败不重投，正常收口）
+    const willRetry = result.retryable === true && job.attemptsMade + 1 < attempts;
+    if (result.status === 'failed' && willRetry) {
+      rt.logger.warn(
+        {
+          queue: job.queueName,
+          taskId,
+          attempt: job.attemptsMade + 1,
+          attempts,
+          error: result.error,
+        },
+        '任务失败（可重试），抛错交由 BullMQ 退避重投',
+      );
+      throw new Error(result.error ?? '任务失败（可重试）');
+    }
     rt.logger.info(
       { queue: job.queueName, taskId, status: result.status, error: result.error },
       '任务 job 处理结束',
@@ -71,7 +102,9 @@ const TASK_QUEUES = new Set<string>(Object.values(TASK_TYPE_QUEUE));
  * - q:email_sync（M4 #4 实装）：job.data = { mailboxId }（enqueueEmailSync 投递契约）→
  *   EmailSyncProcessor 收信入库（conversation/message、跟进 pause、email_reply 任务派发）。
  * - q:notify（M5-A2 实装）：NotifyJob 载荷 → NotifyProcessor 按 notification_setting 分发
- *   （site 站内落库 / email 接邮箱驱动）；畸形载荷留痕跳过，不抛错重投。
+ *   （site 站内落库 / email 接邮箱驱动，另派生 q:webhook 出站）；畸形载荷留痕跳过，不抛错重投。
+ * - q:webhook（P1-X-21 实装）：WebhookJob 载荷 → 回库解密 secret → POST + HMAC 签名；
+ *   畸形载荷留痕跳过（不重投），投递失败**向外抛出**由 BullMQ 按 attempts=5 指数退避重投（06 §5.2）。
  */
 async function handleSystemJob(job: Job, rt: WorkerRuntime): Promise<void> {
   if (job.queueName === QUEUE_NAME.EMAIL_SYNC) {
@@ -92,6 +125,30 @@ async function handleSystemJob(job: Job, rt: WorkerRuntime): Promise<void> {
     }
     const outcome = await rt.emailSync.process(mailboxId);
     rt.logger.info({ queue: job.queueName, ...outcome }, '邮箱同步 job 处理结束');
+    return undefined;
+  }
+  if (job.queueName === QUEUE_NAME.WEBHOOK) {
+    if (!rt.webhook) {
+      rt.logger.warn(
+        { queue: job.queueName, jobId: job.id, data: job.data },
+        'q:webhook job 被消费但出站投递处理器未装配（降级留痕）',
+      );
+      return undefined;
+    }
+    const parsed = webhookJobSchema.safeParse(job.data);
+    if (!parsed.success) {
+      rt.logger.warn(
+        { queue: job.queueName, jobId: job.id, data: job.data, issues: parsed.error.issues },
+        'q:webhook 载荷畸形，留痕跳过',
+      );
+      return undefined;
+    }
+    // 投递失败不吞：抛出交由 BullMQ 按 attempts + exponential backoff 重投（末次失败在处理器内打死信标记）
+    const outcome = await rt.webhook.process(parsed.data, {
+      attemptsMade: job.attemptsMade,
+      attempts: job.opts?.attempts ?? 1,
+    });
+    rt.logger.info({ queue: job.queueName, ...outcome }, 'Webhook 投递 job 处理结束');
     return undefined;
   }
   if (job.queueName === QUEUE_NAME.NOTIFY) {

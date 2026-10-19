@@ -510,7 +510,7 @@ COMMENT ON COLUMN knowledge_chunk.document_id IS '所属知识文档 ID';
 COMMENT ON COLUMN knowledge_chunk.chunk_index IS '分块序号（document 内唯一，从 0 递增）';
 COMMENT ON COLUMN knowledge_chunk.content IS '分块正文';
 COMMENT ON COLUMN knowledge_chunk.token_count IS '分块 token 数';
-COMMENT ON COLUMN knowledge_chunk.embedding IS '向量嵌入（1536 维，hnsw 索引）';
+COMMENT ON COLUMN knowledge_chunk.embedding IS '向量嵌入（2048 维，hnsw 索引；迁移 0005 由 1536 调整）';
 COMMENT ON COLUMN knowledge_chunk.metadata IS '附加元数据（页码/标题等）';
 COMMENT ON COLUMN knowledge_chunk.created_at IS '创建时间（UTC）';
 

@@ -9,6 +9,7 @@ import AiStatusTag from '@/components/business/AiStatusTag.vue'
 import EmptyState from '@/components/business/EmptyState.vue'
 import TaskWorkspace from '@/features/lead-gen/components/TaskWorkspace.vue'
 import EmployeeCreateWizard from '@/features/employees/components/EmployeeCreateWizard.vue'
+import EmployeeTasksDrawer from '@/features/employees/components/EmployeeTasksDrawer.vue'
 import {
   getEmployeeRoles,
   getEmployees,
@@ -23,9 +24,10 @@ import { useDictStore } from '@/stores/dict'
 
 /**
  * 02-AI数字员工中心（六卡片墙，02 PRD §2.1）：
- * - D4：外贸经理/跟单员工 P0 同口径占位——卡片展示、入口禁用（idle + statusDetail）；
- * - D5：卡片渲染 currentTask 轻量对象（任务名/状态/进度），无 14 依赖；
+ * - P1-02-01：占位态全部解除——六角色均展示业务口径 KPI 与工作台入口（跟单 → /orders）；
+ * - D5：卡片渲染 currentTask 轻量对象（任务名/状态/进度）；
  * - 任务详情抽屉复用 TaskWorkspace（SSE 流 + 降级轮询）；
+ * - P1-02-03：卡片「任务记录」→ EmployeeTasksDrawer 完整任务列表（状态页签/重试恢复/转人工/就地日志，复用 14）；
  * - 创建向导仅 admin/manager（v-permission + usePermission 双层裁剪）。
  */
 const { t } = useI18n()
@@ -48,6 +50,17 @@ const rolesQuery = useQuery({
 })
 
 const cards = computed<EmployeeCard[]>(() => employeesQuery.data.value?.items ?? [])
+
+/** 严格一类一个（02 §2）：已被占用的角色（每个角色至多一名 AI 员工） */
+const occupiedRoles = computed(() => cards.value.map((card) => card.role))
+
+/** 创建入口可用性：仍有空闲角色才可创建；六角色全部占用 → 置灰并提示原因 */
+const canCreateEmployee = computed(() => {
+  if (!canManage.value) return false
+  const total = rolesQuery.data.value?.length ?? 0
+  // 角色字典未就绪/拉取失败时不阻断（保持原行为），仅当明确「已占满」才禁用
+  return total === 0 || occupiedRoles.value.length < total
+})
 
 const ROLE_ICONS: Record<string, string> = {
   lead_hunter: '🤖',
@@ -74,6 +87,17 @@ function onDrawerVisibility(visible: unknown) {
     drawerTaskId.value = null
     drawerTitle.value = ''
   }
+}
+
+// ===== 完整任务列表抽屉（P1-02-03：02 FR-04 / §3.3，复用 14 列表能力） =====
+const tasksDrawerEmployee = ref<{ employeeId: string; name: string } | null>(null)
+
+function openTasksDrawer(card: EmployeeCard) {
+  tasksDrawerEmployee.value = { employeeId: card.employeeId, name: card.name }
+}
+
+function onTasksDrawerVisibility(visible: boolean) {
+  if (!visible) tasksDrawerEmployee.value = null
 }
 
 // ===== 创建向导 =====
@@ -125,9 +149,22 @@ async function onResume(card: EmployeeCard) {
         <h3 class="ai-employees__title">{{ t('employees.title') }}</h3>
         <span class="ai-employees__legend">{{ t('employees.statusLegend') }}</span>
       </div>
-      <el-button v-permission="['admin', 'manager']" type="primary" @click="wizardVisible = true">
-        + {{ t('employees.create') }}
-      </el-button>
+      <el-tooltip
+        :content="t('employees.allRolesOccupied')"
+        :disabled="canCreateEmployee"
+        placement="top"
+      >
+        <span>
+          <el-button
+            v-permission="['admin', 'manager']"
+            type="primary"
+            :disabled="!canCreateEmployee"
+            @click="wizardVisible = true"
+          >
+            + {{ t('employees.create') }}
+          </el-button>
+        </span>
+      </el-tooltip>
     </div>
 
     <div v-loading="employeesQuery.isLoading.value">
@@ -162,14 +199,11 @@ async function onResume(card: EmployeeCard) {
             <span v-else class="ai-employees__stat is-empty">—</span>
           </div>
 
-          <!-- 当前任务（D5 轻量对象） -->
+          <!-- 当前任务（D5 轻量对象）+ 完整任务列表入口（P1-02-03） -->
           <div class="ai-employees__task">
             <template v-if="card.currentTask">
               <div class="ai-employees__task-row">
                 <span class="ai-employees__task-title">🎯 {{ card.currentTask.title }}</span>
-                <el-button link type="primary" size="small" @click="openTaskDrawer(card)">
-                  {{ t('employees.viewTaskLog') }}
-                </el-button>
               </div>
               <el-progress
                 :percentage="card.currentTask.progressPct"
@@ -178,9 +212,24 @@ async function onResume(card: EmployeeCard) {
               />
             </template>
             <span v-else class="ai-employees__task-empty">{{ t('employees.noCurrentTask') }}</span>
+
+            <div class="ai-employees__task-actions">
+              <el-button
+                v-if="card.currentTask"
+                link
+                type="primary"
+                size="small"
+                @click="openTaskDrawer(card)"
+              >
+                {{ t('employees.viewTaskLog') }}
+              </el-button>
+              <el-button link type="primary" size="small" @click="openTasksDrawer(card)">
+                {{ t('employees.viewTasks') }}
+              </el-button>
+            </div>
           </div>
 
-          <!-- KPI（D4：占位卡片随模块启用后展示） -->
+          <!-- KPI（13 §1.3：经理卡展示 daily_reports；跟单仍为占位） -->
           <div v-if="card.kpi" class="ai-employees__kpi">
             <div class="ai-employees__kpi-row">
               <span class="ai-employees__kpi-label">{{ t('employees.kpi') }}</span>
@@ -259,8 +308,17 @@ async function onResume(card: EmployeeCard) {
       v-if="canManage"
       :visible="wizardVisible"
       :roles="rolesQuery.data.value ?? []"
+      :occupied-roles="occupiedRoles"
       @update:visible="wizardVisible = $event"
       @created="onCreated"
+    />
+
+    <!-- 完整任务列表抽屉（P1-02-03：状态页签 / 重试恢复 / 转人工 / 就地日志，复用 14 能力） -->
+    <EmployeeTasksDrawer
+      :model-value="Boolean(tasksDrawerEmployee)"
+      :employee-id="tasksDrawerEmployee?.employeeId ?? ''"
+      :employee-name="tasksDrawerEmployee?.name ?? ''"
+      @update:model-value="onTasksDrawerVisibility"
     />
   </div>
 </template>
@@ -363,6 +421,14 @@ async function onResume(card: EmployeeCard) {
   &__task-empty {
     font-size: 13px;
     color: var(--tp-text-tertiary);
+  }
+
+  &__task-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 8px;
   }
 
   &__kpi {

@@ -39,6 +39,7 @@ export const taskType = pgEnum('task_type', [
   'business_analysis',
   'knowledge_index',
   'product_analysis',
+  'product_knowledge',
 ]);
 export const taskLogType = pgEnum('task_log_type', [
   'search',

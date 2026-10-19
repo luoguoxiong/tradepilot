@@ -11,7 +11,7 @@
  * 连续失败 ≥3 次 → status='error'（计数存 Redis，无 DDL 侵入）。
  * 附件转存对象存储随 M4 #7（storage 适配器）补齐，本版仅文本正文入库。
  */
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 import {
   createMailboxDriver,
@@ -41,6 +41,8 @@ export interface SyncOutcome {
   orgId: string;
   fetched: number;
   ingested: number;
+  /** 单条入库失败（脏邮件）条数：跳过不阻断整轮 */
+  ingestErrors: number;
   replyTasksCreated: number;
   status: 'synced' | 'auth_failed' | 'failed' | 'skipped';
   error?: string;
@@ -65,6 +67,7 @@ export class EmailSyncProcessor {
         orgId: '',
         fetched: 0,
         ingested: 0,
+        ingestErrors: 0,
         replyTasksCreated: 0,
         status: 'skipped',
       };
@@ -76,6 +79,7 @@ export class EmailSyncProcessor {
 
     let fetched = 0;
     let ingested = 0;
+    let ingestErrors = 0;
     let replyTasksCreated = 0;
     try {
       for await (const raw of driver.syncMessages({
@@ -83,10 +87,28 @@ export class EmailSyncProcessor {
         folders: mailbox.syncScope.folders,
       })) {
         fetched += 1;
-        const result = await this.ingestMessage(mailbox, raw, now);
-        if (result.ingested) {
-          ingested += 1;
-          replyTasksCreated += result.replyTaskCreated ? 1 : 0;
+        // 单条入库失败不阻断整轮（06 §2.2 单消息单事务）：脏邮件只留痕跳过。
+        // 否则整轮中断 → last_synced_at 不推进 → 每轮都卡在同一封，其后的邮件（含客户回信）永远收不进来
+        try {
+          const result = await this.ingestMessage(mailbox, raw, now);
+          if (result.ingested) {
+            ingested += 1;
+            replyTasksCreated += result.replyTaskCreated ? 1 : 0;
+          }
+        } catch (err) {
+          // 凭据失效上抛（由外层统一置 disconnected）；其余按单条脏邮件跳过
+          if (isMailboxAuthError(err)) {
+            throw err;
+          }
+          ingestErrors += 1;
+          logger.warn(
+            {
+              mailboxId,
+              externalMessageId: raw.externalMessageId,
+              err: err instanceof Error ? err.message : String(err),
+            },
+            '单条邮件入库失败，跳过继续同步',
+          );
         }
       }
     } catch (err) {
@@ -101,6 +123,7 @@ export class EmailSyncProcessor {
           orgId: mailbox.orgId,
           fetched,
           ingested,
+          ingestErrors,
           replyTasksCreated,
           status: 'auth_failed',
           error: message,
@@ -117,6 +140,7 @@ export class EmailSyncProcessor {
         orgId: mailbox.orgId,
         fetched,
         ingested,
+        ingestErrors,
         replyTasksCreated,
         status: 'failed',
         error: message,
@@ -128,7 +152,7 @@ export class EmailSyncProcessor {
     await redis.del(failKey(mailbox.id));
     if (fetched > 0) {
       logger.info(
-        { mailboxId, orgId: mailbox.orgId, fetched, ingested, replyTasksCreated },
+        { mailboxId, orgId: mailbox.orgId, fetched, ingested, ingestErrors, replyTasksCreated },
         '邮箱同步完成',
       );
     }
@@ -137,6 +161,7 @@ export class EmailSyncProcessor {
       orgId: mailbox.orgId,
       fetched,
       ingested,
+      ingestErrors,
       replyTasksCreated,
       status: 'synced',
     };
@@ -176,7 +201,9 @@ export class EmailSyncProcessor {
 
       let customerRow: { id: string; companyName: string } | null = null;
       let contactId: string | null = null;
-      const email = peerEmails.find((e) => e.includes('@'));
+      // 统一小写：contact 唯一索引为 (org_id, lower(email))，来信邮箱大小写不敏感匹配，
+      // 否则匹配落空 → 重复建档插入撞 uq_contact_org_email
+      const email = peerEmails.find((e) => e.includes('@'))?.toLowerCase();
       if (email) {
         // ① contact 精确匹配（org 内邮箱唯一索引）
         const [hit] = await tx
@@ -197,40 +224,39 @@ export class EmailSyncProcessor {
         }
       }
 
-      // ② 会话复用（customer 维度最新 email 会话）或新建轻量线索会话（06 §2.2）
-      let conversationId: string;
-      if (customerRow) {
-        const [conv] = await tx
-          .select({ id: schema.conversation.id })
-          .from(schema.conversation)
+      // ② 未匹配来信/去信 → 自动建档（潜在客户，owner=邮箱归属人或首个 active 成员）
+      // uq_customer_org_name：(org_id, lower(company_name)) 唯一（deleted_at is null）
+      // → 先按同名复用，避免不同发件人同名直接撞唯一约束抛错（06 §2.2 自动建档）
+      if (!customerRow) {
+        const ownerId = await resolveOwnerUserId(tx, mailbox.ownerUserId);
+        const companyName = deriveCompanyName(peerName, email);
+        const [dup] = await tx
+          .select({ id: schema.customer.id })
+          .from(schema.customer)
           .where(
             and(
-              eq(schema.conversation.customerId, customerRow.id),
-              eq(schema.conversation.channel, 'email'),
+              eq(schema.customer.orgId, orgId),
+              sql`lower(${schema.customer.companyName}) = ${companyName.toLowerCase()}`,
+              isNull(schema.customer.deletedAt),
             ),
           )
-          .orderBy(desc(schema.conversation.lastMessageAt))
           .limit(1);
-        conversationId =
-          conv?.id ??
-          (await createConversation(tx, orgId, customerRow.id, contactId, mailbox, raw, now));
-      } else {
-        // 未匹配：新建轻量线索 customer + contact（潜在客户，owner=邮箱归属人或首个 active 成员）
-        const ownerId = await resolveOwnerUserId(tx, mailbox.ownerUserId);
-        const customerId = createId('cus');
-        await tx.insert(schema.customer).values({
-          id: customerId,
-          orgId,
-          companyName: deriveCompanyName(peerName, email),
-          country: 'Unknown',
-          customerType: 'other',
-          stage: 'new_lead',
-          isFormal: false,
-          ownerId,
-          remark: '邮件自动建档（未匹配既有客户）',
-          createdAt: now,
-          updatedAt: now,
-        });
+        const customerId = dup?.id ?? createId('cus');
+        if (!dup) {
+          await tx.insert(schema.customer).values({
+            id: customerId,
+            orgId,
+            companyName,
+            country: 'Unknown',
+            customerType: 'other',
+            stage: 'new_lead',
+            isFormal: false,
+            ownerId,
+            remark: '邮件自动建档（未匹配既有客户）',
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
         const newContactId = createId('con');
         await tx.insert(schema.contact).values({
           id: newContactId,
@@ -244,9 +270,24 @@ export class EmailSyncProcessor {
           updatedAt: now,
         });
         contactId = newContactId;
-        customerRow = { id: customerId, companyName: '' };
-        conversationId = await createConversation(tx, orgId, customerId, contactId, mailbox, raw, now);
+        customerRow = { id: customerId, companyName };
       }
+
+      // ③ 会话复用（customer 维度最新 email 会话）或新建轻量线索会话（06 §2.2）
+      const [conv] = await tx
+        .select({ id: schema.conversation.id })
+        .from(schema.conversation)
+        .where(
+          and(
+            eq(schema.conversation.customerId, customerRow.id),
+            eq(schema.conversation.channel, 'email'),
+          ),
+        )
+        .orderBy(desc(schema.conversation.lastMessageAt))
+        .limit(1);
+      const conversationId =
+        conv?.id ??
+        (await createConversation(tx, orgId, customerRow.id, contactId, mailbox, raw, now));
 
       // ===== message 插入（direction 按 folder；language 留空由 email_reply 图判定）=====
       const messageId = createId('msg');
@@ -318,7 +359,15 @@ export class EmailSyncProcessor {
 
         // 销售域询盘来信（INBOX 新来信）→ email_reply 任务（scheduled，Dispatcher 闸门投递）
         if (raw.folder.toUpperCase() === 'INBOX') {
-          replyTaskCreated = await createReplyTask(tx, orgId, customerId, conversationId, messageId, raw, now);
+          replyTaskCreated = await createReplyTask(
+            tx,
+            orgId,
+            customerId,
+            conversationId,
+            messageId,
+            raw,
+            now,
+          );
         }
       }
 

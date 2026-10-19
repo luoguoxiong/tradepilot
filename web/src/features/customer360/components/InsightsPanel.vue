@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { useQuery } from '@tanstack/vue-query'
 import { ElMessage } from 'element-plus'
 
@@ -32,6 +33,7 @@ const props = withDefaults(
 )
 
 const { t } = useI18n()
+const router = useRouter()
 
 const insightQuery = useQuery({
   queryKey: computed(() => qk.customer360.insight(props.entityId)),
@@ -41,7 +43,7 @@ const insightQuery = useQuery({
 
 const insight = computed<Customer360Insight | null>(() => insightQuery.data.value ?? null)
 
-/** 下一步动作：send_quote 依赖 09（D8），P0 按 features 过滤不展示 */
+/** 下一步动作：send_quote 依赖 09（D8，`features.quotes` 关闭时不展示） */
 const visibleAction = computed<Customer360NextAction | null>(() => {
   const action = insight.value?.nextAction
   if (!action) return null
@@ -91,7 +93,13 @@ function execute(action: Customer360NextAction) {
     }
     return
   }
-  // send_quote：09 启用（features.quotes）后引导创建报价；当前不渲染该按钮
+  if (action.type === 'send_quote') {
+    // D8：09 启用后引导创建报价（带入当前客户，09 列表页深链直接打开新建弹窗）
+    void router.push({
+      name: 'quotes',
+      query: { customerId: props.entityId, create: '1' },
+    })
+  }
 }
 
 function analyze() {

@@ -4,12 +4,18 @@ import { useI18n } from 'vue-i18n'
 import { AlarmClock, Hide, View } from '@element-plus/icons-vue'
 
 import type { ApprovalItem } from '@/api/types/approvals'
-import { isCustomerDeleteContext, isEmailSendContext } from '../utils/context'
+import {
+  isCustomerDeleteContext,
+  isEmailSendContext,
+  isOrderChangeContext,
+  isQuoteContext,
+} from '../utils/context'
 
 /**
  * 审批卡片（12 §2 审核中心列表行 / §1.2 全字段）：
- * - 风险分级：high 红（customer_delete 等一律人工审）/ medium 橙（email_send 可自动通过）；
- * - email_send 上下文：联系人/主题/正文预览；customer_delete：客户名/关联数；
+ * - 风险分级：high 红（报价/客户删除等一律人工审）/ medium 橙（邮件发送/订单变更可自动通过）；
+ * - 上下文按 approvalType 差异化渲染：email_send 联系人/主题/正文预览；customer_delete 客户名/关联数；
+ *   quote 报价单号 + 金额币种（09 §3.3）；order_change 订单号 + 交期/金额变更前后（10 FR-03，D10）；
  * - 置信度 + reasons 逐条证据；倒计时按 expiresAt（超时终态 expired 禁处置）；
  * - 三态处置入口：批准 / 编辑后批准 / 拒绝（详情抽屉承载完整上下文）。
  */
@@ -36,6 +42,23 @@ const deleteContext = computed(() =>
     ? props.approval.context
     : null,
 )
+/** quote 上下文（D10 报价 Tab） */
+const quoteContext = computed(() =>
+  props.approval.approvalType === 'quote' && isQuoteContext(props.approval.context)
+    ? props.approval.context
+    : null,
+)
+/** order_change 上下文（D10 订单变更 Tab，10 FR-03） */
+const orderChangeContext = computed(() =>
+  props.approval.approvalType === 'order_change' && isOrderChangeContext(props.approval.context)
+    ? props.approval.context
+    : null,
+)
+
+/** 变更前后文本（缺失侧以 — 占位，避免出现「null → 2026-10-01」） */
+function changeText(before: string | null | undefined, after: string | null | undefined): string {
+  return t('approvals.changeValue', { before: before || '—', after: after || '—' })
+}
 
 const isPending = computed(() => props.approval.status === 'pending')
 const isExpired = computed(() => props.approval.status === 'expired')
@@ -119,6 +142,55 @@ const remainingText = computed(() => {
           <span>
             {{ t('approvals.quotes') }} {{ deleteContext.relatedCounts.quotes }} ·
             {{ t('approvals.orders') }} {{ deleteContext.relatedCounts.orders }}
+          </span>
+        </div>
+      </template>
+      <template v-else-if="quoteContext">
+        <div class="approval-card__context-row">
+          <span class="approval-card__context-label">{{ t('approvals.quoteNo') }}</span>
+          <span>
+            {{ quoteContext.quoteNo }}
+            <RouterLink
+              class="approval-card__source-link"
+              :to="{ name: 'quote-detail', params: { id: quoteContext.quoteId } }"
+            >
+              {{ t('approvals.viewSource') }}
+            </RouterLink>
+          </span>
+        </div>
+        <div class="approval-card__context-row">
+          <span class="approval-card__context-label">{{ t('approvals.amount') }}</span>
+          <span>{{ quoteContext.currency }} {{ quoteContext.totalAmount }}</span>
+        </div>
+      </template>
+      <template v-else-if="orderChangeContext">
+        <div class="approval-card__context-row">
+          <span class="approval-card__context-label">{{ t('approvals.orderNo') }}</span>
+          <span>
+            {{ orderChangeContext.orderNo }}
+            <RouterLink
+              class="approval-card__source-link"
+              :to="{ name: 'order-detail', params: { id: orderChangeContext.orderId } }"
+            >
+              {{ t('approvals.viewSource') }}
+            </RouterLink>
+          </span>
+        </div>
+        <div class="approval-card__context-row">
+          <span class="approval-card__context-label">{{ t('approvals.deliveryDate') }}</span>
+          <span>
+            {{
+              changeText(
+                orderChangeContext.before.deliveryDate,
+                orderChangeContext.changes.deliveryDate,
+              )
+            }}
+          </span>
+        </div>
+        <div v-if="orderChangeContext.changes.amount" class="approval-card__context-row">
+          <span class="approval-card__context-label">{{ t('approvals.amount') }}</span>
+          <span>
+            {{ changeText(orderChangeContext.before.amount, orderChangeContext.changes.amount) }}
           </span>
         </div>
       </template>
@@ -256,6 +328,16 @@ const remainingText = computed(() => {
   &__context-label {
     flex-shrink: 0;
     color: var(--el-text-color-secondary);
+  }
+
+  &__source-link {
+    margin-left: 8px;
+    color: var(--el-color-primary);
+    text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
   }
 
   &__subject {

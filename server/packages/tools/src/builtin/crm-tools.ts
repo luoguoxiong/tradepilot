@@ -490,6 +490,9 @@ export const emailSendTool: ToolDefinition<
       }
       if (!externalMessageId) {
         const detail = lastError instanceof Error ? lastError.message : String(lastError);
+        // 释放幂等键（04 §5.3 任务级重投）：确认未外发 → 允许重投时真正重发；
+        // 否则重跑本节点会被幂等命中而「假装成功」（邮件实际未发出，任务却 completed）。
+        await ctx.redis.del(key).catch(() => undefined);
         // 最终失败（06 §2.3）：message.status='failed' + 任务失败语义。
         // failed 行走独立事务落库——本工具节点被 execTool 的 withOrg 单事务包裹，
         // 抛错会连带回滚 ctx.tx 写入；ai_task.error 由 Runner 记录（error 日志同源）。
@@ -561,7 +564,10 @@ export const knowledgeSearchTool: ToolDefinition<
   description:
     '知识库混合检索（向量+全文+相似 RRF 融合，引用可溯源 docId/chunkId；业务参数唯一结构化来源，06 §4）',
   inputSchema: z.object({
-    query: z.string().min(1),
+    // 允许空串：上游 parsedGoal.targetProduct 等字段按契约为「缺失留空」（parse_goal 提示词
+    // 明确要求缺失字段置空字符串），知识检索只是辅助增强步骤，空 query 必须降级为「无命中」
+    // 并继续主流程，而不是让整条任务 failed（11 §1.3 FR-06 / TC-KN-10 / TC-NFR-36）。
+    query: z.string(),
     scene: z.string().optional(),
     topK: z.number().int().min(1).max(20).optional(),
   }),

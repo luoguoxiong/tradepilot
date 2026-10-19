@@ -25,7 +25,7 @@ import { OrgService } from '../src/org/org.service.js';
 
 process.env.JWT_SECRET ||= 'it_only_test_secret_0123456789abcdef0123456789abcdef';
 process.env.ENCRYPTION_KEY ||= '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-process.env.REDIS_URL ||= 'redis://localhost:6380';
+process.env.REDIS_URL ||= 'redis://localhost:6379';
 process.env.DATABASE_URL ||= 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
 
 const SUPER_URL = 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';

@@ -15,12 +15,12 @@ import { CustomersService } from '../src/customers/customers.service.js';
  * - batch-owner（仅 manager/admin + owner_change 活动留痕）
  * - contacts CRUD（创建/编辑/删除单条不走审批）
  * - activities 全局列表（refType+refId 跳转 + type 筛选 + scope 注入）
- * 前置：docker compose up（PG 5432 / Redis 6380）+ 迁移已执行。
+ * 前置：docker compose up（PG 5432 / Redis 6379）+ 迁移已执行。
  */
 
 process.env.JWT_SECRET ||= 'it_only_test_secret_0123456789abcdef0123456789abcdef';
 process.env.ENCRYPTION_KEY ||= '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-process.env.REDIS_URL ||= 'redis://localhost:6380';
+process.env.REDIS_URL ||= 'redis://localhost:6379';
 process.env.DATABASE_URL ||= 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';
 
 const SUPER_URL = 'postgresql://tradepilot:tradepilot_dev@localhost:5432/tradepilot';

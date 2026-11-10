@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 5/9（核心 API + 前端页面）
+- 当前阶段：阶段 6/9（AI 客户分析 + 开发信生成）
 - 状态：pending（待用户确认后开始）
 - 最后更新：2026-11-10
 
@@ -16,7 +16,7 @@
 | 2 | 系统架构 + 模块划分 | done | 2026-11-10 | 用户确认（"继续阶段3"）；对抗性审查 13 项修正全部回填 | fe4c7aa |
 | 3 | PostgreSQL Schema | done | 2026-11-10 | 迁移 init 成功（13 表落库）；seed 唯一约束验证 2/2 通过（P2002 拒绝重复 dedupeKey 与重复 contact）；tsc 零错误 | 见下 |
 | 4 | 前后端工程 + Docker | done | 2026-11-10 | /api/health 200（db/redis up）；前端 200+IDE 预览导航正常；/api 代理通；前后端 tsc 零错误；web build 成功 | 见下 |
-| 5 | 核心 API + 前端页面 | pending | - | - | - |
+| 5 | 核心 API + 前端页面 | done | 2026-11-10 | 未登录 401 ✓；登录→建任务→异步搜索→7 家 DEMO 企业列表 ✓；集成测试 13/13（4 套件）；双端 tsc 零错误 | 见下 |
 | 6 | AI 分析 + 开发信生成 | pending | - | - | - |
 | 7 | CRM 业务闭环 | pending | - | - | - |
 | 8 | 测试验证 | pending | - | - | - |
@@ -77,3 +77,27 @@
   - ioredis lazyConnect 时 ping 前需显式 connect()（health 检查修复）
 - 验收证据：/api/health 200 {status:ok,db:up,redis:up}；404 返回统一错误结构；web 200 且模块编译 200、代理 200；IDE 预览打开 /dashboard 正常；server/web tsc exit=0；web build 成功（gzip 66KB）
 - 遗留问题：无（认证 Guard 将在阶段 5 全局接入）
+
+### 阶段 5：核心 API + 前端页面（P0 主体）
+
+- 交付物（5 个切片提交 46e5f86→3fabf3e→…）：
+  - 认证：register/login/me（JWT + bcrypt 12 轮 + @nestjs/jwt）、全局 JwtAuthGuard + @Public、登录限流（内存版单实例，AUTH_RATE_LIMIT_MAX 可调）、zod 边界校验
+  - 产品 CRUD：products 模块（归属校验防 IDOR）
+  - Adapter 层：types 契约、Mock（确定性 DEMO）/Google Real（zod 校验响应+超时+错误分类）、AdapterFactory（integrations→env→Mock 降级）、QuotaService 日配额（Redis）
+  - integrations：AES-256-GCM 加密存取 + 掩码响应（只回尾 4 位）
+  - tasks：BullMQ lead-discovery 队列 + Processor（searching 步：步骤日志/幂等 upsert/失败置 FAILED/重试耗尽 onFailed 兜底）、retry 端点（阶段 5 仅 searching）
+  - companies：分页筛选（q 匹配名称或域名/country/favorite/inCrm）、详情聚合、收藏、批量导入 CRM（置 NEW+负责人+audit_logs）
+  - 前端：登录/注册页（真实调用+错误态）、api 客户端（Bearer/401 登出）、RequireAuth、Lead Discovery（表单+2s 轮询+最近任务+DEMO 提示卡）、Companies 列表（筛选/分页/收藏/批量导入/DEMO 徽章）、Company Detail（信息/联系人/海关记录/AI 占位）、Settings（产品 CRUD+集成 Key 管理）
+  - 集成测试：jest+ts-jest+supertest，create-app 工厂共享，13 用例（401/注册重复/422/错误密码/伪造 token/CRUD/IDOR/任务异步/边界/归属/收藏/CRM 导入幂等/Key 加密掩码）
+- 决策与备注：
+  - JWT Bearer 存 localStorage：PRD 已确认非 cookie 方案，MVP 单实例+同源代理接受该风险（store 注释留档），生产化换 httpOnly cookie
+  - Worker 进程内运行（@nestjs/bullmq 同进程），架构 v1.1 的独立 worker 进程推迟到部署阶段；@Processor 装饰器漏写曾致 worker 不启动（已修复并成为检查点）
+  - 测试 --runInBand 串行：多 jest 进程各自启停 BullMQ worker 会造成 stalled 重投递波动
+  - Mock 确定性数据跨运行复用同 dedupeKey → 测试用 updateMany 重置 CRM 状态保证幂等
+  - 架构偏差：dev 期 tasks 创建时 jobId=taskId；retry 改用 `${taskId}:retry:${ts}` 避免 jobId 冲突
+- 验收证据：
+  - 未登录 /api/products 401 UNAUTHENTICATED ✓（验收门）
+  - 端到端 curl：登录→POST /search-tasks→5 家 DEMO 企业入库→/api/companies 分页可见 ✓
+  - npm test：13/13 通过（4 套件）✓（验收门"新增接口集成测试"）
+  - server/web tsc exit=0；IDE 预览 /companies 正常渲染 ✓
+- 遗留问题：无

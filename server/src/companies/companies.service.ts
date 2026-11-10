@@ -9,7 +9,14 @@ export class CompaniesService {
 
   async list(query: ListCompaniesQuery) {
     const where = {
-      ...(query.q ? { name: { contains: query.q, mode: 'insensitive' as const } } : {}),
+      ...(query.q
+        ? {
+            OR: [
+              { name: { contains: query.q, mode: 'insensitive' as const } },
+              { website: { contains: query.q, mode: 'insensitive' as const } },
+            ],
+          }
+        : {}),
       ...(query.country ? { country: query.country } : {}),
       ...(query.isFavorite !== undefined ? { isFavorite: query.isFavorite } : {}),
       ...(query.inCrm !== undefined ? { crmStatus: query.inCrm ? { not: null } : null } : {}),

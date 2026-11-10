@@ -22,6 +22,7 @@ const EnvSchema = z.object({
   ADAPTER_DAILY_QUOTA_APOLLO: z.coerce.number().int().default(100),
   ADAPTER_DAILY_QUOTA_CUSTOMS: z.coerce.number().int().default(100),
   TASK_SCORE_LIMIT: z.coerce.number().int().default(10),
+  AUTH_RATE_LIMIT_MAX: z.coerce.number().int().default(30),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

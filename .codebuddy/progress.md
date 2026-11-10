@@ -4,8 +4,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 9/9（README + 部署 + 总验收）
-- 状态：in_progress（用户已授权"把整个计划做完"，阶段 8 完成后连续执行）
+- 当前阶段：全部 9 阶段完成（2026-11-10 用户指令"把整个计划做完"，阶段 8/9 连续交付）
+- 状态：done
 - 最后更新：2026-11-10
 
 ## 阶段清单
@@ -20,7 +20,7 @@
 | 6 | AI 分析 + 开发信生成 | done | 2026-11-10 | 两次评分波动 0 等级一致；六项输出齐全；无记录企业邮件无伪造采购；异常注入 503 结构化；22/22 测试通过 | 见下 |
 | 7 | CRM 业务闭环 | done | 2026-11-10 | 非法流转 400 ✓；跟进+汇总变化 ✓；CSV 往返无损 ✓；挖掘/海关 DEMO ✓；全闭环任务(4 步 DONE+自动入 CRM)；31/31 测试 | 见下 |
 | 8 | 测试验证 | done | 2026-11-10 | 纯函数单测 38 用例（评分/去重/CSV/Adapter 映射）；npm test 69/69（7 套件）；双端 tsc 零错误；浏览器全链路 9 张截图留档 docs/screenshots/；console 0 error | 见下 |
-| 9 | README + 部署 + 验收 | pending | - | - | - |
+| 9 | README + 部署 + 验收 | done | 2026-11-10 | README/deployment/acceptance 三文档；12/12 验收场景逐条留档；新目录 clone 按 README 从零启动实测成功（migrate+seed+health+登录+console 0 error） | 见下 |
 
 ## 各阶段记录
 
@@ -161,3 +161,21 @@
   - 浏览器全链路（demo@tradepilot.dev）：登录 → Dashboard → Settings(产品+Key 管理) → Lead Discovery 建任务(Carbon Fiber Insoles/US/10 家) → 四步完成 → Companies(DEMO 徽章+CRM 状态) → 详情页(联系人 2/海关无记录/评分 65 B mock-rules-v1/开发信草稿生成含企业名与收件人) → CRM 流转 NEW→QUALIFIED(时间线) → 跟进+下次跟进 2026/11/17 → CRM 列表「已合格」Tab 筛选命中 → Email Studio 占位 → 登出 ✓（截图 01–09）
   - console 全程 0 error（修复 favicon 后；仅 React Router v7 future flag warning 与浏览器 verbose 提示）✓
 - 遗留问题：Email Studio 为「待实现」占位页（PRD 中 P1，MVP 邮件草稿已在企业详情页完成）
+
+### 阶段 9：README + 部署 + 总验收
+
+- 交付物：
+  - README.md：简介与 MVP 边界（只生成草稿/DEMO 标注）、功能总览、技术栈、快速开始（nvm 22 → docker → server(migrate+seed) → web）、架构图、env 表、API 概览（10 模块 37 端点）、目录结构
+  - docs/deployment.md：环境要求、本地从零部署、生产构建/迁移 deploy/Secrets 注入表、进程与端口（worker 拆分预留）、生产化检查清单、回滚策略、实测运维要点（@Inject 约定/127.0.0.1 绑定/--runInBand）
+  - docs/acceptance.md：12 条验收场景逐条留档（操作/预期/实测/证据截图），12/12 通过；回归保障与 P2 范围声明
+- 决策与备注：
+  - 文档以代码为准逐项核对（env 键名、端点清单取自 controller 扫描、演示账号取自 seed.ts）
+  - 新目录 clone 实测选择「全新数据库 tradepilot_clonetest」而非复用现有库，确保 migrate/seed 真实从零执行；docker 基础设施容器名固定（README 假设干净机器，本机已运行即复用）
+- 验收证据：
+  - **新目录 clone 实测**（/tmp/tradepilot-clone-20261110，HEAD=43d3561）：cp .env.example→填 JWT_SECRET/APP_ENCRYPTION_KEY→npm install→prisma migrate dev（全新库建表）→npm run seed（唯一约束自检通过+演示账号）→npm run dev → `/api/health` {status:ok,db:up,redis:up} ✓；web npm install→build 成功（gzip 79.89KB）→dev :5173 200→/api 代理通 ✓；浏览器登录 demo 账号→Dashboard 渲染（全新库空数据正确）→console 0 error ✓
+  - 12 条验收场景：全部通过（acceptance.md 逐条留档，关键场景附 API 响应摘录：任务 params country=US/companyTypes、海关记录 source=demo、评分 76/B、CRM summary dueFollowUps）
+  - 测试后清理：clone dev 进程已停，工作区 server/web dev 已恢复（health ok / web 200）
+- 遗留问题：
+  - 独立 worker 进程拆分推迟到多副本部署时（单实例同进程已验证）
+  - 真实第三方 API（Serper/Apollo/ImportYeti/DeepSeek）未在验收中实测（无正式配额），路径由 fetch-mock 契约测试覆盖；配置 Key 后走同一 Adapter 接口
+  - JWT Bearer + localStorage 为 PRD 确认的 MVP 决策，生产化建议换 httpOnly cookie（ADR 留档）

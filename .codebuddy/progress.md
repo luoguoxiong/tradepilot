@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 4/9（前后端工程 + Docker 开发环境）
+- 当前阶段：阶段 5/9（核心 API + 前端页面）
 - 状态：pending（待用户确认后开始）
 - 最后更新：2026-11-10
 
@@ -15,7 +15,7 @@
 | 1 | PRD + 核心业务流程 | done | 2026-11-10 | 用户确认 PRD（含 3 项决策）；PRD 覆盖六大模块+Agent 设计+12 条验收场景 | a1efb3d |
 | 2 | 系统架构 + 模块划分 | done | 2026-11-10 | 用户确认（"继续阶段3"）；对抗性审查 13 项修正全部回填 | fe4c7aa |
 | 3 | PostgreSQL Schema | done | 2026-11-10 | 迁移 init 成功（13 表落库）；seed 唯一约束验证 2/2 通过（P2002 拒绝重复 dedupeKey 与重复 contact）；tsc 零错误 | 见下 |
-| 4 | 前后端工程 + Docker | pending | - | - | - |
+| 4 | 前后端工程 + Docker | done | 2026-11-10 | /api/health 200（db/redis up）；前端 200+IDE 预览导航正常；/api 代理通；前后端 tsc 零错误；web build 成功 | 见下 |
 | 5 | 核心 API + 前端页面 | pending | - | - | - |
 | 6 | AI 分析 + 开发信生成 | pending | - | - | - |
 | 7 | CRM 业务闭环 | pending | - | - | - |
@@ -62,3 +62,18 @@
   - `npm run seed`：演示数据插入成功；dedupeKey 与 (companyId,email) 重复插入均被 P2002 拒绝
   - `tsc --noEmit` 零错误
 - 遗留问题：无（阶段 4 将扩展 server/ 为 NestJS 工程，本阶段 package.json 为最小骨架）
+
+### 阶段 4：前后端工程 + Docker 开发环境
+
+- 交付物：
+  - server/：NestJS 骨架（zod 配置校验 fail-fast、pino+pino-http 结构化日志、全局 AllExceptionsFilter 统一错误结构、PrismaService 全局模块、/api/health 含 DB+Redis 连通）
+  - web/：Vite5 + React 18 + TS + Tailwind3 + shadcn 风格组件（button/badge/card，badge 含 DEMO 变体）+ Zustand + react-router 7 页面路由 + 侧边栏布局（可折叠）
+  - AGENTS.md 规则文件、.github/workflows/ci.yml（前后端 typecheck + web build）
+  - server/.env.example 全量分组
+- 决策与备注：
+  - tsx/esbuild 不支持 emitDecoratorMetadata → 后端注入约定显式 @Inject(Token)（已记入 AGENTS.md）
+  - vite server 显式绑定 127.0.0.1（本机 localhost 解析 ::1 的坑）；/api 代理目标 127.0.0.1:3020
+  - API 端口 3020（避开本机 3000/3005/3010/3015）
+  - ioredis lazyConnect 时 ping 前需显式 connect()（health 检查修复）
+- 验收证据：/api/health 200 {status:ok,db:up,redis:up}；404 返回统一错误结构；web 200 且模块编译 200、代理 200；IDE 预览打开 /dashboard 正常；server/web tsc exit=0；web build 成功（gzip 66KB）
+- 遗留问题：无（认证 Guard 将在阶段 5 全局接入）

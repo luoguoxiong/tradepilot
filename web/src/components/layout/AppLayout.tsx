@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Outlet } from 'react-router-dom';
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
@@ -5,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Sidebar } from './Sidebar';
 import { useUiStore } from '@/stores/ui';
 
-export function AppLayout() {
+export function AppLayout({ userSlot }: { userSlot?: ReactNode }) {
   const collapsed = useUiStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
 
@@ -17,7 +18,9 @@ export function AppLayout() {
           <Button variant="ghost" size="icon" onClick={toggleSidebar} aria-label="Toggle sidebar">
             {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
           </Button>
-          <div className="text-sm text-muted-foreground">面向外贸业务员的 AI 客户开发平台</div>
+          {userSlot ?? (
+            <div className="text-sm text-muted-foreground">面向外贸业务员的 AI 客户开发平台</div>
+          )}
         </header>
         <main className="flex-1 overflow-y-auto p-6">
           <Outlet />

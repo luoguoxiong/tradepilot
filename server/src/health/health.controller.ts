@@ -1,6 +1,8 @@
 import { Controller, Get, Inject, ServiceUnavailableException } from '@nestjs/common';
+import { Public } from '../auth/guards/jwt-auth.guard';
 import { HealthService } from './health.service';
 
+@Public()
 @Controller('health')
 export class HealthController {
   constructor(@Inject(HealthService) private readonly health: HealthService) {}

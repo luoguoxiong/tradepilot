@@ -5,6 +5,7 @@ import pinoHttp from 'pino-http';
 import { AppModule } from './app.module';
 import { getEnv } from './config';
 import { logger } from './logger';
+import { authRateLimit } from './common/middleware/rate-limit.middleware';
 
 async function bootstrap(): Promise<void> {
   const env = getEnv();
@@ -14,6 +15,7 @@ async function bootstrap(): Promise<void> {
 
   const app = await NestFactory.create(AppModule, { logger: false });
   app.setGlobalPrefix('api');
+  app.use('/api/auth', authRateLimit); // 登录/注册限流（单实例内存版）
   app.use(
     pinoHttp({
       logger,

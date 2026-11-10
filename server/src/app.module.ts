@@ -3,6 +3,7 @@ import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { AdaptersModule } from './adapters/adapters.module';
 import { AuthModule } from './auth/auth.module';
+import { CompaniesModule } from './companies/companies.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { HealthModule } from './health/health.module';
 import { IntegrationsModule } from './integrations/integrations.module';
@@ -17,6 +18,7 @@ import { TasksModule } from './tasks/tasks.module';
     RedisModule,
     AuthModule,
     ProductsModule,
+    CompaniesModule,
     IntegrationsModule,
     AdaptersModule,
     TasksModule,

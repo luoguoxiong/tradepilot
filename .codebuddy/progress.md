@@ -41,4 +41,10 @@
 
 ### 阶段 2：系统架构 + 模块划分
 
-（进行中）
+- 交付物：docs/architecture.md（v1.1）
+- 决策与备注：
+  - ADR-001 NestJS（用户确认）；ADR-002 Prisma（schema-first + 内置迁移）
+  - 对抗性新鲜上下文审查发现 13 项问题，全部归类为 valid+actionable 并回填（v1.0→v1.1）：任务前缀统一、enriching 子步粒度重试、enrichment_tasks 企业级失败落库、BullMQ 对账兜底、Google 字段可得性分工、海关频率改服务层聚合、评分/邮件草稿端点补齐、三方 API 日配额、前端 2s 轮询、audit_logs 审计表、Key AES-256-GCM 加密+脱敏、前端补 Company Detail、DataSource 扩 enrichment:*
+  - PRD §6.3 Key 管理表述同步修正
+- 待办：等待用户确认架构（含 Prisma 选型认可）
+- 遗留问题：无

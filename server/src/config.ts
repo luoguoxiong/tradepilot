@@ -11,9 +11,11 @@ const EnvSchema = z.object({
   APP_ENCRYPTION_KEY: z.string().default(''), // 阶段 5 integrations 加密用；空则启动时警告
   JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 chars').default('dev-insecure-secret-change-me'),
   JWT_EXPIRES_IN: z.string().default('7d'),
-  LLM_BASE_URL: z.string().default('https://api.deepseek.com/v1'),
+  LLM_BASE_URL: z.string().default('https://api.deepseek.com'),
   LLM_API_KEY: z.string().default(''),
-  LLM_MODEL: z.string().default('deepseek-chat'),
+  // 模型 ID 以官方文档为准：deepseek-flash | deepseek-v4-pro
+  // Source: https://api-docs.deepseek.com/api/create-chat-completion（2026-11 核对）
+  LLM_MODEL: z.string().default('deepseek-flash'),
 
   // 第三方 API（无 Key 时对应 Adapter 自动降级 Mock）
   GOOGLE_SEARCH_API_KEY: z.string().default(''),

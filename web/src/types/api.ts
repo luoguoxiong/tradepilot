@@ -90,3 +90,35 @@ export interface Paginated<T> {
   data: T[];
   pagination: Pagination;
 }
+
+// ---------- AI（阶段 6） ----------
+
+export interface LeadScore {
+  id: string;
+  companyId: string;
+  status: string;
+  score: number | null;
+  grade: 'A' | 'B' | 'C' | 'D' | null;
+  matchReasons: string[];
+  purchaseNeeds: string | null;
+  opportunities: string | null;
+  suggestions: string | null;
+  uncertaintyNotes: string | null;
+  subScores: Record<string, number> | null;
+  model: string | null;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  createdAt: string;
+}
+
+export interface EmailDraft {
+  id: string;
+  companyId: string;
+  contactId: string | null;
+  subject: string;
+  body: string;
+  followUp1: string | null;
+  followUp2: string | null;
+  model: string | null;
+  createdAt: string;
+}

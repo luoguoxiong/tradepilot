@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 6/9（AI 客户分析 + 开发信生成）
+- 当前阶段：阶段 7/9（CRM 闭环 + P1 补全）
 - 状态：pending（待用户确认后开始）
 - 最后更新：2026-11-10
 
@@ -17,7 +17,7 @@
 | 3 | PostgreSQL Schema | done | 2026-11-10 | 迁移 init 成功（13 表落库）；seed 唯一约束验证 2/2 通过（P2002 拒绝重复 dedupeKey 与重复 contact）；tsc 零错误 | 见下 |
 | 4 | 前后端工程 + Docker | done | 2026-11-10 | /api/health 200（db/redis up）；前端 200+IDE 预览导航正常；/api 代理通；前后端 tsc 零错误；web build 成功 | 见下 |
 | 5 | 核心 API + 前端页面 | done | 2026-11-10 | 未登录 401 ✓；登录→建任务→异步搜索→7 家 DEMO 企业列表 ✓；集成测试 13/13（4 套件）；双端 tsc 零错误 | 见下 |
-| 6 | AI 分析 + 开发信生成 | pending | - | - | - |
+| 6 | AI 分析 + 开发信生成 | done | 2026-11-10 | 两次评分波动 0 等级一致；六项输出齐全；无记录企业邮件无伪造采购；异常注入 503 结构化；22/22 测试通过 | 见下 |
 | 7 | CRM 业务闭环 | pending | - | - | - |
 | 8 | 测试验证 | pending | - | - | - |
 | 9 | README + 部署 + 验收 | pending | - | - | - |
@@ -100,4 +100,25 @@
   - 端到端 curl：登录→POST /search-tasks→5 家 DEMO 企业入库→/api/companies 分页可见 ✓
   - npm test：13/13 通过（4 套件）✓（验收门"新增接口集成测试"）
   - server/web tsc exit=0；IDE 预览 /companies 正常渲染 ✓
+- 修复记录（74a3071）：预览发现 GET /api/products 返回数组而前端按 {data} 解析，致 Settings/LeadDiscovery 崩溃——前端两处改为直接消费数组；新增路由级 RouteErrorBoundary 防白屏
 - 遗留问题：无
+
+### 阶段 6：AI 客户匹配分析 + 英文开发信生成
+
+- 交付物：
+  - DeepSeekLlmClient（OpenAI 兼容）：response_format json_object + 显式 JSON 指令、低温（评分 0.2/邮件 0.6）、显式 max_tokens（1500/2000）、60s 超时、网络/5xx/429 重试一次、输出校验失败纠错重试一次、finish_reason=length 与空内容按无效处理、usage Token 记录
+  - LeadScoringService：zod 五维子分 + 六项解释输出；**总分/等级由代码按 PRD 权重（30/25/25/10/10）计算**保证一致性；无 LLM Key 降级 ruleBasedScoring（确定性，model=mock-rules-v1）
+  - EmailGenerationService：四件套生成；无 Key 降级模板生成（mock-template-v1）；无采购记录时提示词+模板双重禁止提采购；草稿落库可编辑
+  - Prompt 模板集中 server/src/ai/prompts/；端点：POST/GET /companies/:id/lead-scores、POST/GET /companies/:id/email-drafts、PATCH /companies/email-drafts/:draftId
+  - 前端：LeadScoreCard（子分条+六项输出+重跑+mock 标注）、EmailDraftsCard（联系人选择/生成/编辑/复制/保存/历史草稿）、Company Detail 接入
+  - 测试：ai.spec 9 用例（稳定性/权重一致/历史/数据缺失注明/subject 含企业名/无伪造采购/PATCH 编辑/非法 JSON 注入→503 结构化/截断处理）
+- 决策与备注：
+  - **source-driven 修正**：核对 DeepSeek 官方文档（2026-11）发现模型 ID 已是 deepseek-flash/deepseek-v4-pro（非 deepseek-chat），config 默认改为 deepseek-flash（出处注释在 config.ts 与 .env.example）；非 JSON 输出会被替换为空格（空内容处理依据）
+  - 无 LLM Key 的演示路径：确定性规则评分+模板邮件（确定性 → 稳定性验收门波动=0）；model 字段标注 mock-*，前端明示"规则降级结果（未配置 LLM Key）"
+  - jest 29 node 环境无 Response 构造器 → fetch mock 用对象 stub
+- 验收证据：
+  - 两次评分：73/B vs 73/B，波动 0、等级一致 ✓（验收门）
+  - 开发信 subject 含 "Summit Sports Gear LLC" 与产品名 ✓；无记录企业 all-text 不匹配 /shipment|import record|purchasing history|hs ?code/i ✓
+  - 异常注入：非法 JSON → LlmOutputError → ServiceUnavailableException(code=LLM_OUTPUT_INVALID) → 过滤器 503 结构化（不 500）✓
+  - npm test 22/22（5 套件）✓；双端 tsc 零错误 ✓；预览正常 ✓
+- 遗留问题：真实 DeepSeek 调用未实测（本机无 DEEPSEEK_API_KEY），客户端逻辑以契约测试覆盖；配置 Key 后走同一 LlmClient 接口

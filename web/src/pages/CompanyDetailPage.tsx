@@ -2,15 +2,18 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
 import { api, ApiError } from '@/lib/api';
-import type { Company, Contact, CustomsRecord } from '@/types/api';
+import type { Company, Contact, CustomsRecord, LeadScore } from '@/types/api';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { DemoBadge } from './CompaniesPage';
+import { LeadScoreCard } from '@/components/company/LeadScoreCard';
+import { EmailDraftsCard } from '@/components/company/EmailDraftsCard';
 
 interface CompanyDetail extends Company {
   contacts: Contact[];
   customsRecords: CustomsRecord[];
-  latestScore: { score: number | null; grade: string | null } | null;
+  leadScores?: LeadScore[];
+  latestScore: LeadScore | null;
 }
 
 function InfoRow({ label, value }: { label: string; value?: string | null }) {
@@ -28,10 +31,14 @@ export function CompanyDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  async function loadDetail(companyId: string) {
+    const detail = await api<CompanyDetail>(`/companies/${companyId}`);
+    setCompany(detail);
+  }
+
   useEffect(() => {
     if (!id) return;
-    api<CompanyDetail>(`/companies/${id}`)
-      .then(setCompany)
+    loadDetail(id)
       .catch((err) => setError(err instanceof ApiError ? err.message : '加载失败'))
       .finally(() => setLoading(false));
   }, [id]);
@@ -88,20 +95,8 @@ export function CompanyDetailPage() {
 
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">AI 匹配度分析</CardTitle>
-            <CardDescription>六项解释性评分（阶段 6 交付）</CardDescription>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            {company.latestScore
-              ? `${company.latestScore.score ?? '—'} 分（${company.latestScore.grade ?? '—'} 级）`
-              : '尚未评分——阶段 6 后在此发起 AI 匹配分析'}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
             <CardTitle className="text-base">采购联系人</CardTitle>
-            <CardDescription>联系人挖掘（Apollo）在阶段 7 接入</CardDescription>
+            <CardDescription>联系人挖掘（Apollo）在阶段 7 接入；当前为搜索/种子数据</CardDescription>
           </CardHeader>
           <CardContent>
             {company.contacts.length === 0 ? (
@@ -151,7 +146,20 @@ export function CompanyDetailPage() {
             )}
           </CardContent>
         </Card>
+
+        <LeadScoreCard
+          companyId={company.id}
+          latest={company.latestScore}
+          historyCount={company.leadScores?.length ?? 0}
+          onScored={() => void loadDetail(company.id)}
+        />
       </div>
+
+      <EmailDraftsCard
+        companyId={company.id}
+        contacts={company.contacts}
+        onSaved={() => void loadDetail(company.id)}
+      />
     </div>
   );
 }

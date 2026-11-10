@@ -47,8 +47,8 @@ function ProductsSection() {
 
   const load = useCallback(async () => {
     try {
-      const res = await api<{ data: Product[] }>('/products');
-      setProducts(res.data);
+      // GET /api/products 直接返回数组（小集合不包装分页）
+      setProducts(await api<Product[]>('/products'));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '加载产品失败');
     }

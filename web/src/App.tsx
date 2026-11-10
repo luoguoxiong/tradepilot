@@ -2,6 +2,7 @@ import { Navigate, Outlet, Route, Routes, useNavigate } from 'react-router-dom';
 import { LogOut } from 'lucide-react';
 
 import { AppLayout } from '@/components/layout/AppLayout';
+import { RouteErrorBoundary } from '@/components/RouteErrorBoundary';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/stores/auth';
 import { CompaniesPage } from '@/pages/CompaniesPage';
@@ -44,7 +45,8 @@ function TopBarUser() {
 
 export default function App() {
   return (
-    <Routes>
+    <RouteErrorBoundary>
+      <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route element={<RequireAuth />}>
         <Route element={<AppLayout userSlot={<TopBarUser />} />}>
@@ -59,6 +61,7 @@ export default function App() {
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
-    </Routes>
+      </Routes>
+    </RouteErrorBoundary>
   );
 }

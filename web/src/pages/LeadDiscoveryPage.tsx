@@ -56,8 +56,9 @@ export function LeadDiscoveryPage() {
   }, []);
 
   useEffect(() => {
-    api<{ data: Product[] }>('/products')
-      .then((res) => setProducts(res.data))
+    // GET /api/products 直接返回数组（小集合不包装分页）
+    api<Product[]>('/products')
+      .then(setProducts)
       .catch(() => setProducts([]));
     void loadRecent();
   }, [loadRecent]);

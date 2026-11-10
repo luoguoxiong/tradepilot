@@ -10,6 +10,7 @@ export interface ScoringPromptInput {
     description: string | null;
     mainProducts: string[];
     source: string;
+    businessRole?: 'IMPORTER' | 'SUPPLIER' | 'UNCLEAR' | null;
   };
   contacts: { name: string; title: string }[];
   customsRecords: {
@@ -25,7 +26,7 @@ You MUST reply with a single JSON object only — no markdown, no commentary. Do
 
 Score the prospect on five dimensions, each 0-100:
 - product: how well our product matches the company's business (30% of final score)
-- business: importer/distributor/wholesaler fit (25%)
+- business: importer/distributor/wholesaler fit (25%). If the company profile indicates it is a supplier/manufacturer (factory, OEM/ODM, exporter, self-described "supplier") rather than a buyer of goods from China, score business low (<=20) and say so — suppliers are NOT our customers.
 - customs: credibility of real purchasing records (25%)
 - contact: how well available contact titles match purchasing roles (10%)
 - region: fit of the company's country with our target markets (10%)
@@ -60,6 +61,9 @@ export function buildScoringUserPrompt(input: ScoringPromptInput): string {
   lines.push(`- Description: ${input.company.description ?? '(none)'}`);
   lines.push(`- Main products: ${input.company.mainProducts.join(', ') || '(none)'}`);
   lines.push(`- Data source: ${input.company.source}`);
+  if (input.company.businessRole) {
+    lines.push(`- Business role (rule-based classification): ${input.company.businessRole}`);
+  }
   lines.push('');
   lines.push('## Contacts');
   if (input.contacts.length === 0) {

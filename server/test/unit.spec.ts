@@ -9,6 +9,7 @@ import { MockContactDiscoveryAdapter } from '../src/adapters/contact-discovery/m
 import { MockCustomsAdapter } from '../src/adapters/customs/mock-customs.adapter';
 import { SerperSearchAdapter } from '../src/adapters/company-search/serper-search.adapter';
 import { csvEscape, parseCsv, rowsToObjects, toCsv } from '../src/crm/csv.util';
+import { classifyBusinessRole } from '../src/companies/business-role';
 import { computeWeightedScore, gradeOf, ruleBasedScoring } from '../src/ai/scoring/lead-scoring.service';
 import type { ScoringOutput } from '../src/ai/scoring/lead-scoring.service';
 import type { ScoringPromptInput } from '../src/ai/prompts/lead-scoring';
@@ -116,6 +117,20 @@ describe('ruleBasedScoring 规则降级评分', () => {
     const out = ruleBasedScoring(scoringInput({ customsRecords: [] }));
     expect(out.subScores.customs).toBe(25);
     expect(out.uncertaintyNotes).toMatch(/no customs import records/i);
+  });
+
+  it('供应商角色 → business 低分（15）并建议跳过；进口商角色不受影响', () => {
+    const supplier = ruleBasedScoring(
+      scoringInput({ company: { ...scoringInput().company, businessRole: 'SUPPLIER' } }),
+    );
+    expect(supplier.subScores.business).toBe(15);
+    expect(supplier.matchReasons.join(' ')).toMatch(/supplier/i);
+    expect(supplier.suggestions).toMatch(/skip/i);
+
+    const importer = ruleBasedScoring(
+      scoringInput({ company: { ...scoringInput().company, businessRole: 'IMPORTER' } }),
+    );
+    expect(importer.subScores.business).toBe(78);
   });
 
   it('有近期海关记录 → customs 加成；DEMO 数据在 uncertaintyNotes 提示', () => {
@@ -261,6 +276,26 @@ describe('MockCompanySearchAdapter 映射', () => {
     const other = await adapter.search({ ...base, productKeywords: ['k2-xyz'], country: 'CA' }, ctx);
     expect(other[0].country).toBe('CA');
   });
+
+  it('每 6 家混入 1 家供应商样例（确定性 i%6===4），供演示供应商过滤链路', async () => {
+    const results = await adapter.search(
+      { productKeywords: ['yoga mats'], country: 'US', companyTypes: ['Importer'], limit: 12 },
+      ctx,
+    );
+    const suppliers = results.filter((r) => /Manufacturing Ltd\.|Industrial Co\.|Export Trading Co\./.test(r.name));
+    expect(suppliers.length).toBe(2); // i=4, i=10
+    for (const s of suppliers) {
+      expect(s.description).toMatch(/Manufacturer and exporter|OEM\/ODM/);
+      expect(s.email).toMatch(/^sales@/); // 供应商无采购邮箱
+      expect(s.source).toBe('demo');
+    }
+    // 供应商样例同样确定性
+    const again = await adapter.search(
+      { productKeywords: ['yoga mats'], country: 'US', companyTypes: ['Importer'], limit: 12 },
+      ctx,
+    );
+    expect(again.map((r) => r.name)).toEqual(results.map((r) => r.name));
+  });
 });
 
 describe('MockContactDiscoveryAdapter 映射', () => {
@@ -326,7 +361,86 @@ describe('MockCustomsAdapter 映射', () => {
   });
 });
 
-// ---------- 6. Serper 适配器响应映射（fetch mock） ----------
+// ---------- 6. 企业角色判定（进口商 vs 供应商） ----------
+
+describe('classifyBusinessRole 角色判定', () => {
+  it('供应商市场域名 → SUPPLIER（优先级最高）', () => {
+    const r = classifyBusinessRole({
+      name: 'Yoga Mats Factory',
+      website: 'https://acme.en.alibaba.com/product/123.html',
+      description: 'Buy yoga mats from verified suppliers',
+    });
+    expect(r.role).toBe('SUPPLIER');
+    expect(r.signals[0]).toMatch(/marketplace domain/i);
+  });
+
+  it('有海关进口记录 → IMPORTER（无显式供应商信号时，真实采购行为是最强买家证据）', () => {
+    const r = classifyBusinessRole({
+      name: 'Summit Trading LLC',
+      description: 'Wholesale company',
+      importRecordCount: 3,
+    });
+    expect(r.role).toBe('IMPORTER');
+    expect(r.signals.join(' ')).toMatch(/import record/i);
+  });
+
+  it('显式供应商信号优先于海关记录（工厂也可能出现在提单上，但不是我们的客户）', () => {
+    const r = classifyBusinessRole({
+      name: 'Ironbridge Manufacturing Ltd.',
+      description: 'Manufacturer and exporter of goods',
+      importRecordCount: 3,
+    });
+    expect(r.role).toBe('SUPPLIER');
+    expect(r.signals.join(' ')).toMatch(/supplier/i);
+  });
+
+  it('名称即供应商（Manufacturing/Industrial）→ SUPPLIER', () => {
+    expect(classifyBusinessRole({ name: 'Sterling Industrial Co.' }).role).toBe('SUPPLIER');
+    expect(classifyBusinessRole({ name: 'Redwood Manufacturing Ltd.', description: 'We make shoes' }).role).toBe('SUPPLIER');
+  });
+
+  it('强供应商文本 → SUPPLIER（OEM/ODM/exporter/单数 manufacturer）', () => {
+    expect(
+      classifyBusinessRole({ name: 'Acme Goods', description: 'OEM & ODM services available' }).role,
+    ).toBe('SUPPLIER');
+    expect(
+      classifyBusinessRole({ name: 'Acme Goods', description: 'Exporter of auto parts' }).role,
+    ).toBe('SUPPLIER');
+    expect(
+      classifyBusinessRole({ name: 'Acme Goods', description: 'Manufacturer of yoga mats' }).role,
+    ).toBe('SUPPLIER');
+  });
+
+  it('弱供应商文本优先于买家词："wholesale supplier" → SUPPLIER', () => {
+    const r = classifyBusinessRole({ name: 'Acme Goods', description: 'Wholesale supplier of yoga mats' });
+    expect(r.role).toBe('SUPPLIER');
+  });
+
+  it('买家文本 → IMPORTER（复数泛指 manufacturers 不误伤；Mock 描述样式可判定）', () => {
+    const r = classifyBusinessRole({
+      name: 'Summit Trading LLC',
+      description: 'Importer of yoga mats and related products. Sources from Asian manufacturers.',
+    });
+    expect(r.role).toBe('IMPORTER');
+    expect(r.signals.join(' ')).toMatch(/importer/i);
+    expect(classifyBusinessRole({ name: 'Harborview Distribution Co.', description: '' }).role).toBe('IMPORTER');
+    expect(classifyBusinessRole({ name: 'Bluewater Imports Inc.', description: '' }).role).toBe('IMPORTER');
+    expect(classifyBusinessRole({ name: 'Evergreen Retail Partners', description: '' }).role).toBe('IMPORTER');
+  });
+
+  it('证据不足 → UNCLEAR，不猜测', () => {
+    const r = classifyBusinessRole({ name: 'XYZ Holdings', description: null });
+    expect(r.role).toBe('UNCLEAR');
+    expect(r.signals.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('确定性：同输入同输出', () => {
+    const input = { name: 'Acme Trading LLC', website: 'https://www.acme.com', description: 'Distributor of goods' };
+    expect(classifyBusinessRole(input)).toEqual(classifyBusinessRole(input));
+  });
+});
+
+// ---------- 7. Serper 适配器响应映射（fetch mock） ----------
 
 describe('SerperSearchAdapter 响应映射', () => {
   const adapter = new SerperSearchAdapter({ apiKey: 'test-key' });
@@ -368,7 +482,9 @@ describe('SerperSearchAdapter 响应映射', () => {
     const body = JSON.parse(String(init.body));
     expect(body.q).toContain('insoles');
     expect(body.q).toContain('Importer');
-    expect(body.q).toContain('suppliers USA');
+    // 买家侧意图：搜 importers（买家）而非 suppliers（会召回供应商目录页）
+    expect(body.q).toContain('importers USA');
+    expect(body.q).not.toContain('suppliers');
     expect(body.gl).toBe('us');
     expect(body.num).toBe(10);
   });

@@ -262,6 +262,8 @@ export function LeadDiscoveryPage() {
                   <div className="flex items-center justify-between">
                     <span className="text-sm">
                       已发现 <strong>{runningTask.totalCompanies}</strong> 家企业
+                      {runningTask.filteredCount > 0 &&
+                        `（过滤供应商 ${runningTask.filteredCount}，已排除非买家）`}
                       {runningTask.failedCount > 0 && `（失败 ${runningTask.failedCount}）`}
                     </span>
                     <Button asChild size="sm">

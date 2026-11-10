@@ -13,6 +13,9 @@ export interface Product {
 
 export type CompanySource = string;
 
+/** 企业角色判定（进口商=真实买家；供应商=工厂/贸易商同行，管线中过滤） */
+export type BusinessRole = 'IMPORTER' | 'SUPPLIER' | 'UNCLEAR';
+
 export interface Company {
   id: string;
   dedupeKey: string;
@@ -25,6 +28,8 @@ export interface Company {
   linkedinUrl: string | null;
   source: CompanySource;
   isFavorite: boolean;
+  businessRole: BusinessRole | null;
+  roleSignals: string[];
   crmStatus: string | null;
   nextFollowUpAt: string | null;
   searchedAt: string;
@@ -75,6 +80,7 @@ export interface SearchTask {
   status: 'PENDING' | 'SEARCHING' | 'ENRICHING' | 'SCORING' | 'EMAILING' | 'DONE' | 'FAILED';
   totalCompanies: number;
   processedCompanies: number;
+  filteredCount: number;
   skippedCount: number;
   failedCount: number;
   error: string | null;

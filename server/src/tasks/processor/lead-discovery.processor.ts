@@ -8,6 +8,7 @@ import { AdapterFactory, isAdapterError } from '../../adapters/adapter.factory';
 import type { CompanySearchInput } from '../../adapters/types';
 import { buildDedupeKey } from '../../adapters/dedupe.util';
 import { ContactsService } from '../../contacts/contacts.service';
+import { CompaniesService } from '../../companies/companies.service';
 import { CustomsService } from '../../customs/customs.service';
 import { LeadScoringService } from '../../ai/scoring/lead-scoring.service';
 import { EmailGenerationService } from '../../ai/email/email-generation.service';
@@ -28,6 +29,7 @@ const PIPELINE: PipelineStep[] = ['searching', 'enriching', 'scoring', 'emailing
  * Lead Discovery 编排器（完整闭环：搜索 → 联系人/海关补充 → AI 评分 → 开发信 + 合格客户入 CRM）。
  * 状态机：PENDING → SEARCHING → ENRICHING → SCORING → EMAILING → DONE / FAILED。
  * 每步写 task_step_logs；单企业失败不阻断（记 failed 后继续）；公司级操作幂等 upsert。
+ * 进口商判定：searching 后初判、customs 子步后重判；供应商（非买家）在 scoring/emailing 前过滤并计入 filteredCount。
  */
 @Processor('lead-discovery', { concurrency: 2 })
 @Injectable()
@@ -35,6 +37,7 @@ export class LeadDiscoveryProcessor extends WorkerHost implements OnModuleDestro
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(AdapterFactory) private readonly factory: AdapterFactory,
+    @Inject(CompaniesService) private readonly companiesService: CompaniesService,
     @Inject(ContactsService) private readonly contactsService: ContactsService,
     @Inject(CustomsService) private readonly customsService: CustomsService,
     @Inject(LeadScoringService) private readonly scoringService: LeadScoringService,
@@ -164,7 +167,13 @@ export class LeadDiscoveryProcessor extends WorkerHost implements OnModuleDestro
         where: { id: taskId },
         data: { processedCompanies: companyIds.length, totalCompanies: companyIds.length },
       });
-      await this.finishStep(log.id, true, `upserted=${companyIds.length}`);
+      // 进口商/供应商初判（基于搜索资料；customs 子步后有进口记录会重判升级）
+      let classified = 0;
+      for (const companyId of companyIds) {
+        await this.companiesService.classify(companyId);
+        classified += 1;
+      }
+      await this.finishStep(log.id, true, `upserted=${companyIds.length} role-classified=${classified}`);
       return companyIds;
     } catch (err) {
       const detail = this.errorDetail(err);
@@ -200,6 +209,8 @@ export class LeadDiscoveryProcessor extends WorkerHost implements OnModuleDestro
           ]);
         } else if (subtask.substep === 'CUSTOMS') {
           await this.customsService.queryAndStore(subtask.companyId, userId);
+          // 海关进口记录是"真实买家"的最强证据：记录落库后重判角色（0 记录企业维持初判）
+          await this.companiesService.classify(subtask.companyId);
         } else {
           // ENRICH：企业信息补充 Adapter 在 Real 数据源场景生效；Mock 搜索结果已含主参数据
           await this.prisma.enrichmentTask.update({
@@ -228,15 +239,25 @@ export class LeadDiscoveryProcessor extends WorkerHost implements OnModuleDestro
     await this.finishStep(log.id, true, `done=${done} failed=${failed}`);
   }
 
-  /** scoring：逐企业 AI 评分；超过 TASK_SCORE_LIMIT 的标记 SKIPPED（可单企业手动触发） */
+  /** scoring：逐企业 AI 评分；供应商（非买家）过滤不评分；超过 TASK_SCORE_LIMIT 的标记 SKIPPED（可单企业手动触发） */
   private async runScoring(taskId: string, userId: string, companyIds: string[]): Promise<string[]> {
     const limit = getEnv().TASK_SCORE_LIMIT;
-    const log = await this.startStep(taskId, 'scoring', `companies=${companyIds.length} limit=${limit}`);
+    const supplierIds = await this.companiesService.supplierIdsOf(companyIds);
+    const log = await this.startStep(
+      taskId,
+      'scoring',
+      `companies=${companyIds.length} limit=${limit} suppliers-filtered=${supplierIds.size}`,
+    );
     const scoredIds: string[] = [];
+    let filtered = 0;
     let skipped = 0;
     let failed = 0;
 
     for (const companyId of companyIds) {
+      if (supplierIds.has(companyId)) {
+        filtered += 1; // 供应商不是我们的客户，不评分不发信
+        continue;
+      }
       if (scoredIds.length >= limit) {
         skipped += 1;
         continue;
@@ -255,20 +276,34 @@ export class LeadDiscoveryProcessor extends WorkerHost implements OnModuleDestro
 
     await this.prisma.searchTask.update({
       where: { id: taskId },
-      data: { skippedCount: skipped, failedCount: { increment: failed } },
+      data: { filteredCount: { increment: filtered }, skippedCount: skipped, failedCount: { increment: failed } },
     });
-    await this.finishStep(log.id, true, `scored=${scoredIds.length} skipped=${skipped} failed=${failed}`);
+    await this.finishStep(
+      log.id,
+      true,
+      `scored=${scoredIds.length} filtered=${filtered} skipped=${skipped} failed=${failed}`,
+    );
     return scoredIds;
   }
 
-  /** emailing：A/B/C 级客户生成开发信草稿 + 自动导入 CRM（NEW） */
+  /** emailing：A/B/C 级客户生成开发信草稿 + 自动导入 CRM（NEW）；供应商双保险过滤（retry 中段进入时兜底） */
   private async runEmailing(taskId: string, userId: string, companyIds: string[]): Promise<void> {
-    const log = await this.startStep(taskId, 'emailing', `candidates=${companyIds.length}`);
+    const supplierIds = await this.companiesService.supplierIdsOf(companyIds);
+    const log = await this.startStep(
+      taskId,
+      'emailing',
+      `candidates=${companyIds.length} suppliers-filtered=${supplierIds.size}`,
+    );
     let created = 0;
     let skipped = 0;
+    let filtered = 0;
     let failed = 0;
 
     for (const companyId of companyIds) {
+      if (supplierIds.has(companyId)) {
+        filtered += 1;
+        continue;
+      }
       const latest = await this.prisma.leadScore.findFirst({
         where: { companyId, status: 'COMPLETED' },
         orderBy: { createdAt: 'desc' },
@@ -297,9 +332,13 @@ export class LeadDiscoveryProcessor extends WorkerHost implements OnModuleDestro
 
     await this.prisma.searchTask.update({
       where: { id: taskId },
-      data: { failedCount: { increment: failed } },
+      data: { filteredCount: { increment: filtered }, failedCount: { increment: failed } },
     });
-    await this.finishStep(log.id, true, `emailed=${created} skipped=${skipped} failed=${failed}`);
+    await this.finishStep(
+      log.id,
+      true,
+      `emailed=${created} filtered=${filtered} skipped=${skipped} failed=${failed}`,
+    );
   }
 
   private errorDetail(err: unknown): string {

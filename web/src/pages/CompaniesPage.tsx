@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Star, StarOff } from 'lucide-react';
 
 import { api, ApiError } from '@/lib/api';
-import type { Company, Paginated } from '@/types/api';
+import type { BusinessRole, Company, Paginated } from '@/types/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -13,11 +13,19 @@ export function DemoBadge({ source }: { source: string }) {
   return <Badge variant="demo">Demo</Badge>;
 }
 
+/** 企业角色徽章：进口商=买家（绿）/供应商=同行（红）/未判定（灰） */
+export function RoleBadge({ role }: { role: BusinessRole | null }) {
+  if (role === 'IMPORTER') return <Badge className="bg-emerald-100 text-emerald-700">进口商</Badge>;
+  if (role === 'SUPPLIER') return <Badge className="bg-red-100 text-red-700">供应商</Badge>;
+  return <Badge variant="outline" className="text-muted-foreground">未判定</Badge>;
+}
+
 export function CompaniesPage() {
   const [result, setResult] = useState<Paginated<Company> | null>(null);
   const [q, setQ] = useState('');
   const [country, setCountry] = useState('');
   const [onlyFavorite, setOnlyFavorite] = useState(false);
+  const [onlyImporter, setOnlyImporter] = useState(false);
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -32,13 +40,14 @@ export function CompaniesPage() {
       if (q.trim()) params.set('q', q.trim());
       if (country) params.set('country', country);
       if (onlyFavorite) params.set('isFavorite', 'true');
+      if (onlyImporter) params.set('role', 'IMPORTER');
       setResult(await api<Paginated<Company>>(`/companies?${params.toString()}`));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '加载企业列表失败');
     } finally {
       setLoading(false);
     }
-  }, [q, country, onlyFavorite, page]);
+  }, [q, country, onlyFavorite, onlyImporter, page]);
 
   useEffect(() => {
     void load();
@@ -128,6 +137,16 @@ export function CompaniesPage() {
             >
               <Star className="size-4" /> 只看收藏
             </Button>
+            <Button
+              variant={onlyImporter ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => {
+                setOnlyImporter(!onlyImporter);
+                setPage(1);
+              }}
+            >
+              只看进口商
+            </Button>
             <div className="ml-auto flex items-center gap-2">
               {importMsg && <span className="text-sm text-emerald-600">{importMsg}</span>}
               <Button size="sm" onClick={importCrm} disabled={selected.size === 0}>
@@ -171,6 +190,7 @@ export function CompaniesPage() {
                   </th>
                   <th className="px-4 py-2">企业</th>
                   <th className="px-4 py-2">国家</th>
+                  <th className="px-4 py-2">角色</th>
                   <th className="px-4 py-2">主营产品</th>
                   <th className="px-4 py-2">来源</th>
                   <th className="px-4 py-2">状态</th>
@@ -197,6 +217,9 @@ export function CompaniesPage() {
                       )}
                     </td>
                     <td className="px-4 py-2.5">{c.country}</td>
+                    <td className="px-4 py-2.5">
+                      <RoleBadge role={c.businessRole} />
+                    </td>
                     <td className="max-w-52 truncate px-4 py-2.5 text-muted-foreground">
                       {c.mainProducts.join(', ') || '—'}
                     </td>

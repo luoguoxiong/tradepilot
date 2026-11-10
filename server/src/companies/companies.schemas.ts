@@ -11,6 +11,8 @@ export const ListCompaniesQuerySchema = z.object({
     .enum(['true', 'false'])
     .optional()
     .transform((v) => (v === undefined ? undefined : v === 'true')),
+  /** 企业角色筛选（进口商/供应商/未判定） */
+  role: z.enum(['IMPORTER', 'SUPPLIER', 'UNCLEAR']).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });

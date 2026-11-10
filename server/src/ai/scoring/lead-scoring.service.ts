@@ -67,7 +67,8 @@ export function ruleBasedScoring(input: ScoringPromptInput): ScoringOutput {
   const product = keywords.length ? Math.min(100, 45 + Math.round((55 * hits) / keywords.length)) : 50;
 
   const isTradeCo = /(import|distribut|wholesale|retail|sourcing|trading)/.test(haystack);
-  const business = isTradeCo ? 78 : 55;
+  // 供应商/工厂不是我们的客户（管线会在评分前过滤；此处保证手动重跑时结论一致）
+  const business = input.company.businessRole === 'SUPPLIER' ? 15 : isTradeCo ? 78 : 55;
 
   const n = input.customsRecords.length;
   const hasRecent = input.customsRecords.some(
@@ -90,6 +91,9 @@ export function ruleBasedScoring(input: ScoringPromptInput): ScoringOutput {
       : 'Company products partially overlap with our category',
   );
   matchReasons.push(isTradeCo ? 'Business profile matches importer/distributor type' : 'Business type unclear from available data');
+  if (input.company.businessRole === 'SUPPLIER') {
+    matchReasons.push('Company profile indicates a supplier/manufacturer — not a buyer of our products');
+  }
   if (n > 0) matchReasons.push(`${n} import record(s) found, indicating real purchasing activity`);
   else matchReasons.push('No import records found yet');
   if (input.contacts.length) matchReasons.push(`Contact title coverage: ${input.contacts.map((c) => c.title).join(', ')}`);
@@ -108,10 +112,14 @@ export function ruleBasedScoring(input: ScoringPromptInput): ScoringOutput {
         ? `Recent import activity suggests ongoing sourcing of ${input.customsRecords[0]?.productDescription ?? 'related products'}.`
         : 'Purchasing needs unverified — company profile suggests potential interest in this category.',
     opportunities:
-      'Position our product as an upgrade to their current assortment; offer samples and OEM options.',
-    suggestions: input.contacts.length
-      ? 'Reach out to the discovered purchasing contact with a specific product angle.'
-      : 'Discover purchasing contacts first, then send a personalized first-touch email.',
+      input.company.businessRole === 'SUPPLIER'
+        ? 'None as a customer — this company manufactures/exports competing products.'
+        : 'Position our product as an upgrade to their current assortment; offer samples and OEM options.',
+    suggestions: input.company.businessRole === 'SUPPLIER'
+      ? 'Skip outreach — supplier/manufacturer, not a potential customer. Filter it out of the pipeline.'
+      : input.contacts.length
+        ? 'Reach out to the discovered purchasing contact with a specific product angle.'
+        : 'Discover purchasing contacts first, then send a personalized first-touch email.',
     uncertaintyNotes: missing.length
       ? `Data gaps: ${missing.join('; ')}.`
       : 'All key data present.',
@@ -151,6 +159,7 @@ export class LeadScoringService {
         description: company.description,
         mainProducts: company.mainProducts,
         source: company.source,
+        businessRole: company.businessRole,
       },
       contacts: company.contacts,
       customsRecords: company.customsRecords.map((r) => ({

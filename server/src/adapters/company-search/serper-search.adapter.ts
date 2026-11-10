@@ -85,11 +85,13 @@ export class SerperSearchAdapter implements CompanySearchAdapter {
 }
 
 function buildQuery(input: CompanySearchInput): string {
+  // 买家侧意图：我们要找的是进口商/分销商（买我们货的人），不是供应商（同行/上游）。
+  // 用 "importers <country>" 而非 "suppliers <country>"，后者会召回大量供应商目录页。
   const parts = [
     ...input.productKeywords,
     ...input.industryKeywords ?? [],
     ...input.companyTypes,
-    `suppliers ${countryName(input.country)}`,
+    `importers ${countryName(input.country)}`,
     'B2B',
   ];
   return parts.filter(Boolean).join(' ');

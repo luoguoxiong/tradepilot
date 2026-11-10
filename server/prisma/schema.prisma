@@ -13,6 +13,13 @@ datasource db {
 
 // ---------- 枚举 ----------
 
+/// 企业角色判定（进口商=真实买家；供应商=工厂/贸易商同行，管线中过滤）
+enum BusinessRole {
+  IMPORTER
+  SUPPLIER
+  UNCLEAR
+}
+
 /// CRM 客户状态机：null（companies.crmStatus）= 未导入 CRM
 enum CrmStatus {
   NEW
@@ -137,6 +144,8 @@ model Company {
   linkedinUrl    String?
   source         String // 'google' | 'apollo' | 'demo' | ...
   isFavorite     Boolean   @default(false)
+  businessRole   BusinessRole? // 进口商/供应商判定（companies 模块 classifyBusinessRole 维护）
+  roleSignals    String[]  @default([]) // 判定依据信号（解释性输出）
   searchedAt     DateTime  @default(now())
   crmStatus      CrmStatus?
   nextFollowUpAt DateTime?
@@ -277,6 +286,7 @@ model SearchTask {
   status            TaskStatus @default(PENDING)
   totalCompanies    Int        @default(0)
   processedCompanies Int       @default(0)
+  filteredCount     Int        @default(0) // 判定为供应商被过滤（不评分/不发信）的企业数
   skippedCount      Int        @default(0)
   failedCount       Int        @default(0)
   error             String?

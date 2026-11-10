@@ -34,6 +34,11 @@ export class CompaniesController {
     return this.companies.setFavorite(id, isFavorite);
   }
 
+  @Post(':id/classify')
+  classify(@Param('id') id: string) {
+    return this.companies.classify(id);
+  }
+
   @Post('import-crm')
   importCrm(@Body() body: unknown, @CurrentUser() user: AuthUser) {
     const { companyIds } = ImportCrmSchema.parse(body);

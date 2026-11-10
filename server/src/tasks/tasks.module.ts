@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 
 import { AdaptersModule } from '../adapters/adapters.module';
 import { AiModule } from '../ai/ai.module';
+import { CompaniesModule } from '../companies/companies.module';
 import { ContactsModule } from '../contacts/contacts.module';
 import { CustomsModule } from '../customs/customs.module';
 import { IntegrationsModule } from '../integrations/integrations.module';
@@ -36,6 +37,7 @@ function parseRedisUrl(url: string): { host: string; port: number; password?: st
     }),
     IntegrationsModule,
     AdaptersModule,
+    CompaniesModule,
     ContactsModule,
     CustomsModule,
     AiModule,

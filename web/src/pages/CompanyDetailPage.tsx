@@ -5,7 +5,7 @@ import { api, ApiError } from '@/lib/api';
 import type { Company, Contact, CrmActivity, CustomsRecord, LeadScore } from '@/types/api';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { DemoBadge } from './CompaniesPage';
+import { DemoBadge, RoleBadge } from './CompaniesPage';
 import { LeadScoreCard } from '@/components/company/LeadScoreCard';
 import { EmailDraftsCard } from '@/components/company/EmailDraftsCard';
 import { CrmStatusPanel } from '@/components/company/CrmStatusPanel';
@@ -32,6 +32,20 @@ export function CompanyDetailPage() {
   const [company, setCompany] = useState<CompanyDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [classifying, setClassifying] = useState(false);
+
+  async function reclassify() {
+    if (!id) return;
+    setClassifying(true);
+    try {
+      await api(`/companies/${id}/classify`, { method: 'POST' });
+      await loadDetail(id);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '判定失败');
+    } finally {
+      setClassifying(false);
+    }
+  }
 
   async function loadDetail(companyId: string) {
     const detail = await api<CompanyDetail>(`/companies/${companyId}`);
@@ -77,6 +91,7 @@ export function CompanyDetailPage() {
       <div>
         <div className="flex items-center gap-2">
           <h1 className="text-2xl font-bold tracking-tight">{company.name}</h1>
+          <RoleBadge role={company.businessRole} />
           <DemoBadge source={company.source} />
           {company.crmStatus && <Badge variant="secondary">{company.crmStatus}</Badge>}
         </div>
@@ -91,6 +106,28 @@ export function CompanyDetailPage() {
             <CardTitle className="text-base">企业信息</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
+            <div className="flex gap-2 text-sm">
+              <span className="w-24 shrink-0 text-muted-foreground">角色判定</span>
+              <span className="flex min-w-0 items-center gap-2">
+                <RoleBadge role={company.businessRole} />
+                <button
+                  type="button"
+                  onClick={reclassify}
+                  disabled={classifying}
+                  className="text-xs underline disabled:opacity-50"
+                >
+                  {classifying ? '判定中…' : '重新判定'}
+                </button>
+              </span>
+            </div>
+            {company.roleSignals?.length > 0 && (
+              <div className="flex gap-2 text-sm">
+                <span className="w-24 shrink-0 text-muted-foreground">判定依据</span>
+                <span className="min-w-0 text-xs text-muted-foreground">
+                  {company.roleSignals.join('；')}
+                </span>
+              </div>
+            )}
             <InfoRow label="官网" value={company.website} />
             <InfoRow label="企业邮箱" value={company.email} />
             <InfoRow label="LinkedIn" value={company.linkedinUrl} />

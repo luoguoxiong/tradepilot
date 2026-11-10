@@ -197,13 +197,12 @@ MVP 采用模块化工具调用 + 单一任务编排器，**不做多 Agent 协�
 1. Web 应用（非原生移动端），现代浏览器。
 2. 认证用 JWT（非 session cookie）。
 3. 第三方 API Key（Google/Apollo/海关）大概率不配置，Mock Adapter 是演示主路径。
-4. LLM 走 OpenAI 兼容协议（可配 DeepSeek 等），MVP 单模型。
+4. LLM 走 OpenAI 兼容协议，**指定 DeepSeek（deepseek-chat）作为演示与默认模型**。
 5. 多租户仅预留 tenant_id 列，不实现隔离逻辑。
-6. NestJS vs Fastify、Prisma vs Drizzle 的选型在阶段 2 以 ADR 形式决定。
-7. 旧仓库遗留的 git 历史（feature-new-v2 分支上的大量未暂存删除）按"全新开发"处理，不迁移旧代码。
+6. 后端框架**选型 NestJS**（用户已确认）；ORM（Prisma vs Drizzle）在阶段 2 以 ADR 决定。
 
-## 8. 开放问题（需用户决策）
+## 8. 决策记录（原开放问题，已由用户确认）
 
-1. **旧代码处置**：当前分支存在旧版实现的未暂存删除记录，是否在某次提交中正式清空（`git add -A` 收尾），还是保留现状仅提交新文件？
-2. **LLM 提供商**：MVP 默认 OpenAI 兼容接口，是否指定 DeepSeek 作为演示时的实际模型？
-3. **后端框架倾向**：NestJS（结构化强、生态全）与 Fastify（轻量、启动快）有无个人偏好？无偏好则阶段 2 给出 ADR 建议。
+1. **旧代码处置**：旧版实现的删除记录已正式提交清空（commit `f108f2c`，552 文件），按全新开发推进，不迁移旧代码。
+2. **LLM 提供商**：DeepSeek（OpenAI 兼容协议接入）。
+3. **后端框架**：NestJS。

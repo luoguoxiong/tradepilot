@@ -1,0 +1,90 @@
+{
+  "meta": {
+    "schema_version": "1.0",
+    "generated_at": "2026-11-10T16:30:00+08:00",
+    "product": "Carbon Fiber Insoles (碳纤维鞋垫)",
+    "target_country": "United States",
+    "product_keywords": ["Carbon Fiber Shoe Insoles", "Carbon Fiber Foot Orthotics", "Carbon Fiber Footplates", "Performance Insoles", "Rigid Orthotic Inserts"],
+    "hs_code": "6402.99",
+    "pipeline_version": "finder@importer-finder-contact-enricher + investigator@importer-sourcing-investigator"
+  },
+  "company": {
+    "company_name": "Roar Athletic Performance",
+    "website": "Unknown",
+    "country": "United States",
+    "city": "Milford, CT",
+    "company_type": "Importer (Footwear with Carbon Fiber Plate, Brand Owner)",
+    "business_description": "美国运动康复/表现鞋类进口商（135 Research Dr, Milford CT），提单货描明确含 Full Length Embedded Carbon Fiber Plate（全掌内嵌碳纤维板）+ Dual Density EVA Footbed 的 Athletic Recovery Footwear；与 VKTRY Gear（碳纤维鞋垫品牌）同址，疑为 Arciuolo 家族关联实体（未验证）；海关文件捕获电话尾号 994。",
+    "relevant_products": ["athletic recovery footwear (carbon fiber plate midsole)", "dual density EVA footbed footwear", "碳纤维板鞋垫/中底组件"],
+    "aliases": ["Roar Athletic", "ROAR ATHLETIC PERFORMANCE"]
+  },
+  "import_records": [
+    {"supplier_names": ["Ningbo Jade Shoes Co Ltd (Ningbo Jade International)"], "supplier_countries": ["South Korea (装货)"], "shipment_date": "2026-10-22", "product_description": "Footwear / Athletic Recovery Footwear（10,547 kg / 1,505 ctn / 2 柜）", "hs_code": "6402.99", "quantity": "1,505 ctn", "weight": "10,547 kg", "trade_value": "Unknown", "bill_of_lading": "FTNVSSZXS0017010 / HYMJAE226261274M", "evidence_source": "ImportYeti", "evidence_url": "https://www.importyeti.com/company/roar-athletic-performance"},
+    {"supplier_names": ["Ningbo Jade Shoes Co Ltd"], "supplier_countries": ["Portugal (装货)"], "shipment_date": "2026-08-18", "product_description": "Footwear（3,691 kg / 540 ctn）", "hs_code": "6402.99", "quantity": "540 ctn", "weight": "3,691 kg", "trade_value": "Unknown", "bill_of_lading": "FTNVSSZXS0015776 / HYMJAE226247135M", "evidence_source": "ImportYeti", "evidence_url": "https://www.importyeti.com/company/roar-athletic-performance"},
+    {"supplier_names": ["Ningbo Jade Shoes Co Ltd"], "supplier_countries": ["Portugal (装货)"], "shipment_date": "2026-08-08", "product_description": "Footwear（3,867 kg / 520 ctn）", "hs_code": "6402.99", "quantity": "520 ctn", "weight": "3,867 kg", "trade_value": "Unknown", "bill_of_lading": "FTNVSSZXS0015803 / HYMJAE226248133M", "evidence_source": "ImportYeti", "evidence_url": "https://www.importyeti.com/company/roar-athletic-performance"},
+    {"supplier_names": ["Jones & Vining Vietnam Co Ltd"], "supplier_countries": ["Vietnam"], "shipment_date": "2020-11-30", "product_description": "Footwear（1,352 kg / 102 ctn；另有 2020-06-25 1,430 kg / 114 ctn）", "hs_code": "6402.99", "quantity": "216 ctn（2 票合计）", "weight": "2,782 kg（2 票合计）", "trade_value": "Unknown", "bill_of_lading": "FTNVHCS000005308 / SGNAP8721500M", "evidence_source": "ImportYeti", "evidence_url": "https://www.importyeti.com/company/roar-athletic-performance"}
+  ],
+  "contacts": [
+    {"contact_name": "Unknown (海关文件电话)", "contact_title": "Unknown", "contact_department": "Unknown", "business_email": "Unknown", "email_verification_status": "Unknown", "phone": "Unknown (提单捕获，尾号 994，已脱敏)", "whatsapp": "Unknown", "linkedin_profile": "Unknown", "contact_page": "Unknown", "contact_source_url": "https://www.importyeti.com/company/roar-athletic-performance", "contact_priority": "low"}
+  ],
+  "sourcing": {
+    "investigation_status": "completed",
+    "importer_aliases": ["Roar Athletic", "ROAR ATHLETIC PERFORMANCE"],
+    "source_countries": [
+      {"country": "Portugal", "supplier_count": 1, "shipment_count": 2, "main_products": "Athletic Recovery Footwear（Ningbo Jade 葡萄牙出运）"},
+      {"country": "South Korea", "supplier_count": 1, "shipment_count": 1, "main_products": "Athletic Recovery Footwear（Ningbo Jade 韩国出运）"},
+      {"country": "Vietnam", "supplier_count": 1, "shipment_count": 2, "main_products": "Footwear（Jones & Vining，2020 年）"}
+    ],
+    "suppliers": [
+      {"name": "Ningbo Jade Shoes Co Ltd / Ningbo Jade International", "country": "Portugal / South Korea (出运地)", "products": "Athletic Recovery Footwear（碳纤维板+EVA footbed）", "shipment_count": 3, "first_shipment": "2026-08-08", "last_shipment": "2026-10-22", "relationship_type": "core", "is_china_supplier": false},
+      {"name": "Jones & Vining Vietnam Co Ltd", "country": "Vietnam", "products": "Footwear", "shipment_count": 2, "first_shipment": "2020-06-25", "last_shipment": "2020-11-30", "relationship_type": "Unknown", "is_china_supplier": false}
+    ],
+    "products": [
+      {"category": "finished_goods", "descriptions": ["Athletic Recovery Footwear clog, Removable Heel Strap, Foam Upper, Full Length Embedded Carbon Fiber Plate Midsole, Dual Density Eva Footbed, Deep Heel Cup"], "hs_code": "6402.99", "notes": "含碳纤维板运动康复鞋成品（ImportYeti 货描原文）；碳板为成品内嵌件，属碳纤维鞋垫/中底组件的直接采购需求"}
+    ],
+    "trends": {
+      "period_1y": "2026 年 3 票（8 月 2 票葡萄牙 + 10 月 1 票韩国 2 柜），进口明显放量",
+      "period_3y": "2020 年越南试单后中断，2026 年恢复并以 Ningbo Jade 为主",
+      "period_5y": "5 票（2020-2026），整体规模小",
+      "summary": "小体量但货描精准的碳纤维板鞋类进口商；供应商 Ningbo Jade（宁波系）经葡萄牙/韩国出运（转口贸易特征，原产地需进一步确认）",
+      "is_sample_only": true
+    },
+    "china_opportunities": [
+      {"type": "china_replacement", "description": "Ningbo Jade Shoes（宁波系供应商）经葡萄牙/韩国出运，可能为转口避税；中国碳纤维板鞋履/鞋垫板工厂可提供直接出口方案（综合成本对比）", "evidence": "ImportYeti 提单（供应商名 Ningbo Jade + 出运地葡萄牙/韩国）", "confidence": "C"},
+      {"type": "oem_odm_entry", "description": "其碳板+EVA footbed 结构与中国碳板鞋垫/中底厂完全对口，可承接 ODM 整鞋或碳板组件", "evidence": "ImportYeti 货描", "confidence": "B"},
+      {"type": "new_product_line", "description": "与 VKTRY 同址，若为关联采购主体，碳纤维鞋垫需求可能统一决策（推测）", "evidence": "ImportYeti 地址重合", "confidence": "C"}
+    ],
+    "competitor_analysis": [
+      {"supplier": "Ningbo Jade (宁波系，经葡/韩出运)", "threat_level": "high", "reason": "当前唯一主力供应商，2026 年 3 票全为其出货"},
+      {"supplier": "Jones & Vining Vietnam", "threat_level": "low", "reason": "2020 年后无新提单"}
+    ],
+    "development_advice": {
+      "recommended_products": ["全掌碳纤维板中底/鞋垫组件", "碳纤维板运动康复鞋 ODM", "EVA+碳板组合 footbed"],
+      "target_titles": ["Founder / Owner（与 VKTRY 团队重叠，参考 Matthew/Felicia Arciuolo）", "Supply Chain Manager"],
+      "selling_points": ["碳板组件直供（免去整鞋厂二次采购）", "对比经葡/韩转口的关税与物流成本", "小单快反匹配其 1-2 柜/票规模"],
+      "outreach_angle": "以碳板组件+直接出口成本测算切入；提示其当前转口结构的风险与更优方案",
+      "pricing_strategy": "FOB 中国 vs 葡萄牙/韩国转口 CIF 对比报价，突出综合成本优势",
+      "follow_up_plan": "1) 先经 VKTRY 官网渠道确认两公司关系；2) 电话尾号 994 通过 ImportYeti 付费版获取；3) 提供碳板组件样件与 ODM 整鞋方案",
+      "open_questions": ["与 VKTRY 的关系", "Ningbo Jade 的实际产地与转口原因", "2027 年采购计划"]
+    }
+  },
+  "assessment": {
+    "match_score": 74,
+    "customer_level": "B",
+    "match_reason": "提单货描直接出现 Full Length Embedded Carbon Fiber Plate（碳纤维板组件采购实锤），与目标商品强相关；2026 年活跃放量；扣分点：进口规模小（5 票）、无公开官网/联系人、与 VKTRY 关系未证实。",
+    "potential_needs": "已验证：碳纤维板运动康复鞋进口。推测：碳板组件直供与转口替代机会。",
+    "recommended_sales_strategy": "以碳板组件直供+综合成本测算切入；先与 VKTRY 渠道确认关联关系再触达，避免重复开发。",
+    "priority_rank": 8
+  },
+  "data_confidence": "C",
+  "missing_information": [
+    "官网/公开联系人未找到（海关电话已脱敏）",
+    "trade_value: 仅一票运费可见",
+    "Ningbo Jade 出运地（葡/韩）与原产国关系未确认，不能将装货港当原产国",
+    "与 VKTRY 的关联关系为推测"
+  ],
+  "sources": [
+    {"source": "ImportYeti", "url": "https://www.importyeti.com/company/roar-athletic-performance", "related_field": "import_records/sourcing/trends（5 票、Ningbo Jade/J&V、HS 6402.99、碳纤维板货描）", "confidence": "C"},
+    {"source": "Google 搜索快照 (ImportYeti)", "url": "https://www.importyeti.com/company/roar-athletic-performance", "related_field": "products（Carbon Fiber Plate 货描原文）", "confidence": "C"}
+  ]
+}

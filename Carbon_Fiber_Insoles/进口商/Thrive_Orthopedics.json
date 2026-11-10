@@ -1,0 +1,97 @@
+{
+  "meta": {
+    "schema_version": "1.0",
+    "generated_at": "2026-11-10T16:30:00+08:00",
+    "product": "Carbon Fiber Insoles (碳纤维鞋垫)",
+    "target_country": "United States",
+    "product_keywords": ["Carbon Fiber Shoe Insoles", "Carbon Fiber Foot Orthotics", "Carbon Fiber Footplates", "Performance Insoles", "Rigid Orthotic Inserts"],
+    "hs_code": "Unknown",
+    "pipeline_version": "finder@importer-finder-contact-enricher + investigator@importer-sourcing-investigator"
+  },
+  "company": {
+    "company_name": "Thrive Orthopedics",
+    "website": "https://thriveorthopedics.com",
+    "country": "United States",
+    "city": "Carmel, IN",
+    "company_type": "Importer / Brand Owner (O&P Medical Device, B2B)",
+    "business_description": "美国碳纤维踝足矫形器（AFO）与矫形支具设计制造商（387 Ridge Point Dr, Carmel IN），产品含 Carbon FLX 运动表现碳纤维鞋垫、X-Glide 碳纤维鞋垫、F3 Hero 儿童 AFO；与 OrthoPediatrics OPSBracing 分销合作；2026-06 完成种子轮融资。",
+    "relevant_products": ["carbon fiber AFOs", "Carbon FLX performance insoles", "X-Glide carbon fiber insoles", "KAFO 支具"],
+    "aliases": ["Thrive Orthopedic"]
+  },
+  "import_records": [
+    {"supplier_names": ["Tomocross International Co Ltd"], "supplier_countries": ["Taiwan"], "shipment_date": "2026-07-31", "product_description": "精密仪器类（骨科器材常归此类，6,560 kg / 400 ctn）", "hs_code": "Unknown", "quantity": "400 ctn", "weight": "6,560 kg", "trade_value": "Unknown", "bill_of_lading": "Unknown", "evidence_source": "ImportYeti", "evidence_url": "https://www.importyeti.com/company/thrive-orthopedics"},
+    {"supplier_names": ["Hubei Dacheng Medical Technology Co"], "supplier_countries": ["China"], "shipment_date": "2026-01-27", "product_description": "精密仪器类（医疗科技，1,634 kg / 99 ctn）", "hs_code": "Unknown", "quantity": "99 ctn", "weight": "1,634 kg", "trade_value": "Unknown", "bill_of_lading": "Unknown", "evidence_source": "ImportYeti", "evidence_url": "https://www.importyeti.com/company/thrive-orthopedics"},
+    {"supplier_names": ["Sporting Goods Co Ltd"], "supplier_countries": ["China"], "shipment_date": "2025-12-16", "product_description": "精密仪器类（480 kg / 100 ctn；另有 2025-10-09 432kg、2025-09-20 香港 140kg）", "hs_code": "Unknown", "quantity": "220 ctn（3 票合计）", "weight": "1,052 kg（3 票合计）", "trade_value": "Unknown", "bill_of_lading": "Unknown", "evidence_source": "ImportYeti", "evidence_url": "https://www.importyeti.com/company/thrive-orthopedics"},
+    {"supplier_names": ["Tomocross International Co Ltd"], "supplier_countries": ["Taiwan"], "shipment_date": "2024-09-06", "product_description": "精密仪器类（6,238 kg / 470 ctn）", "hs_code": "Unknown", "quantity": "470 ctn", "weight": "6,238 kg", "trade_value": "Unknown", "bill_of_lading": "Unknown", "evidence_source": "ImportYeti", "evidence_url": "https://www.importyeti.com/company/thrive-orthopedics"},
+    {"supplier_names": ["Tomocross International Co Ltd"], "supplier_countries": ["Taiwan"], "shipment_date": "2023-11-07", "product_description": "精密仪器类（5,600 kg / 400 ctn，最早记录）", "hs_code": "Unknown", "quantity": "400 ctn", "weight": "5,600 kg", "trade_value": "Unknown", "bill_of_lading": "Unknown", "evidence_source": "ImportYeti", "evidence_url": "https://www.importyeti.com/company/thrive-orthopedics"}
+  ],
+  "contacts": [
+    {"contact_name": "Joseph DeHeer", "contact_title": "Co-Founder", "contact_department": "Executive", "business_email": "Unknown", "email_verification_status": "Unknown", "phone": "Unknown", "whatsapp": "Unknown", "linkedin_profile": "Unknown", "contact_page": "https://thriveorthopedics.com/pages/copy-of-leadership-team", "contact_source_url": "https://thriveorthopedics.com/pages/copy-of-leadership-team", "contact_priority": "high"},
+    {"contact_name": "Michael Springman", "contact_title": "Chief Revenue Officer", "contact_department": "Sales", "business_email": "Unknown", "email_verification_status": "Unknown", "phone": "Unknown", "whatsapp": "Unknown", "linkedin_profile": "Unknown", "contact_page": "https://thriveortho.myshopify.com/pages/team", "contact_source_url": "https://thriveortho.myshopify.com/pages/team", "contact_priority": "medium"},
+    {"contact_name": "Unknown (官方销售邮箱)", "contact_title": "Sales / New Accounts", "contact_department": "Sales", "business_email": "sales@thriveorthopedics.com", "email_verification_status": "Unknown", "phone": "Unknown", "whatsapp": "Unknown", "linkedin_profile": "Unknown", "contact_page": "https://thriveorthopedics.com/products/hercules-kafo", "contact_source_url": "https://thriveorthopedics.com/products/hercules-kafo", "contact_priority": "high"}
+  ],
+  "sourcing": {
+    "investigation_status": "completed",
+    "importer_aliases": ["Thrive Orthopedic"],
+    "source_countries": [
+      {"country": "Taiwan", "supplier_count": 1, "shipment_count": 3, "main_products": "精密仪器类（骨科器材/碳纤维制品，Tomocross）"},
+      {"country": "China", "supplier_count": 2, "shipment_count": 4, "main_products": "精密仪器类（Sporting Goods、Hubei Dacheng Medical）"},
+      {"country": "Hong Kong", "supplier_count": 1, "shipment_count": 1, "main_products": "精密仪器类（Sporting Goods 香港提单）"}
+    ],
+    "suppliers": [
+      {"name": "Tomocross International Co Ltd", "country": "Taiwan (Beitun)", "products": "骨科器材/碳纤维制品类", "shipment_count": 3, "first_shipment": "2023-11-07", "last_shipment": "2026-07-31", "relationship_type": "core", "is_china_supplier": false},
+      {"name": "Sporting Goods Co Ltd", "country": "China / Hong Kong", "products": "精密仪器类", "shipment_count": 3, "first_shipment": "2025-09-20", "last_shipment": "2025-12-16", "relationship_type": "new", "is_china_supplier": true},
+      {"name": "Hubei Dacheng Medical Technology Co", "country": "China", "products": "医疗器材类", "shipment_count": 1, "first_shipment": "2026-01-27", "last_shipment": "2026-01-27", "relationship_type": "new", "is_china_supplier": true}
+    ],
+    "products": [
+      {"category": "finished_goods", "descriptions": ["精密仪器类（骨科碳纤维 AFO/鞋垫成品的常见海关归类）"], "hs_code": "Unknown", "notes": "货描为海关大类；结合官网产品线（Carbon FLX/X-Glide 碳纤维鞋垫、碳纤维 AFO）判断进口品类为碳纤维骨科成品/半成品（推断）"}
+    ],
+    "trends": {
+      "period_1y": "2026 年 2 票（1 月湖北大成 1.6 吨、7 月 Tomocross 6.6 吨），间歇性补货",
+      "period_3y": "2023-11 起 7 票，Tomocross（台湾）每年 1 票大票 + 中国小票补货",
+      "period_5y": "公司为初创，进口史即公司史",
+      "summary": "小批量、间歇性进口（7 票，亚洲 100%：台湾 3 / 中国 3 / 香港 1）；单一核心供应商 Tomocross",
+      "is_sample_only": true
+    },
+    "china_opportunities": [
+      {"type": "existing_china_supplier", "description": "Sporting Goods Co Ltd（中国）与 Hubei Dacheng Medical Technology（湖北）已有提单，中国供应链已在使用", "evidence": "ImportYeti 提单清单", "confidence": "B"},
+      {"type": "china_replacement", "description": "核心碳纤维制品由台湾 Tomocross 供应；中国碳纤维 AFO/鞋垫板代工厂（预浸料模压+CNC）可对标，成本优势明显", "evidence": "ImportYeti 供应商结构 + 官网产品（100% carbon fiber）", "confidence": "B"},
+      {"type": "oem_odm_entry", "description": "种子轮后扩产（Caplight 2026-06），Carbon FLX 鞋垫放量需要弹性 OEM 产能", "evidence": "Caplight 融资档案；官网产品页", "confidence": "C"}
+    ],
+    "competitor_analysis": [
+      {"supplier": "Tomocross International (台湾)", "threat_level": "high", "reason": "核心供应商，每票 400+ 箱，占据主力订单"},
+      {"supplier": "Hubei Dacheng Medical (中国)", "threat_level": "medium", "reason": "已进入供应链的医疗器材供应商"}
+    ],
+    "development_advice": {
+      "recommended_products": ["碳纤维 AFO 板坯/预制件", "Carbon FLX 类全掌碳纤维运动鞋垫 OEM", "碳纤维足部矫形板"],
+      "target_titles": ["Co-Founder (Joseph DeHeer)", "Chief Revenue Officer", "Production / Sourcing Manager"],
+      "selling_points": ["预浸料模压碳板一致性（厚度公差）", "对台湾产能的成本与交期优势", "DPM/O&P 渠道合规经验"],
+      "outreach_angle": "以碳板打样 + 矫形编码类产品适配切入其 AFO 与 Carbon FLX 鞋垫双产品线",
+      "pricing_strategy": "对标台湾 Tomocross 报价留 15-20% 优势，小单快反匹配间歇补货",
+      "follow_up_plan": "1) sales@thriveorthopedics.com 首轮；2) LinkedIn 联系创始人；3) 附碳板弯刚度测试数据表",
+      "open_questions": ["Tomocross 供应的具体品类", "碳板是否本土后加工", "2027 年采购量预测"]
+    }
+  },
+  "assessment": {
+    "match_score": 78,
+    "customer_level": "B",
+    "match_reason": "碳纤维 AFO + 碳纤维鞋垫纯度高的美国医疗器材品牌商，提单实锤（7 票，亚洲 100%，台湾+中国）；公司年轻、联系人公开；扣分点：采购规模小（年均 2-3 票）、货描为大类无法逐票确认碳纤维。",
+    "potential_needs": "已验证：骨科器材进口。推测：碳纤维 AFO 坯料/鞋垫 OEM 的中国替代产能需求。",
+    "recommended_sales_strategy": "以中国碳板产能对标台湾供应商，主推小单快反；官方销售邮箱首轮 + 创始人 LinkedIn 双触达。",
+    "priority_rank": 5
+  },
+  "data_confidence": "C",
+  "missing_information": [
+    "提单货描均为海关大类，碳纤维品类为推断",
+    "HS Code: 平台未披露",
+    "trade_value: 未披露",
+    "创始人/CRO 邮箱未公开，仅官方 sales@ 可用"
+  ],
+  "sources": [
+    {"source": "ImportYeti", "url": "https://www.importyeti.com/company/thrive-orthopedics", "related_field": "import_records/sourcing/trends", "confidence": "C"},
+    {"source": "Thrive 官网 Leadership", "url": "https://thriveorthopedics.com/pages/copy-of-leadership-team", "related_field": "contacts（Joseph DeHeer Co-Founder）", "confidence": "D"},
+    {"source": "Thrive 官网产品页", "url": "https://thriveorthopedics.com/products/hercules-kafo", "related_field": "contacts（sales@thriveorthopedics.com）", "confidence": "D"},
+    {"source": "LinkedIn 公司页", "url": "https://www.linkedin.com/company/thrive-orthopedics-usa", "related_field": "company（Carmel IN、碳纤维 AFO 定位）", "confidence": "C"},
+    {"source": "Caplight", "url": "https://www.caplight.com/company/thriveorthopedics", "related_field": "company（种子轮 2026-06）", "confidence": "C"}
+  ]
+}

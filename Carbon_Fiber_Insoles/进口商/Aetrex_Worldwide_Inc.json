@@ -1,0 +1,100 @@
+{
+  "meta": {
+    "schema_version": "1.0",
+    "generated_at": "2026-11-10T16:30:00+08:00",
+    "product": "Carbon Fiber Insoles (碳纤维鞋垫)",
+    "target_country": "United States",
+    "product_keywords": ["Carbon Fiber Shoe Insoles", "Carbon Fiber Foot Orthotics", "Carbon Fiber Footplates", "Performance Insoles", "Rigid Orthotic Inserts"],
+    "hs_code": "Unknown",
+    "pipeline_version": "finder@importer-finder-contact-enricher + investigator@importer-sourcing-investigator"
+  },
+  "company": {
+    "company_name": "Aetrex Worldwide Inc",
+    "website": "https://www.aetrex.com",
+    "country": "United States",
+    "city": "Teaneck, NJ",
+    "company_type": "Importer / Brand Owner (Wholesaler + Retailer)",
+    "business_description": "全球足部扫描技术、矫形鞋垫与舒适鞋履领导者（414 Alfred Ave, Teaneck NJ）；部署超 12,000 台 Albert 足部扫描仪；产品覆盖矫形鞋垫、舒适鞋；Amazon/Walmart 多渠道，2025 年电商收入 +400%。",
+    "relevant_products": ["orthotic insoles", "comfort footwear", "foot scanning devices", "custom orthotics (iStep)", "diabetic insoles"],
+    "aliases": ["Aetrex, Inc.", "Aetrex Worldwide"]
+  },
+  "import_records": [
+    {"supplier_names": ["URAMEC MANUFACTURING INVESTMENT CO"], "supplier_countries": ["China"], "shipment_date": "2026-10-21", "product_description": "鞋垫/舒适鞋类（主力中国供应商，累计 53 柜 400,802 kg）", "hs_code": "Unknown", "quantity": "53 集装箱（累计）", "weight": "400,802 kg（累计）", "trade_value": "Unknown", "bill_of_lading": "Unknown", "evidence_source": "ImportGenius", "evidence_url": "https://www.importgenius.com/cn/importers/aetrex-worldwide-inc"},
+    {"supplier_names": ["SPLENDOUR INTERNATIONAL"], "supplier_countries": ["Vietnam"], "shipment_date": "2026-10-20", "product_description": "鞋类/鞋垫（累计 48 柜 307,625 kg）", "hs_code": "Unknown", "quantity": "48 集装箱（累计）", "weight": "307,625 kg（累计）", "trade_value": "Unknown", "bill_of_lading": "Unknown", "evidence_source": "ImportGenius", "evidence_url": "https://www.importgenius.com/cn/importers/aetrex"},
+    {"supplier_names": ["SENYING CO LTD"], "supplier_countries": ["Vietnam"], "shipment_date": "2026-09-12", "product_description": "鞋类（累计 9 柜 25,900 kg）", "hs_code": "Unknown", "quantity": "9 集装箱（累计）", "weight": "25,900 kg（累计）", "trade_value": "Unknown", "bill_of_lading": "Unknown", "evidence_source": "ImportGenius", "evidence_url": "https://www.importgenius.com/cn/importers/aetrex"},
+    {"supplier_names": ["DINHDAT SHOES COMPANY LIMITED"], "supplier_countries": ["Vietnam"], "shipment_date": "2026-10-12", "product_description": "鞋类（1,476 kg / 248 CTN）", "hs_code": "64041990", "quantity": "248 CTN", "weight": "1,476 kg", "trade_value": "Unknown", "bill_of_lading": "Unknown", "evidence_source": "ImportGenius", "evidence_url": "https://www.importgenius.cn/cn/importers/aetrex"},
+    {"supplier_names": ["VIETNAM JUNYUE FOOTWEAR COMPANY LIMITED", "CHIANYANG VIET NAM TECHNOLOGY CO"], "supplier_countries": ["Vietnam"], "shipment_date": "2026-08-10", "product_description": "鞋类/部件（Junyue 6 柜 8,093 kg；Chianyang 5 柜 20,174 kg）", "hs_code": "Unknown", "quantity": "11 集装箱（累计）", "weight": "28,267 kg（累计）", "trade_value": "Unknown", "bill_of_lading": "Unknown", "evidence_source": "ImportGenius", "evidence_url": "https://www.importgenius.cn/cn/importers/aetrex"}
+  ],
+  "contacts": [
+    {"contact_name": "Larry (Laurence) Schwartz", "contact_title": "Chief Executive Officer", "contact_department": "Executive", "business_email": "Unknown", "email_verification_status": "Unknown", "phone": "Unknown", "whatsapp": "Unknown", "linkedin_profile": "Unknown", "contact_page": "https://www.aetrex.com/contact-us", "contact_source_url": "https://www.zoominfo.com/p/Laurence-Schwartz/1310737383", "contact_priority": "medium"},
+    {"contact_name": "Unknown (官方客服邮箱)", "contact_title": "Customer Service", "contact_department": "Customer Service", "business_email": "help@aetrex.com", "email_verification_status": "Unknown", "phone": "+1-888-526-2739", "whatsapp": "Unknown", "linkedin_profile": "Unknown", "contact_page": "https://aetrex.com/pages/faqs", "contact_source_url": "https://aetrex.com/pages/faqs", "contact_priority": "high"}
+  ],
+  "sourcing": {
+    "investigation_status": "completed",
+    "importer_aliases": ["Aetrex, Inc.", "Aetrex Worldwide"],
+    "source_countries": [
+      {"country": "China", "supplier_count": 6, "shipment_count": 2630, "main_products": "鞋垫/舒适鞋（Uramec、Bloomax、Shanghai Kangha 等）"},
+      {"country": "Vietnam", "supplier_count": 5, "shipment_count": 2630, "main_products": "鞋类/矫形鞋垫（Splendour、Senying、Junyue、Chianyang、Dinh Dat）"},
+      {"country": "其他（国别未披露）", "supplier_count": 4, "shipment_count": 2630, "main_products": "Eazy Enterprise、SGI International、Meimon"}
+    ],
+    "suppliers": [
+      {"name": "URAMEC MANUFACTURING INVESTMENT CO", "country": "China (Panyu, Guangzhou)", "products": "鞋垫/鞋类", "shipment_count": 53, "first_shipment": "Unknown", "last_shipment": "2026-10-21", "relationship_type": "core", "is_china_supplier": true},
+      {"name": "SPLENDOUR INTERNATIONAL", "country": "Vietnam", "products": "鞋类/鞋垫", "shipment_count": 48, "first_shipment": "Unknown", "last_shipment": "2026-10-20", "relationship_type": "core", "is_china_supplier": false},
+      {"name": "SENYING CO LTD", "country": "Vietnam", "products": "鞋类", "shipment_count": 9, "first_shipment": "Unknown", "last_shipment": "2026-09-12", "relationship_type": "core", "is_china_supplier": false},
+      {"name": "VIETNAM JUNYUE FOOTWEAR COMPANY LIMITED", "country": "Vietnam", "products": "鞋类", "shipment_count": 6, "first_shipment": "Unknown", "last_shipment": "2026-08-10", "relationship_type": "new", "is_china_supplier": false},
+      {"name": "CHIANYANG VIET NAM TECHNOLOGY CO", "country": "Vietnam", "products": "鞋类/部件", "shipment_count": 5, "first_shipment": "Unknown", "last_shipment": "2026-06-19", "relationship_type": "new", "is_china_supplier": false},
+      {"name": "BLOOMAX / EAZY ENTERPRISE / SGI INTERNATIONAL / MEIMON / SHANGHAI KANGHA", "country": "China / Unknown", "products": "鞋垫/鞋类/配件", "shipment_count": 0, "first_shipment": "Unknown", "last_shipment": "Unknown", "relationship_type": "Unknown", "is_china_supplier": true}
+    ],
+    "products": [
+      {"category": "finished_goods", "descriptions": ["orthotic insoles", "comfort footwear", "鞋类 HTS 64041990 样例"], "hs_code": "6404.19.90 / 64 章", "notes": "以鞋垫与舒适鞋成品为主"}
+    ],
+    "trends": {
+      "period_1y": "高度活跃：2026 年 6-10 月连续有中国（Uramec 10-21）与越南（Splendour 10-20、Senying 9-12）出货",
+      "period_3y": "越南份额上升（5 家越南供应商），中国主力 Uramec 稳定（推测）",
+      "period_5y": "ImportYeti 1,502 票（2015-2026），月均 17.49 TEU，长期稳定进口",
+      "summary": "ImportYeti 1,502 票 / ImportGenius 2,630 票（2006-2026），12 贸易伙伴、7 港口（主力盐田 Yantian）；中国+越南双供应链",
+      "is_sample_only": true
+    },
+    "china_opportunities": [
+      {"type": "existing_china_supplier", "description": "Uramec（广州番禺）为主力中国供应商（53 柜，2026-10 仍出货）；Bloomax、Shanghai Kangha 亦为中国伙伴，第二供应商空间大", "evidence": "ImportGenius 供应商档案", "confidence": "B"},
+      {"type": "china_replacement", "description": "其矫形鞋垫为 EVA/PU 结构，碳纤维加强板（semi-rigid plate）升级件可由中国碳板工厂提供", "evidence": "官网产品线；提单未见碳纤维字样", "confidence": "C"},
+      {"type": "oem_odm_entry", "description": "电商放量（+400%）后需高频补货与多 SKU，中国 OEM 的 MOQ 灵活性是切入点", "evidence": "PRNewswire Centric PXM 案例（2025-12）", "confidence": "C"}
+    ],
+    "competitor_analysis": [
+      {"supplier": "URAMEC (中国广州)", "threat_level": "high", "reason": "主力中国供应商且 2026-10 仍活跃"},
+      {"supplier": "SPLENDOUR / SENYING (越南)", "threat_level": "high", "reason": "越南产能承担大量鞋类订单，成本优势强"}
+    ],
+    "development_advice": {
+      "recommended_products": ["碳纤维加强板矫形鞋垫（semi-rigid）", "EVA/PU 矫形鞋垫 OEM", "糖尿病鞋垫"],
+      "target_titles": ["VP of Sourcing / Supply Chain", "Product Manager - Orthotics", "CEO / President"],
+      "selling_points": ["碳纤维加强板提升支撑等级（差异化）", "盐田出货物流成熟（主港 Yantian）", "SKU 快速打样"],
+      "outreach_angle": "以碳纤维板作为鞋垫升级件切入 orthotics 产品线，配合 Albert 足扫数据定制",
+      "pricing_strategy": "按 SKU 报 FOB + 模具分摊，对比 Uramec 价差留 10-15% 空间",
+      "follow_up_plan": "1) help@aetrex.com 请求转 sourcing；2) LinkedIn 找 Aetrex sourcing 员工；3) 提供碳板+EVA 组合样包",
+      "open_questions": ["orthotic insoles 产地分布", "是否有碳纤维 SKU 计划", "Uramec 是否独家"]
+    }
+  },
+  "assessment": {
+    "match_score": 88,
+    "customer_level": "A",
+    "match_reason": "矫形鞋垫头部品牌，双平台 1,502/2,630 票提单、2026-10 仍高频活跃；中国（Uramec）+越南双供应商实锤；电商放量带来增量采购；扣分点：碳纤维产品线无直接证据，按 orthotic insoles 大类匹配。",
+    "potential_needs": "已验证：鞋垫/鞋类成品大批量进口。推测：碳纤维加强板与新 SKU OEM 需求。",
+    "recommended_sales_strategy": "先以 EVA/PU 矫形鞋垫 OEM 进入供应商池，再用碳纤维加强板做升级提案；触达顺序：sourcing 团队 → CEO 办公室转介。",
+    "priority_rank": 3
+  },
+  "data_confidence": "B",
+  "missing_information": [
+    "trade_value: 平台未披露",
+    "ImportYeti 别名清单（18 个报关名）未展开",
+    "供应商累计提单数为平台汇总值，非逐票核验",
+    "CEO 邮箱被 ZoomInfo 脱敏，未验证"
+  ],
+  "sources": [
+    {"source": "ImportYeti", "url": "https://importyeti.com/company/aetrex-worldwide", "related_field": "import_records（1,502 票、别名 18、最近 2026-09-24）", "confidence": "C"},
+    {"source": "ImportGenius", "url": "https://www.importgenius.com/cn/importers/aetrex-worldwide-inc", "related_field": "import_records/sourcing.suppliers（2,630 票、Uramec 等、盐田主港）", "confidence": "C"},
+    {"source": "ImportGenius (Aetrex 主页)", "url": "https://www.importgenius.cn/cn/importers/aetrex", "related_field": "import_records（Dinh Dat HTS 64041990、越南 5 供应商）", "confidence": "C"},
+    {"source": "Aetrex 官网 FAQ", "url": "https://aetrex.com/pages/faqs", "related_field": "contacts（help@aetrex.com、电话）", "confidence": "D"},
+    {"source": "ZoomInfo", "url": "https://www.zoominfo.com/p/Laurence-Schwartz/1310737383", "related_field": "contacts（Larry Schwartz CEO）", "confidence": "C"},
+    {"source": "PR Newswire (Centric PXM 案例)", "url": "https://www.prnewswire.com/news-releases/aetrex-grows-marketplace-revenue-by-400-with-centric-pxm-by-enhancing-product-visibility-and-accuracy-302648085.html", "related_field": "china_opportunities（电商 +400%）", "confidence": "C"}
+  ]
+}

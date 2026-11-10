@@ -1,0 +1,92 @@
+{
+  "meta": {
+    "schema_version": "1.0",
+    "generated_at": "2026-11-10T16:30:00+08:00",
+    "product": "Carbon Fiber Insoles (碳纤维鞋垫)",
+    "target_country": "United States",
+    "product_keywords": ["Carbon Fiber Shoe Insoles", "Carbon Fiber Foot Orthotics", "Carbon Fiber Footplates", "Performance Insoles", "Rigid Orthotic Inserts"],
+    "hs_code": "Unknown",
+    "pipeline_version": "finder@importer-finder-contact-enricher + investigator@importer-sourcing-investigator"
+  },
+  "company": {
+    "company_name": "Remington Products Co",
+    "website": "https://www.remprod.com",
+    "country": "United States",
+    "city": "Wadsworth, OH",
+    "company_type": "Importer / OEM Footwear & Footcare Supplier (Manufacturer + Distributor)",
+    "business_description": "美国鞋类 OEM 与足部护理（footcare）舒适/能量管理产品供应商（961 Seville Rd, Wadsworth OH），服务原厂鞋履品牌；产品含鞋垫、矫形产品、EVA 部件、鞋底；ImportYeti 报关实体合并 79 报关名/67 地址（疑含关联实体），最近提单 2026-09-06。",
+    "relevant_products": ["insoles（鞋垫）", "orthopedic products", "EVA 材料/部件", "printed fabric", "outsoles"],
+    "aliases": ["Remington Products Company", "Remington Products Co.", "Remington Hybrids"]
+  },
+  "import_records": [
+    {"supplier_names": ["Foundation Wellness International"], "supplier_countries": ["Vietnam"], "shipment_date": "2026-05-24", "product_description": "PRODUCTS FOR ORTHOPEDIC / PLASTIC INSOLE，HS 9021.10.00 + 6406.90（9,077 kg）", "hs_code": "9021.10.00 / 6406.90", "quantity": "Unknown", "weight": "9,077 kg", "trade_value": "Unknown", "bill_of_lading": "UASI2919144921", "evidence_source": "52wmb (第三方海关数据)", "evidence_url": "https://www.52wmb.com/supplier/197030702"},
+    {"supplier_names": ["Foundation Wellness International"], "supplier_countries": ["Vietnam"], "shipment_date": "2025-11-05", "product_description": "鞋垫/矫形类（9,380 kg / 308 PKG，胡志明→长滩→克利夫兰，HTS 6406.90）", "hs_code": "6406.90", "quantity": "308 PKG", "weight": "9,380 kg", "trade_value": "Unknown", "bill_of_lading": "UASI2916740288 (主提单 ONEYSGNFU4762700)", "evidence_source": "Panjiva", "evidence_url": "https://panjiva.com/Remington-Products/32126304"},
+    {"supplier_names": ["Chin Li Plastic Industrial Co., Ltd."], "supplier_countries": ["Taiwan"], "shipment_date": "2025-11-01", "product_description": "塑料部件（鞋垫/鞋材类）", "hs_code": "Unknown", "quantity": "Unknown", "weight": "Unknown", "trade_value": "Unknown", "bill_of_lading": "Unknown", "evidence_source": "Panjiva", "evidence_url": "https://panjiva.com/Remington-Products-Co/115521157"}
+  ],
+  "contacts": [
+    {"contact_name": "Jeff Wert", "contact_title": "VP Marketing & Sales", "contact_department": "Sales / Marketing", "business_email": "Unknown", "email_verification_status": "Unknown", "phone": "+1-330-335-1571", "whatsapp": "Unknown", "linkedin_profile": "Unknown", "contact_page": "https://www.remprod.com", "contact_source_url": "https://www.medicregister.com/Remington_Products_Company/Supplier/sid9020.htm", "contact_priority": "medium"}
+  ],
+  "sourcing": {
+    "investigation_status": "completed",
+    "importer_aliases": ["Remington Products Company", "Remington Products Co.", "Remington Hybrids"],
+    "source_countries": [
+      {"country": "Vietnam", "supplier_count": 1, "shipment_count": 708, "main_products": "PLASTIC INSOLE / 矫形产品（Foundation Wellness International，占其出口约 76.71%）"},
+      {"country": "Taiwan", "supplier_count": 1, "shipment_count": 708, "main_products": "塑料鞋材（Chin Li Plastic）"},
+      {"country": "其他（33 家供应商多数未披露）", "supplier_count": 31, "shipment_count": 708, "main_products": "Unknown"}
+    ],
+    "suppliers": [
+      {"name": "Foundation Wellness International", "country": "Vietnam (Binh Duong, My Phuoc 3 IP)", "products": "PLASTIC INSOLE / 矫形产品", "shipment_count": 9029, "first_shipment": "Unknown", "last_shipment": "2026-07-02", "relationship_type": "core", "is_china_supplier": false},
+      {"name": "Chin Li Plastic Industrial Co., Ltd.", "country": "Taiwan", "products": "塑料鞋材/部件", "shipment_count": 0, "first_shipment": "Unknown", "last_shipment": "2025-11-01", "relationship_type": "core", "is_china_supplier": false}
+    ],
+    "products": [
+      {"category": "finished_goods", "descriptions": ["PLASTIC INSOLE", "PRODUCTS FOR ORTHOPEDIC"], "hs_code": "9021.10.00 / 6406.90", "notes": "矫形鞋垫成品 + 鞋材"},
+      {"category": "semi_finished", "descriptions": ["EVA 材料", "printed fabric", "outsole"], "hs_code": "39 / 64 章", "notes": "半成品鞋材（Panjiva Top Products）"}
+    ],
+    "trends": {
+      "period_1y": "持续活跃：2025-11 至 2026-07 Foundation Wellness（越南）连续出货，ImportYeti 最近记录 2026-09-06",
+      "period_3y": "Foundation Wellness International（越南）为绝对主力（9029 票，占其出口 76.71%）",
+      "period_5y": "Panjiva 708 票 / ImportYeti 2,408 票（含合并实体），自 2007 年持续进口",
+      "summary": "俄亥俄州鞋垫/足部护理核心进口商，越南单一主力供应商 + 台湾塑料件补充；注意 ImportYeti 实体合并（79 报关名/67 地址）致票数偏高",
+      "is_sample_only": true
+    },
+    "china_opportunities": [
+      {"type": "china_replacement", "description": "塑料鞋垫与矫形产品现由越南 Foundation Wellness 供应；中国 EVA/PU 鞋垫及碳纤维加强板工厂可争取第二供应商", "evidence": "Panjiva/52wmb 供应商结构", "confidence": "C"},
+      {"type": "new_product_line", "description": "其客户为 OEM 鞋履品牌，碳纤维鞋垫板（运动/工作靴）是升级品类；碳板+EVA 组合件可切入", "evidence": "Panjiva Top Products（insole/orthopedic/eva）", "confidence": "C"}
+    ],
+    "competitor_analysis": [
+      {"supplier": "Foundation Wellness International (越南)", "threat_level": "high", "reason": "占其进口 76.71% 的核心供应商（与 Wadsworth OH 的 Foundation Wellness/PowerStep 体系关联）"},
+      {"supplier": "Chin Li Plastic (台湾)", "threat_level": "medium", "reason": "塑料鞋材替代供应商"}
+    ],
+    "development_advice": {
+      "recommended_products": ["EVA/PLASTIC INSOLE OEM", "碳纤维加强板矫形鞋垫", "EVA 裁片半成品"],
+      "target_titles": ["VP Marketing & Sales", "Purchasing Manager", "Product Development"],
+      "selling_points": ["鞋垫成品+碳板组合供应", "对越南产能的备份产能", "OEM 鞋履客户定制经验"],
+      "outreach_angle": "强调可为其 OEM 客户提供碳纤维工作靴/运动鞋垫升级件，并作为越南主力产能的备份",
+      "pricing_strategy": "对标越南 Foundation Wellness 出货价，以组合件（碳板+EVA）提升单件价值",
+      "follow_up_plan": "1) 电话 +1-330-335-1571 定位采购部门；2) remprod.com 联系表单提交产品册；3) LinkedIn 搜其采购人员",
+      "open_questions": ["ImportYeti 实体合并范围", "Foundation Wellness 是否关联交易", "碳纤维产品计划"]
+    }
+  },
+  "assessment": {
+    "match_score": 84,
+    "customer_level": "A",
+    "match_reason": "鞋垫/矫形产品专业进口商，提单量大（Panjiva 708 票，Top Products 含 insole/orthopedic/eva），HS 9021.10 矫形鞋垫实锤；位于俄亥俄鞋垫产业集群；扣分点：供应商集中于越南单一体系，中国供应商未直接验证；实体合并数据需谨慎。",
+    "potential_needs": "已验证：矫形鞋垫/塑料鞋垫大批量进口。推测：碳纤维板升级件与第二供应商备份需求。",
+    "recommended_sales_strategy": "以碳板+EVA 组合件与备份产能双卖点切入；联系其销售/采购团队（电话优先，官网表单为辅）。",
+    "priority_rank": 4
+  },
+  "data_confidence": "B",
+  "missing_information": [
+    "ImportYeti 实体下 79 报关名/67 地址疑为多实体合并，票数 2,408 需谨慎引用",
+    "完整供应商名单（33 家）需 Panjiva 付费",
+    "trade_value: 未披露",
+    "联系人 Jeff Wert 信息来自旧档案，时效未验证"
+  ],
+  "sources": [
+    {"source": "Panjiva", "url": "https://panjiva.com/Remington-Products/32126304", "related_field": "import_records/sourcing.suppliers（708 票、Foundation Wellness/Chin Li、HTS 6406.90）", "confidence": "B"},
+    {"source": "52wmb", "url": "https://www.52wmb.com/supplier/197030702", "related_field": "import_records（HS 9021.10 PLASTIC INSOLE、9,077 kg、2026-05-24）", "confidence": "B"},
+    {"source": "ImportYeti", "url": "https://www.importyeti.com/company/remington-hybrids", "related_field": "import_records（2,408 票、79 报关名、最近 2026-09-06）", "confidence": "C"},
+    {"source": "MedicRegister", "url": "https://www.medicregister.com/Remington_Products_Company/Supplier/sid9020.htm", "related_field": "contacts（Jeff Wert VP Marketing & Sales）", "confidence": "D"},
+    {"source": "Panjiva (Remington Products Co.)", "url": "https://panjiva.com/Remington-Products-Co/115521157", "related_field": "import_records（2025-10/11 提单）", "confidence": "B"}
+  ]
+}

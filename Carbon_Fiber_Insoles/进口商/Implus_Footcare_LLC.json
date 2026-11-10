@@ -1,0 +1,95 @@
+{
+  "meta": {
+    "schema_version": "1.0",
+    "generated_at": "2026-11-10T16:30:00+08:00",
+    "product": "Carbon Fiber Insoles (碳纤维鞋垫)",
+    "target_country": "United States",
+    "product_keywords": ["Carbon Fiber Shoe Insoles", "Carbon Fiber Foot Orthotics", "Carbon Fiber Footplates", "Performance Insoles", "Rigid Orthotic Inserts"],
+    "hs_code": "Unknown",
+    "pipeline_version": "finder@importer-finder-contact-enricher + investigator@importer-sourcing-investigator"
+  },
+  "company": {
+    "company_name": "Implus Footcare LLC",
+    "website": "https://www.implus.com",
+    "country": "United States",
+    "city": "Durham, NC",
+    "company_type": "Importer / Consumer Goods Group (Wholesaler)",
+    "business_description": "美国活跃生活方式配件巨头（2001 T W Alexander Dr, Durham NC），旗下 18 个品类领导品牌（含 Sof Sole、Airplus、Spenco 等鞋垫/足部护理品牌），产品覆盖 6 万+ 零售网点、60 个国家，员工 480+。",
+    "relevant_products": ["insoles（Sof Sole/Airplus 等品牌鞋垫）", "footcare products", "shoe care accessories", "fitness accessories"],
+    "aliases": ["Implus Footcare", "Implus LLC", "Implus Corporation"]
+  },
+  "import_records": [
+    {"supplier_names": ["Mind Flash"], "supplier_countries": ["China"], "shipment_date": "Unknown", "product_description": "鞋类、玩具、针织服装、塑料等（历史第一大供应商，294 票）", "hs_code": "Unknown", "quantity": "Unknown", "weight": "Unknown", "trade_value": "Unknown", "bill_of_lading": "Unknown", "evidence_source": "ImportYeti", "evidence_url": "https://importyeti.com/company/implus-footcare"},
+    {"supplier_names": ["Mountain Spring Plastics Hongkong"], "supplier_countries": ["Vietnam"], "shipment_date": "2026-10-25", "product_description": "塑料/鞋材类（10,394 kg / 1,257 ctn；2025-11 起连续 4 票）", "hs_code": "Unknown", "quantity": "1,257 ctn", "weight": "10,394 kg", "trade_value": "Unknown", "bill_of_lading": "YMJAE490412978", "evidence_source": "ImportYeti", "evidence_url": "https://importyeti.com/company/implus-footcare"},
+    {"supplier_names": ["Cortina Global Corp S"], "supplier_countries": ["Taiwan"], "shipment_date": "2026-10-13", "product_description": "鞋材/配件类（1,093 kg / 287 ctn）", "hs_code": "Unknown", "quantity": "287 ctn", "weight": "1,093 kg", "trade_value": "Unknown", "bill_of_lading": "YMJAE490412604R", "evidence_source": "ImportYeti", "evidence_url": "https://importyeti.com/company/implus-footcare"},
+    {"supplier_names": ["Zhejiang Yiheng Textile Technology", "Chuan Qi Pro", "Zhejiang Walt Technology", "Guangzhou Landscape Display", "Sino Shine International", "Pretika Global"], "supplier_countries": ["China"], "shipment_date": "Unknown", "product_description": "针织服装/塑料/玩具/鞋类（历史主力供应商群，58-113 票/家）", "hs_code": "Unknown", "quantity": "Unknown", "weight": "Unknown", "trade_value": "Unknown", "bill_of_lading": "Unknown", "evidence_source": "ImportYeti", "evidence_url": "https://importyeti.com/company/implus-footcare"}
+  ],
+  "contacts": [
+    {"contact_name": "Unknown (总部总机/采购部)", "contact_title": "Procurement (部门未公开)", "contact_department": "Procurement", "business_email": "Unknown", "email_verification_status": "Unknown", "phone": "Unknown", "whatsapp": "Unknown", "linkedin_profile": "Unknown", "contact_page": "https://www.implus.com/contact/", "contact_source_url": "https://www.linkedin.com/company/implus", "contact_priority": "medium"}
+  ],
+  "sourcing": {
+    "investigation_status": "completed",
+    "importer_aliases": ["Implus Footcare", "Implus LLC", "Implus Corporation"],
+    "source_countries": [
+      {"country": "China", "supplier_count": 7, "shipment_count": 1092, "main_products": "鞋材/鞋类/塑料/针织（Mind Flash、Zhejiang Yiheng 等）"},
+      {"country": "Vietnam", "supplier_count": 1, "shipment_count": 162, "main_products": "塑料/鞋材（Mountain Spring Plastics，2025-2026 主力）"},
+      {"country": "Taiwan", "supplier_count": 1, "shipment_count": 65, "main_products": "鞋材配件（Cortina Global）"},
+      {"country": "印度尼西亚 / 西班牙 / 葡萄牙 / 英国 / 南非", "supplier_count": 5, "shipment_count": 149, "main_products": "Unknown"}
+    ],
+    "suppliers": [
+      {"name": "Mind Flash", "country": "China (Dongcheng)", "products": "鞋类/玩具/针织/塑料", "shipment_count": 294, "first_shipment": "Unknown", "last_shipment": "Unknown", "relationship_type": "core", "is_china_supplier": true},
+      {"name": "Mountain Spring Plastics Hongkong", "country": "Vietnam", "products": "塑料/鞋材", "shipment_count": 4, "first_shipment": "2025-11-20", "last_shipment": "2026-10-25", "relationship_type": "new", "is_china_supplier": false},
+      {"name": "Zhejiang Yiheng Textile Technology", "country": "China (Zhuji)", "products": "针织服装", "shipment_count": 113, "first_shipment": "Unknown", "last_shipment": "Unknown", "relationship_type": "core", "is_china_supplier": true},
+      {"name": "Chuan Qi Pro", "country": "China / Hong Kong", "products": "塑料/玩具", "shipment_count": 91, "first_shipment": "Unknown", "last_shipment": "Unknown", "relationship_type": "core", "is_china_supplier": true},
+      {"name": "Cortina Global Corp S", "country": "Taiwan (New Taipei)", "products": "鞋材配件", "shipment_count": 1, "first_shipment": "2026-10-13", "last_shipment": "2026-10-13", "relationship_type": "new", "is_china_supplier": false}
+    ],
+    "products": [
+      {"category": "finished_goods", "descriptions": ["鞋类/鞋垫相关（Sof Sole/Airplus 等品牌货）"], "hs_code": "Unknown", "notes": "HS 分布以鞋材配件（7326.20 防滑鞋底装置、3924.90、9019.10 等）为主，鞋垫大类混于其中（推断）"}
+    ],
+    "trends": {
+      "period_1y": "活跃：2026-10-25 越南 Mountain Spring 大票 + 2026-10-13 台湾 Cortina；2015-2026 累计 1,518 票",
+      "period_3y": "供应链向越南转移（Mountain Spring 2025-2026 连续 4 票）",
+      "period_5y": "中国占比 72%（1,092/1,518），台湾 11%，印尼 4%",
+      "summary": "月均 0.87 TEU、多 SKU 多供应商组合采购；中国为基本盘、越南为新增长极",
+      "is_sample_only": true
+    },
+    "china_opportunities": [
+      {"type": "existing_china_supplier", "description": "7 家中国供应商（Mind Flash 294 票、Zhejiang Yiheng 113 票等）为其基本盘，新供应商可沿浙江/广东鞋材带切入", "evidence": "ImportYeti 供应商清单", "confidence": "B"},
+      {"type": "china_replacement", "description": "越南新增产能说明其在做供应链多元化；中国工厂可用交期+组合 SKU 能力争取回流部分鞋垫订单", "evidence": "ImportYeti 最近提单（Mountain Spring 越南）", "confidence": "C"},
+      {"type": "new_product_line", "description": "旗下品牌无碳纤维鞋垫主线，碳纤维工作靴/运动鞋垫是 Sof Sole 产品线的潜在升级 SKU", "evidence": "implus.com 品牌矩阵", "confidence": "C"}
+    ],
+    "competitor_analysis": [
+      {"supplier": "Mind Flash / Zhejiang Yiheng (中国)", "threat_level": "high", "reason": "存量主力供应商，占据传统品类"},
+      {"supplier": "Mountain Spring Plastics (越南)", "threat_level": "medium", "reason": "新供应商但增长快，主要在塑料鞋材"}
+    ],
+    "development_advice": {
+      "recommended_products": ["Sof Sole 风格运动鞋垫 OEM", "碳纤维工作靴/运动鞋垫", "鞋垫配套鞋材（防滑垫、鞋拔等）"],
+      "target_titles": ["Director of Sourcing / Procurement", "Brand Manager (Sof Sole/Airplus)", "VP Supply Chain"],
+      "selling_points": ["多 SKU 组合装柜能力", "碳纤维鞋垫新品类提案", "浙江/广东产业集群同带出货"],
+      "outreach_angle": "以 Sof Sole 品牌补货 + 碳纤维新品类双提案切入；强调与其现有中国供应商同区位的成本与交期优势",
+      "pricing_strategy": "按品牌线报价，Sof Sole 主打性价比、新品类碳板毛利留白",
+      "follow_up_plan": "1) implus.com/contact 提交品牌合作 inquiry 转采购；2) LinkedIn 搜 Implus sourcing 员工（480+ 员工池）；3) 准备 Sof Sole 对标样册",
+      "open_questions": ["鞋垫品类具体由中国哪家供应商承接", "越南转移的品类范围", "新品类（碳纤维）内部立项流程"]
+    }
+  },
+  "assessment": {
+    "match_score": 76,
+    "customer_level": "B",
+    "match_reason": "旗下 Sof Sole/Airplus 为美国主流鞋垫品牌，1,518 票提单且 2026-10 仍活跃；中国供应商占 72% 基本盘；扣分点：其鞋垫以 EVA/泡棉为主，碳纤维匹配度间接；采购分散在 18 品牌，单品牌量级需谈判确认。",
+    "potential_needs": "已验证：鞋材/鞋类大规模进口（中国+越南）。推测：碳纤维鞋垫新品类与供应商多元化需求。",
+    "recommended_sales_strategy": "先跟进存量品类补货（对标 Mind Flash），再提碳纤维新品类；通过 LinkedIn 定位 sourcing 团队后品牌经理双线推进。",
+    "priority_rank": 6
+  },
+  "data_confidence": "C",
+  "missing_information": [
+    "鞋垫类货描未在 HS Top10 中显式出现（品类混于鞋材配件）",
+    "trade_value: 未披露",
+    "联系人未定位到个人（采购部门未公开），仅有官网联系入口",
+    "36 个报关别名清单未展开"
+  ],
+  "sources": [
+    {"source": "ImportYeti", "url": "https://importyeti.com/company/implus-footcare", "related_field": "import_records/sourcing/trends（1,518 票、7 大供应商、HS Top10）", "confidence": "C"},
+    {"source": "LinkedIn 公司页", "url": "https://www.linkedin.com/company/implus", "related_field": "company（18 品牌、Durham NC、480 员工）", "confidence": "C"},
+    {"source": "ImportYeti (Implus 快照)", "url": "https://importyeti.com/company/implus-footcare", "related_field": "sourcing.suppliers（Mind Flash 294/Zhejiang Yiheng 113/Chuan Qi Pro 91）", "confidence": "C"}
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "meta": {
+    "schema_version": "1.0",
+    "generated_at": "2026-11-10T16:30:00+08:00",
+    "product": "Carbon Fiber Insoles (碳纤维鞋垫)",
+    "target_country": "United States",
+    "product_keywords": ["Carbon Fiber Shoe Insoles", "Carbon Fiber Foot Orthotics", "Carbon Fiber Footplates", "Performance Insoles", "Rigid Orthotic Inserts"],
+    "hs_code": "Unknown",
+    "pipeline_version": "finder@importer-finder-contact-enricher + investigator@importer-sourcing-investigator"
+  },
+  "company": {
+    "company_name": "Powerstep Foot Petals RDC (Foundation Wellness)",
+    "website": "https://www.powerstep.com",
+    "country": "United States",
+    "city": "Wadsworth, OH",
+    "company_type": "Importer / Brand Owner (Wholesaler, Podiatric Channel)",
+    "business_description": "PowerStep（美国足科医生推荐 No.1 矫形鞋垫品牌）与 Foot Petals 品牌的区域配送中心（RDC）报关实体，隶属 Foundation Wellness（931 Seville Rd, Wadsworth OH），经营半刚性足弓支撑矫形鞋垫，渠道覆盖 DPM/足科诊所、零售与电商。",
+    "relevant_products": ["PowerStep orthotic insoles", "Foot Petals 时尚足垫", "足弓支撑鞋垫", "足部护理产品"],
+    "aliases": ["Powerstep Foot Petals RDC", "Foundation Wellness", "PowerStep", "Foot Petals"]
+  },
+  "import_records": [
+    {"supplier_names": ["YANGZHOU FORTUNE IMPEX LTD"], "supplier_countries": ["China"], "shipment_date": "Unknown", "product_description": "鞋垫/足部护理产品（第一大贸易伙伴，上海港出运）", "hs_code": "Unknown", "quantity": "Unknown", "weight": "Unknown", "trade_value": "Unknown", "bill_of_lading": "Unknown", "evidence_source": "ImportGenius", "evidence_url": "https://www.importgenius.com/importers/powerstep-foot-petals-rdc"},
+    {"supplier_names": ["Bath Concept Cosmetics Dongguan Co"], "supplier_countries": ["China"], "shipment_date": "Unknown", "product_description": "足部护理/日化类（东莞）", "hs_code": "Unknown", "quantity": "Unknown", "weight": "Unknown", "trade_value": "Unknown", "bill_of_lading": "Unknown", "evidence_source": "ImportGenius", "evidence_url": "https://www.importgenius.com/importers/powerstep-foot-petals-rdc"}
+  ],
+  "contacts": [
+    {"contact_name": "Unknown (Foundation Wellness 采购部)", "contact_title": "Procurement (未公开)", "contact_department": "Procurement", "business_email": "Unknown", "email_verification_status": "Unknown", "phone": "Unknown", "whatsapp": "Unknown", "linkedin_profile": "Unknown", "contact_page": "https://www.powerstep.com/pages/contact-us", "contact_source_url": "https://www.importgenius.com/importers/powerstep-foot-petals-rdc", "contact_priority": "medium"}
+  ],
+  "sourcing": {
+    "investigation_status": "completed",
+    "importer_aliases": ["Powerstep Foot Petals RDC", "Foundation Wellness", "PowerStep"],
+    "source_countries": [
+      {"country": "China", "supplier_count": 8, "shipment_count": 37, "main_products": "鞋垫/足部护理产品（上海港为主）"}
+    ],
+    "suppliers": [
+      {"name": "YANGZHOU FORTUNE IMPEX LTD", "country": "China (Yangzhou)", "products": "鞋垫/足部护理", "shipment_count": 0, "first_shipment": "Unknown", "last_shipment": "Unknown", "relationship_type": "core", "is_china_supplier": true},
+      {"name": "Bath Concept Cosmetics Dongguan Co", "country": "China (Dongguan)", "products": "足部护理/日化", "shipment_count": 0, "first_shipment": "Unknown", "last_shipment": "Unknown", "relationship_type": "supporting", "is_china_supplier": true}
+    ],
+    "products": [
+      {"category": "finished_goods", "descriptions": ["orthotic insoles", "footcare products"], "hs_code": "Unknown", "notes": "PowerStep 矫形鞋垫半刚性 EVA 结构（推断）；同城 Remington 自越南进口 PLASTIC INSOLE（HS 9021.10）显示该集群归类习惯"}
+    ],
+    "trends": {
+      "period_1y": "未知（免费版未见近期提单明细）",
+      "period_3y": "37 票累计（8 个贸易伙伴）",
+      "period_5y": "样本有限，仅可确认中国为唯一采购来源国",
+      "summary": "Foundation Wellness 体系下报关实体，8 个贸易伙伴指向中国（扬州/东莞），主港上海；样本量小",
+      "is_sample_only": true
+    },
+    "china_opportunities": [
+      {"type": "existing_china_supplier", "description": "现有供应商全部在中国（扬州 Fortune Impex、东莞 Bath Concept），替换/增补逻辑顺畅", "evidence": "ImportGenius 供应商档案", "confidence": "B"},
+      {"type": "china_replacement", "description": "PowerStep 产品线为半刚性 EVA 矫形鞋垫，碳纤维加强板可由中国碳板厂提供升级件", "evidence": "powerstep.com 产品线", "confidence": "C"}
+    ],
+    "competitor_analysis": [
+      {"supplier": "YANGZHOU FORTUNE IMPEX (中国扬州)", "threat_level": "high", "reason": "第一大贸易伙伴，占据存量订单"},
+      {"supplier": "Foundation Wellness International (越南)", "threat_level": "medium", "reason": "同集团海外产能（为 Remington 供货），或承接转移订单"}
+    ],
+    "development_advice": {
+      "recommended_products": ["PowerStep 对标半刚性矫形鞋垫 OEM", "碳纤维加强板矫形鞋垫", "Foot Petals 时尚足垫"],
+      "target_titles": ["Procurement Manager (Foundation Wellness)", "Product Manager (PowerStep)", "VP Operations"],
+      "selling_points": ["上海港同带出货（扬州/南通/苏州产业带）", "半刚性支撑结构成熟工艺", "碳纤维板升级件提案"],
+      "outreach_angle": "华东产业带供应商以地缘+现有供应商替代逻辑切入；碳板作为半刚性产品的升级选项",
+      "pricing_strategy": "对标扬州 Fortune Impex 出货价，半刚性结构报价留 10% 空间",
+      "follow_up_plan": "1) powerstep.com/contact 提交 OEM inquiry；2) LinkedIn 搜 Foundation Wellness procurement；3) 样册含 PowerStep 对标款",
+      "open_questions": ["RDC 报关实体与母公司采购职能划分", "越南 Foundation Wellness 是否承接鞋垫订单", "碳纤维 SKU 意愿"]
+    }
+  },
+  "assessment": {
+    "match_score": 75,
+    "customer_level": "B",
+    "match_reason": "美国足科渠道矫形鞋垫头部品牌（PowerStep），37 票提单实锤且供应商全部在中国；位于俄亥俄鞋垫集群；扣分点：免费版可见明细少、近期提单时间不明、碳纤维匹配为间接（半刚性 EVA 为主）。",
+    "potential_needs": "已验证：鞋垫/足部护理自中国进口。推测：碳纤维加强板升级件与供应商增补需求。",
+    "recommended_sales_strategy": "以华东地缘+半刚性结构工艺对标扬州供应商切入；碳板升级提案作为差异化；联系路径走官网 OEM 入口与母公司采购。",
+    "priority_rank": 7
+  },
+  "data_confidence": "C",
+  "missing_information": [
+    "提单明细（货描/HS/日期）免费版未展示",
+    "贸易金额未披露",
+    "联系人未定位到个人",
+    "RDC 实体与 Foundation Wellness 母公司的提单归属需付费版确认"
+  ],
+  "sources": [
+    {"source": "ImportGenius", "url": "https://www.importgenius.com/importers/powerstep-foot-petals-rdc", "related_field": "import_records/sourcing（37 票、8 伙伴、扬州 Fortune/东莞 Bath Concept、上海主港）", "confidence": "C"},
+    {"source": "PowerStep 官网", "url": "https://www.powerstep.com/", "related_field": "company（品牌定位、产品线）", "confidence": "D"},
+    {"source": "52wmb (Foundation Wellness International)", "url": "https://www.52wmb.com/supplier/197030702", "related_field": "competitor_analysis（同集团越南产能）", "confidence": "B"}
+  ]
+}

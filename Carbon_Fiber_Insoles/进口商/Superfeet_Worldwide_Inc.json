@@ -1,0 +1,200 @@
+{
+  "meta": {
+    "schema_version": "1.0",
+    "generated_at": "2026-11-10T16:30:00+08:00",
+    "product": "Carbon Fiber Insoles (碳纤维鞋垫)",
+    "target_country": "United States",
+    "product_keywords": ["Carbon Fiber Shoe Insoles", "Carbon Fiber Foot Orthotics", "Carbon Fiber Footplates", "Performance Insoles", "Rigid Orthotic Inserts"],
+    "hs_code": "Unknown",
+    "pipeline_version": "finder@importer-finder-contact-enricher + investigator@importer-sourcing-investigator"
+  },
+  "company": {
+    "company_name": "Superfeet Worldwide Inc",
+    "website": "https://www.superfeet.com",
+    "country": "United States",
+    "city": "Ferndale, WA",
+    "company_type": "Importer / Brand Owner (Wholesaler + Retailer)",
+    "business_description": "美国顶级鞋垫品牌（1977 年起源于 Northwest Podiatric Laboratory 运动医学部门），主营高性能鞋垫/footbed，官网明确采用 carbon fiber（碳纤维）与超临界发泡材料；2026 年与 Carbitex 合作推出自适应碳纤维跑鞋鞋垫；PE 机构 Westward Partners 控股；员工约 144-150 人；全球零售分销 + 直营电商。",
+    "relevant_products": ["performance insoles (footbeds)", "carbon fiber insoles", "supercritical foam insoles", "work boot insoles", "ME3D 3D-printed custom insoles"],
+    "aliases": ["Superfeet Worldwide LP", "Superfeet Worldwide LLC", "Superfeet"]
+  },
+  "import_records": [
+    {
+      "supplier_names": ["ACE WORLD VINA CO., LTD"],
+      "supplier_countries": ["Vietnam"],
+      "shipment_date": "2026-10-29",
+      "product_description": "Insole (Footbed)，Yantian(盐田,中国装货港)→Seattle，1,164 CTN / 5,637 kg，2 柜，MSC IVANA",
+      "hs_code": "Unknown",
+      "quantity": "1,164 CTN",
+      "weight": "5,637 kg",
+      "trade_value": "Unknown",
+      "bill_of_lading": "MEDUAAX11509",
+      "evidence_source": "ImportGenius",
+      "evidence_url": "https://www.importgenius.com/importers/superfeet-worldwide-lp"
+    },
+    {
+      "supplier_names": ["GREEN FOOTWEAR INC"],
+      "supplier_countries": ["South Korea"],
+      "shipment_date": "2026-10-28",
+      "product_description": "Insole (货描含 HTS 6406.90，鞋类零件)",
+      "hs_code": "6406.90",
+      "quantity": "Unknown",
+      "weight": "Unknown",
+      "trade_value": "Unknown",
+      "bill_of_lading": "Unknown",
+      "evidence_source": "ImportGenius",
+      "evidence_url": "https://www.importgenius.com/importers/superfeet-worldwide-lp"
+    },
+    {
+      "supplier_names": ["AFT INTERNATIONAL (代理清关)"],
+      "supplier_countries": ["South Korea"],
+      "shipment_date": "2026-10-05",
+      "product_description": "ORTHOPEDIC ARTICLES（矫形用品），釜山出运，987 CTN / 6,995 kg",
+      "hs_code": "902110",
+      "quantity": "987 CTN",
+      "weight": "6,995 kg",
+      "trade_value": "Unknown",
+      "bill_of_lading": "EXDO6600127506",
+      "evidence_source": "ImportGenius",
+      "evidence_url": "https://www.importgenius.com/importers/superfeet-worldwide-lp"
+    },
+    {
+      "supplier_names": ["FULLXIN (VIETNAM) COMPANY LIMITED"],
+      "supplier_countries": ["Vietnam"],
+      "shipment_date": "2026-01-18",
+      "product_description": "FOOTBED（鞋垫），601 CTN / 8,032 kg",
+      "hs_code": "Unknown",
+      "quantity": "601 CTN",
+      "weight": "8,032 kg",
+      "trade_value": "Unknown",
+      "bill_of_lading": "DSVFDSV1156528",
+      "evidence_source": "ImportGenius",
+      "evidence_url": "https://www.importgenius.com/importers/superfeet-worldwide-lp"
+    },
+    {
+      "supplier_names": ["ACE UNITED INC"],
+      "supplier_countries": ["South Korea"],
+      "shipment_date": "2024-10-30",
+      "product_description": "FOOTBED / 鞋垫类（历史主力供应商，382 柜累计 2,044,246 kg）",
+      "hs_code": "Unknown",
+      "quantity": "382 集装箱（累计）",
+      "weight": "2,044,246 kg（累计）",
+      "trade_value": "Unknown",
+      "bill_of_lading": "Unknown",
+      "evidence_source": "ImportGenius",
+      "evidence_url": "https://www.importgenius.com/importers/superfeet-worldwide-lp"
+    },
+    {
+      "supplier_names": ["VICTORY GROUP R&D CENTER"],
+      "supplier_countries": ["China"],
+      "shipment_date": "2020-03-30",
+      "product_description": "FOOTBED / 鞋垫类（中国供应商，41 柜累计 203,117 kg，2020 年后无记录）",
+      "hs_code": "Unknown",
+      "quantity": "41 集装箱（累计）",
+      "weight": "203,117 kg（累计）",
+      "trade_value": "Unknown",
+      "bill_of_lading": "Unknown",
+      "evidence_source": "ImportGenius",
+      "evidence_url": "https://www.importgenius.com/importers/superfeet-worldwide-lp"
+    }
+  ],
+  "contacts": [
+    {
+      "contact_name": "Trip Randall",
+      "contact_title": "CEO",
+      "contact_department": "Executive",
+      "business_email": "Unknown",
+      "email_verification_status": "Unknown",
+      "phone": "Unknown",
+      "whatsapp": "Unknown",
+      "linkedin_profile": "Unknown",
+      "contact_page": "https://www.superfeet.com/pages/contact-us",
+      "contact_source_url": "https://www.messageceo.com/directory/profile/f7c55ba7-a5b1-4014-8875-c3f46a4ebb2b",
+      "contact_priority": "medium"
+    },
+    {
+      "contact_name": "Jiewei Fridgen",
+      "contact_title": "Vice President of Global Operations",
+      "contact_department": "Operations / Supply Chain",
+      "business_email": "Unknown",
+      "email_verification_status": "Unknown",
+      "phone": "Unknown",
+      "whatsapp": "Unknown",
+      "linkedin_profile": "Unknown",
+      "contact_page": "https://www.superfeet.com/pages/contact-us",
+      "contact_source_url": "https://contactout.com/jiewei-fridgen-70238",
+      "contact_priority": "high"
+    }
+  ],
+  "sourcing": {
+    "investigation_status": "completed",
+    "importer_aliases": ["Superfeet Worldwide LP", "Superfeet Worldwide LLC"],
+    "source_countries": [
+      {"country": "South Korea", "supplier_count": 3, "shipment_count": 730, "main_products": "FOOTBED/鞋垫、ORTHOPEDIC ARTICLES（HTS 902110）、Insole（HTS 6406.90）"},
+      {"country": "Vietnam", "supplier_count": 2, "shipment_count": 730, "main_products": "FOOTBED（Fullxin、ACE World Vina）"},
+      {"country": "China", "supplier_count": 1, "shipment_count": 41, "main_products": "FOOTBED（Victory Group，2020 年后停滞）"},
+      {"country": "Belgium / 其他欧洲", "supplier_count": 1, "shipment_count": 0, "main_products": "Antwerp 港出现在其 5 大港口清单，货品未披露"}
+    ],
+    "suppliers": [
+      {"name": "ACE UNITED INC", "country": "South Korea", "products": "FOOTBED/鞋垫", "shipment_count": 382, "first_shipment": "Unknown", "last_shipment": "2024-10-30", "relationship_type": "core", "is_china_supplier": false},
+      {"name": "GREEN FOOTWEAR INC", "country": "South Korea", "products": "Insole (HTS 6406.90)", "shipment_count": 77, "first_shipment": "Unknown", "last_shipment": "2026-10-28", "relationship_type": "core", "is_china_supplier": false},
+      {"name": "ACE WORLD INC", "country": "South Korea", "products": "FOOTBED/鞋垫", "shipment_count": 66, "first_shipment": "Unknown", "last_shipment": "2023-12-15", "relationship_type": "core", "is_china_supplier": false},
+      {"name": "ACE WORLD VINA CO., LTD", "country": "Vietnam", "products": "Insole (Footbed)", "shipment_count": 1, "first_shipment": "Unknown", "last_shipment": "2026-10-29", "relationship_type": "new", "is_china_supplier": false},
+      {"name": "FULLXIN (VIETNAM) COMPANY LIMITED", "country": "Vietnam", "products": "FOOTBED", "shipment_count": 50, "first_shipment": "Unknown", "last_shipment": "2026-10-17", "relationship_type": "core", "is_china_supplier": false},
+      {"name": "VICTORY GROUP R&D CENTER", "country": "China", "products": "FOOTBED/鞋垫", "shipment_count": 41, "first_shipment": "Unknown", "last_shipment": "2020-03-30", "relationship_type": "Unknown", "is_china_supplier": true}
+    ],
+    "products": [
+      {"category": "finished_goods", "descriptions": ["Insole (Footbed)", "FOOTBED", "ORTHOPEDIC ARTICLES"], "hs_code": "6406.90 / 9021.10", "notes": "以成品鞋垫/footbed 为主，韩国为最大来源"}
+    ],
+    "trends": {
+      "period_1y": "活跃：2026 年 1-10 月持续有来自韩国（GREEN FOOTWEAR、AFT INTERNATIONAL）与越南（FULLXIN、ACE WORLD VINA）的鞋垫提单，最近 2026-10-29",
+      "period_3y": "韩国主力供应商 ACE UNITED 2024 年后出货减少，越南 FULLXIN 份额上升（推测，基于可见提单）",
+      "period_5y": "中国供应商 VICTORY GROUP 于 2020 年后停滯，产能转向韩国/越南（样本趋势）",
+      "summary": "总提单 730（2006-2026），10 个贸易伙伴、5 港口（Pusan/Yantian/HCMC/Vung Tau/Antwerp），进口重心由韩向越转移；中国供应商 2020 年后淡出",
+      "is_sample_only": true
+    },
+    "china_opportunities": [
+      {"type": "existing_china_supplier", "description": "VICTORY GROUP R&D CENTER（中国）曾为其鞋垫供应商（41 柜），2020-03 后无提单，存在重新切入/替代其产能的机会", "evidence": "ImportGenius 供应商档案：last 2020-03-30, 41 集装箱 203,117 kg", "confidence": "B"},
+      {"type": "oem_odm_entry", "description": "官网/LinkedIn 明确使用 carbon fiber 与超临界发泡材料，且 2026 年与 Carbitex（自适应碳纤维）达成技术合作，说明其对新材料供应商开放；中国碳纤维鞋垫板/超临界泡沫供应商存在 OEM/ODM 切入机会", "evidence": "https://www.linkedin.com/posts/carbitex_superfeet-worldwide-came-to-carbitex-not-activity-7448038060576882688-P5wS", "confidence": "B"}
+    ],
+    "competitor_analysis": [
+      {"supplier": "GREEN FOOTWEAR INC (韩国)", "threat_level": "high", "reason": "2026-10 仍在稳定出货鞋垫（HTS 6406.90），为当前主力之一"},
+      {"supplier": "FULLXIN VIETNAM (越南)", "threat_level": "high", "reason": "50 柜累计、2026 年持续出货，越南产能成本优势明显"},
+      {"supplier": "ACE UNITED / ACE WORLD (韩国)", "threat_level": "medium", "reason": "历史最大供应商，2024 后提单减少但关系深厚"}
+    ],
+    "development_advice": {
+      "recommended_products": ["碳纤维鞋垫板（全掌/半掌，可变刚度）", "超临界发泡（Pebax/E-TPU）鞋垫中底材料", "EVA/PU footbed 成品 OEM"],
+      "target_titles": ["VP of Global Operations", "Director of Supply Chain / Sourcing", "Director of Product Development"],
+      "selling_points": ["碳纤维板 + 超临界泡沫一体式方案", "与现有韩国/越南供应链互补的中国碳板产能", "OEM/ODM 打样快、MOQ 灵活"],
+      "outreach_angle": "以 Carbitex 合作切入：说明 Superfeet 正扩展碳纤维产品线，中国碳纤维板供应商可提供更高性价比的第二供应商方案",
+      "pricing_strategy": "对标韩国（ACE/GREEN FOOTWEAR）与越南（FULLXIN）FOB 价，碳板类产品以碳布预浸料等级与公差为差异化，避免纯价格战",
+      "follow_up_plan": "1) LinkedIn 联系 VP Global Operations（Jiewei Fridgen）；2) 邮件附碳板规格表+样品邀请；3) 如无回复 2 周后跟进 Carbitex 合作款适配方案",
+      "open_questions": ["碳纤维板是否自制（Ferndale 工厂）还是外购", "越南/韩国供应商是否同时供应碳板", "2026 年碳纤维产品线扩产的采购预算窗口"]
+    }
+  },
+  "assessment": {
+    "match_score": 92,
+    "customer_level": "A",
+    "match_reason": "美国鞋垫品类头部品牌、提单量 730 票且 2026 年仍活跃；货描明确为 Insole/FOOTBED（HTS 6406.90/902110）；官网与 LinkedIn 明示使用碳纤维与超临界材料，与目标商品高度匹配；联系人（CEO + VP Global Operations）可定位。扣分点：未见明确碳纤维鞋垫成品的提单货描（碳纤维产品可能美国本土或合作生产）。",
+    "potential_needs": "已验证：大量成品鞋垫/footbed 进口（韩国/越南）。推测：碳纤维板、超临界泡沫等中间材料存在外购需求（基于材料路线图与 Carbitex 合作）。",
+    "recommended_sales_strategy": "以碳纤维板/超临界泡沫第二供应商身份切入，先寄样碳板规格书，主攻 Product Development 与 Global Operations 团队；避免与其韩国核心供应商正面竞价，用碳板品类差异化打开缺口。",
+    "priority_rank": 1
+  },
+  "data_confidence": "B",
+  "missing_information": [
+    "trade_value: ImportGenius 免费版未披露",
+    "完整提单明细（每票货描/HS）需 ImportGenius 付费",
+    "联系人邮箱被第三方平台脱敏（t****@superfeet.com），未经 SMTP 验证",
+    "ImportYeti 公司页本次抓取返回 403，未能交叉验证供应商清单"
+  ],
+  "sources": [
+    {"source": "ImportGenius", "url": "https://www.importgenius.com/importers/superfeet-worldwide-lp", "related_field": "import_records/sourcing.suppliers/trends", "confidence": "B"},
+    {"source": "Eximpedia", "url": "https://www.eximpedia.app/companies/superfeet-worldwide-inc/55656604", "related_field": "import_records（79 票/11 供应商交叉佐证）", "confidence": "B"},
+    {"source": "LinkedIn (Carbitex 合作公告)", "url": "https://www.linkedin.com/posts/carbitex_superfeet-worldwide-came-to-carbitex-not-activity-7448038060576882688-P5wS", "related_field": "china_opportunities/development_advice", "confidence": "B"},
+    {"source": "LinkedIn 公司页", "url": "https://www.linkedin.com/company/superfeet-worldwide", "related_field": "company.business_description（碳纤维+超临界材料）", "confidence": "B"},
+    {"source": "MessageCEO", "url": "https://www.messageceo.com/directory/profile/f7c55ba7-a5b1-4014-8875-c3f46a4ebb2b", "related_field": "contacts（Trip Randall CEO）", "confidence": "C"},
+    {"source": "ContactOut", "url": "https://contactout.com/jiewei-fridgen-70238", "related_field": "contacts（Jiewei Fridgen VP Global Operations）", "confidence": "C"},
+    {"source": "AMPulse", "url": "https://www.ampulse.online/company/superfeet-worldwide", "related_field": "company（CEO Trip Randall、Westward Partners 投资、ME3D）", "confidence": "C"},
+    {"source": "ImportGenius (Superfeet Worldwide LP 韩文镜像页)", "url": "https://www.importgenius.com/cn/importers/superfeet-worldwide-lp", "related_field": "import_records（ACE UNITED 等 5 大供应商）", "confidence": "B"}
+  ]
+}

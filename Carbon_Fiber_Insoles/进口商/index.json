@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-11-10T17:05:00+08:00",
+  "product": "Carbon Fiber Insoles (碳纤维鞋垫)",
+  "target_country": "United States",
+  "stats": {
+    "total_candidates": 19,
+    "investigated": 10,
+    "level_counts": {"A": 4, "B": 7, "C": 6, "D": 2},
+    "contacts_verified": 0
+  },
+  "importers": [
+    {"company_name": "Superfeet Worldwide Inc", "importer_slug": "Superfeet_Worldwide_Inc", "customer_level": "A", "match_score": 92, "investigation_status": "completed", "contact_count": 2, "china_supplier_found": true, "json_file": "Superfeet_Worldwide_Inc.json", "md_file": "Superfeet_Worldwide_Inc.md"},
+    {"company_name": "VKTRY Gear LLC", "importer_slug": "VKTRY_Gear_LLC", "customer_level": "A", "match_score": 90, "investigation_status": "completed", "contact_count": 4, "china_supplier_found": true, "json_file": "VKTRY_Gear_LLC.json", "md_file": "VKTRY_Gear_LLC.md"},
+    {"company_name": "Aetrex Worldwide Inc", "importer_slug": "Aetrex_Worldwide_Inc", "customer_level": "A", "match_score": 88, "investigation_status": "completed", "contact_count": 2, "china_supplier_found": true, "json_file": "Aetrex_Worldwide_Inc.json", "md_file": "Aetrex_Worldwide_Inc.md"},
+    {"company_name": "Remington Products Co", "importer_slug": "Remington_Products_Co", "customer_level": "A", "match_score": 84, "investigation_status": "completed", "contact_count": 1, "china_supplier_found": false, "json_file": "Remington_Products_Co.json", "md_file": "Remington_Products_Co.md"},
+    {"company_name": "Thrive Orthopedics", "importer_slug": "Thrive_Orthopedics", "customer_level": "B", "match_score": 78, "investigation_status": "completed", "contact_count": 3, "china_supplier_found": true, "json_file": "Thrive_Orthopedics.json", "md_file": "Thrive_Orthopedics.md"},
+    {"company_name": "Implus Footcare LLC", "importer_slug": "Implus_Footcare_LLC", "customer_level": "B", "match_score": 76, "investigation_status": "completed", "contact_count": 1, "china_supplier_found": true, "json_file": "Implus_Footcare_LLC.json", "md_file": "Implus_Footcare_LLC.md"},
+    {"company_name": "Powerstep Foot Petals RDC (Foundation Wellness)", "importer_slug": "Powerstep_Foot_Petals_RDC", "customer_level": "B", "match_score": 75, "investigation_status": "completed", "contact_count": 1, "china_supplier_found": true, "json_file": "Powerstep_Foot_Petals_RDC.json", "md_file": "Powerstep_Foot_Petals_RDC.md"},
+    {"company_name": "Roar Athletic Performance", "importer_slug": "Roar_Athletic_Performance", "customer_level": "B", "match_score": 74, "investigation_status": "completed", "contact_count": 1, "china_supplier_found": false, "json_file": "Roar_Athletic_Performance.json", "md_file": "Roar_Athletic_Performance.md"},
+    {"company_name": "Remind Insoles", "importer_slug": "Remind_Insoles", "customer_level": "B", "match_score": 72, "investigation_status": "completed", "contact_count": 1, "china_supplier_found": true, "json_file": "Remind_Insoles.json", "md_file": "Remind_Insoles.md"},
+    {"company_name": "Bauerfeind USA Inc", "importer_slug": "Bauerfeind_USA_Inc", "customer_level": "B", "match_score": 71, "investigation_status": "completed", "contact_count": 1, "china_supplier_found": true, "json_file": "Bauerfeind_USA_Inc.json", "md_file": "Bauerfeind_USA_Inc.md"},
+    {"company_name": "Spenco Medical Corp", "importer_slug": "Spenco_Medical_Corp", "customer_level": "B", "match_score": 68, "investigation_status": "not_investigated", "contact_count": 0, "china_supplier_found": true, "json_file": "", "md_file": ""},
+    {"company_name": "ARRIS Composites (AURORRA)", "importer_slug": "ARRIS_Composites", "customer_level": "C", "match_score": 62, "investigation_status": "not_investigated", "contact_count": 0, "china_supplier_found": true, "json_file": "", "md_file": ""},
+    {"company_name": "Allard USA", "importer_slug": "Allard_USA", "customer_level": "C", "match_score": 58, "investigation_status": "not_investigated", "contact_count": 0, "china_supplier_found": false, "json_file": "", "md_file": ""},
+    {"company_name": "The Foot Spot", "importer_slug": "The_Foot_Spot", "customer_level": "C", "match_score": 56, "investigation_status": "not_investigated", "contact_count": 0, "china_supplier_found": false, "json_file": "", "md_file": ""},
+    {"company_name": "PowerPro Insoles (Spinal Solutions)", "importer_slug": "PowerPro_Insoles", "customer_level": "C", "match_score": 54, "investigation_status": "not_investigated", "contact_count": 1, "china_supplier_found": false, "json_file": "", "md_file": ""},
+    {"company_name": "Launchpad O&P", "importer_slug": "Launchpad_OP", "customer_level": "C", "match_score": 53, "investigation_status": "not_investigated", "contact_count": 1, "china_supplier_found": false, "json_file": "", "md_file": ""},
+    {"company_name": "Wrymark Inc", "importer_slug": "Wrymark_Inc", "customer_level": "C", "match_score": 51, "investigation_status": "not_investigated", "contact_count": 0, "china_supplier_found": false, "json_file": "", "md_file": ""},
+    {"company_name": "Chiappetta Shoes", "importer_slug": "Chiappetta_Shoes", "customer_level": "D", "match_score": 44, "investigation_status": "not_investigated", "contact_count": 0, "china_supplier_found": false, "json_file": "", "md_file": ""},
+    {"company_name": "Footcoach", "importer_slug": "Footcoach", "customer_level": "D", "match_score": 32, "investigation_status": "not_investigated", "contact_count": 0, "china_supplier_found": false, "json_file": "", "md_file": ""}
+  ]
+}

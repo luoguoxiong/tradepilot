@@ -1,0 +1,92 @@
+{
+  "meta": {
+    "schema_version": "1.0",
+    "generated_at": "2026-11-10T16:30:00+08:00",
+    "product": "Carbon Fiber Insoles (碳纤维鞋垫)",
+    "target_country": "United States",
+    "product_keywords": ["Carbon Fiber Shoe Insoles", "Carbon Fiber Foot Orthotics", "Carbon Fiber Footplates", "Performance Insoles", "Rigid Orthotic Inserts"],
+    "hs_code": "Unknown",
+    "pipeline_version": "finder@importer-finder-contact-enricher + investigator@importer-sourcing-investigator"
+  },
+  "company": {
+    "company_name": "Bauerfeind USA Inc",
+    "website": "https://www.bauerfeindusa.com",
+    "country": "United States",
+    "city": "Atlanta, GA",
+    "company_type": "Importer / Distributor (Medical & Sports Orthopedic Group Subsidiary)",
+    "business_description": "德国 Bauerfeind 集团美国子公司（1230 Peachtree St NE Ste 1000, Atlanta GA；另有加州 Brea 办公点），进口医用矫形/运动支具、矫形鞋垫与鞋类部件；777 票海运提单，主力供应商为德国母公司 Bauerfeind AG，另从中国/越南/泰国采购；预估年海运支出约 $1.7M。",
+    "relevant_products": ["orthopedic insoles / shoe parts (HTS 6406.90)", "medical aids (HTS 9021.10)", "sports supports/braces"],
+    "aliases": ["Bauerfeind Usa", "Bauerfeind AG (母公司)"]
+  },
+  "import_records": [
+    {"supplier_names": ["Bauerfeind AG"], "supplier_countries": ["Germany"], "shipment_date": "2026-11-01", "product_description": "Medical Aids, Sports Articles（1,721 kg / 11 件；母公司供货 739 票占主导）", "hs_code": "9021.10 / 6307.90", "quantity": "11 pcs", "weight": "1,721 kg", "trade_value": "Unknown", "bill_of_lading": "CCLLHAMS26592371（关联）", "evidence_source": "ImportYeti", "evidence_url": "https://www.importyeti.com/company/bauerfeind-usa"},
+    {"supplier_names": ["Overland International"], "supplier_countries": ["China"], "shipment_date": "Unknown", "product_description": "精密仪器类（中山，9 票；另有越南 8 票）", "hs_code": "Unknown", "quantity": "Unknown", "weight": "Unknown", "trade_value": "Unknown", "bill_of_lading": "Unknown", "evidence_source": "ImportYeti", "evidence_url": "https://www.importyeti.com/company/bauerfeind-usa"},
+    {"supplier_names": ["Simple Medical Shenzhen"], "supplier_countries": ["China"], "shipment_date": "Unknown", "product_description": "精密仪器类（深圳龙华，2 票）", "hs_code": "Unknown", "quantity": "Unknown", "weight": "Unknown", "trade_value": "Unknown", "bill_of_lading": "Unknown", "evidence_source": "ImportYeti", "evidence_url": "https://www.importyeti.com/company/bauerfeind-usa"}
+  ],
+  "contacts": [
+    {"contact_name": "Unknown (官方公开邮箱)", "contact_title": "General Inquiry", "contact_department": "Customer Service", "business_email": "info@bauerfeindusa.com", "email_verification_status": "Unknown", "phone": "Unknown", "whatsapp": "Unknown", "linkedin_profile": "Unknown", "contact_page": "https://www.bauerfeindusa.com", "contact_source_url": "https://deutscheunternehmen.com/en/business/bauerfeind-usa-brea-brea-ca", "contact_priority": "high"}
+  ],
+  "sourcing": {
+    "investigation_status": "completed",
+    "importer_aliases": ["Bauerfeind Usa", "Bauerfeind AG (德国母公司)"],
+    "source_countries": [
+      {"country": "Germany", "supplier_count": 1, "shipment_count": 739, "main_products": "Medical Aids / Sports Articles（Bauerfeind AG 集团内供货，95.5%）"},
+      {"country": "China", "supplier_count": 3, "shipment_count": 19, "main_products": "精密仪器类（Overland、Simple Medical Shenzhen 等）"},
+      {"country": "Vietnam", "supplier_count": 2, "shipment_count": 10, "main_products": "精密仪器类（Overland Int'l）"},
+      {"country": "Thailand", "supplier_count": 1, "shipment_count": 2, "main_products": "精密仪器类"}
+    ],
+    "suppliers": [
+      {"name": "Bauerfeind AG", "country": "Germany (Zeulenroda-Triebes)", "products": "医用矫形器/运动支具/鞋类部件", "shipment_count": 739, "first_shipment": "Unknown", "last_shipment": "2026-11-01", "relationship_type": "core", "is_china_supplier": false},
+      {"name": "Overland International", "country": "China (Zhongshan) / Vietnam", "products": "精密仪器类", "shipment_count": 17, "first_shipment": "Unknown", "last_shipment": "Unknown", "relationship_type": "core", "is_china_supplier": true},
+      {"name": "Simple Medical Shenzhen", "country": "China (Shenzhen)", "products": "精密仪器类", "shipment_count": 2, "first_shipment": "Unknown", "last_shipment": "Unknown", "relationship_type": "new", "is_china_supplier": true}
+    ],
+    "products": [
+      {"category": "finished_goods", "descriptions": ["Medical Aids, Sports Articles", "鞋类部件（6406.90）", "矫形器具（9021.10）"], "hs_code": "6406.90.50/90、9021.10.10/90、6405.90.10、6307.90.10", "notes": "HTS 分布显示大量矫形器+鞋类部件（含鞋垫类），德国产为主、亚洲为辅"}
+    ],
+    "trends": {
+      "period_1y": "高度活跃：2026-11-01 仍有德国母公司大票（月均 8.28 TEU，8 月 79 票为峰值）",
+      "period_3y": "稳定：德国集团内供货占 95.5%，亚洲补充采购常态化",
+      "period_5y": "777 票（2015-2026），跨大西洋航线（Hapag-Lloyd/Maersk）为主",
+      "summary": "集团内贸易（德国→美国）主导 + 中国/越南/泰国小规模补充；采购决策大概率在德国总部",
+      "is_sample_only": true
+    },
+    "china_opportunities": [
+      {"type": "existing_china_supplier", "description": "Overland International（中山/越南）与 Simple Medical Shenzhen 已在供应商名单，中国产能已进入体系", "evidence": "ImportYeti 供应商清单", "confidence": "B"},
+      {"type": "china_replacement", "description": "其鞋垫类以德国进口为主（成本高）；中国矫形鞋垫/碳纤维板工厂可争取 6406.90 类产品的第二产地", "evidence": "ImportYeti HTS 分布（6406.90 共 70 票）", "confidence": "C"},
+      {"type": "oem_odm_entry", "description": "集团全球采购体系（总部集采），进入供应商库后可服务多国子公司", "evidence": "bauerfeind-group.com 集团结构", "confidence": "C"}
+    ],
+    "competitor_analysis": [
+      {"supplier": "Bauerfeind AG (德国集团内)", "threat_level": "high", "reason": "内部供货占 95.5%，外部供应商难以撼动核心品类"},
+      {"supplier": "Overland International (中国/越南)", "threat_level": "medium", "reason": "已进入体系的外部代工伙伴"}
+    ],
+    "development_advice": {
+      "recommended_products": ["矫形鞋垫/鞋垫半成品（6406.90）", "碳纤维加强板（AFO/鞋垫级）", "运动支具配套件"],
+      "target_titles": ["Global Sourcing / Procurement (德国总部)", "US Supply Chain Manager", "Product Manager"],
+      "selling_points": ["6406.90 类鞋垫部件的第二产地成本优势", "碳纤维板与德国高端线互补（入门级 SKU）", "多国子公司通用供货能力"],
+      "outreach_angle": "面向德国总部采购部门，以入门级鞋垫 SKU 的中国产能方案切入（高端德国产、入门亚洲产的双层结构）",
+      "pricing_strategy": "以德国到岸成本为锚，报亚洲直供 FOB（约 40-60% 成本优势区间）",
+      "follow_up_plan": "1) info@bauerfeindusa.com 请求转采购/供应商入驻；2) LinkedIn 搜 Bauerfeind Group procurement；3) 准备英文供应商资质包",
+      "open_questions": ["6406.90 部件的具体品类", "集团供应商准入流程", "美国子公司是否有独立采购权"]
+    }
+  },
+  "assessment": {
+    "match_score": 71,
+    "customer_level": "B",
+    "match_reason": "医用矫形产品大进口商（777 票、年运费约 $1.7M、2026-11 仍活跃），HTS 9021.10+6406.90 与矫形鞋垫高度相关，且已有中国供应商；扣分点：货描未见 carbon fiber 明细、采购决策集中于德国母公司、鞋垫在其产品组合占比有限。",
+    "potential_needs": "已验证：矫形器+鞋类部件进口（德国为主、中国补充）。推测：入门级鞋垫 SKU 的亚洲第二产地需求。",
+    "recommended_sales_strategy": "绕过美国子公司直接开发德国集团采购；以 6406.90 鞋垫部件+碳纤维板的双品类提案进入其供应商库。",
+    "priority_rank": 10
+  },
+  "data_confidence": "C",
+  "missing_information": [
+    "完整供应商清单（部分隐藏）",
+    "trade_value: 未披露（仅运费估算 $1.7M）",
+    "鞋垫类货描未逐票确认",
+    "联系人邮箱仅官网通用邮箱"
+  ],
+  "sources": [
+    {"source": "ImportYeti", "url": "https://www.importyeti.com/company/bauerfeind-usa", "related_field": "import_records/sourcing/trends（777 票、Bauerfeind AG 739 票、HTS 6406.90/9021.10 分布）", "confidence": "C"},
+    {"source": "DeutscheUnternehmen", "url": "https://deutscheunternehmen.com/en/business/bauerfeind-usa-brea-brea-ca", "related_field": "contacts（info@bauerfeindusa.com、Brea CA 办公点）", "confidence": "D"},
+    {"source": "Bauerfeind Group 官网", "url": "https://www.bauerfeind-group.com/", "related_field": "company（集团结构）", "confidence": "D"}
+  ]
+}

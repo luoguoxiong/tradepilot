@@ -1,0 +1,225 @@
+{
+  "meta": {
+    "schema_version": "1.0",
+    "generated_at": "2026-11-10T16:30:00+08:00",
+    "product": "Carbon Fiber Insoles (碳纤维鞋垫)",
+    "target_country": "United States",
+    "product_keywords": ["Carbon Fiber Shoe Insoles", "Carbon Fiber Foot Orthotics", "Carbon Fiber Footplates", "Performance Insoles", "Rigid Orthotic Inserts"],
+    "hs_code": "Unknown",
+    "pipeline_version": "finder@importer-finder-contact-enricher + investigator@importer-sourcing-investigator"
+  },
+  "company": {
+    "company_name": "VKTRY Gear LLC",
+    "website": "https://vktry.com",
+    "country": "United States",
+    "city": "Milford, CT",
+    "company_type": "Importer / Brand Owner (D2C + Wholesaler)",
+    "business_description": "美国代表性全掌碳纤维运动表现鞋垫品牌（2015 年创立，Arciuolo 家族创办，专利碳纤维技术），宣称销量超 100 万双，服务 600+ 职业与大学运动项目；2026-05-20 被 Dr. Scholl's 母公司 Scholl's Wellness Company（Yellow Wood Partners 旗下）收购；地址 135 Research Dr, Milford, CT（与 Roar Athletic Performance 同址）。",
+    "relevant_products": ["VKTRY Gold/Silver/Pro 全掌碳纤维鞋垫", "运动表现鞋垫（篮球/排球/橄榄球钉鞋）", "团队与青年款鞋垫"],
+    "aliases": ["VKTRY Performance Insoles", "VKTRY Gear", "VKTRY Insoles", "vktrygear.com"]
+  },
+  "import_records": [
+    {
+      "supplier_names": ["Valture Fashion Accessories Co Ltd"],
+      "supplier_countries": ["China"],
+      "shipment_date": "2026-06-09",
+      "product_description": " Apparel - knitted / Cameras-Precision / Other（海关大类，56 ctn / 660 kg，ZIM 承运）",
+      "hs_code": "Unknown",
+      "quantity": "56 ctn",
+      "weight": "660 kg",
+      "trade_value": "Unknown",
+      "bill_of_lading": "Unknown",
+      "evidence_source": "ImportYeti",
+      "evidence_url": "https://www.importyeti.com/company/vktry"
+    },
+    {
+      "supplier_names": ["Valture Fashion Accessories Co Ltd"],
+      "supplier_countries": ["China"],
+      "shipment_date": "2026-03-08",
+      "product_description": " Apparel - knitted / Other（36 ctn / 395 kg）",
+      "hs_code": "Unknown",
+      "quantity": "36 ctn",
+      "weight": "395 kg",
+      "trade_value": "Unknown",
+      "bill_of_lading": "Unknown",
+      "evidence_source": "ImportYeti",
+      "evidence_url": "https://www.importyeti.com/company/vktry"
+    },
+    {
+      "supplier_names": ["Dongguan Donnelley Printing Co Ltd"],
+      "supplier_countries": ["China"],
+      "shipment_date": "2026-01-22",
+      "product_description": "Plastics（685 ctn / 12,449 kg，最大一票，或含包装/配件）",
+      "hs_code": "Unknown",
+      "quantity": "685 ctn",
+      "weight": "12,449 kg",
+      "trade_value": "Unknown",
+      "bill_of_lading": "Unknown",
+      "evidence_source": "ImportYeti",
+      "evidence_url": "https://www.importyeti.com/company/vktry"
+    },
+    {
+      "supplier_names": ["Dongguan 3Bu Technology Co Ltd"],
+      "supplier_countries": ["Unknown（ImportYeti 页面标注葡萄牙，公司名显示中国东莞，存疑）"],
+      "shipment_date": "2025-02-02",
+      "product_description": "Other（274 ctn / 3,620 kg，MSC 承运）",
+      "hs_code": "Unknown",
+      "quantity": "274 ctn",
+      "weight": "3,620 kg",
+      "trade_value": "Unknown",
+      "bill_of_lading": "Unknown",
+      "evidence_source": "ImportYeti",
+      "evidence_url": "https://www.importyeti.com/company/vktry"
+    },
+    {
+      "supplier_names": ["Shanghai Shen Hong Unichain Co Ltd"],
+      "supplier_countries": ["China"],
+      "shipment_date": "2023-08-22",
+      "product_description": "Apparel - knitted（65 ctn / 1,165 kg，Pacific 航线）",
+      "hs_code": "Unknown",
+      "quantity": "65 ctn",
+      "weight": "1,165 kg",
+      "trade_value": "Unknown",
+      "bill_of_lading": "Unknown",
+      "evidence_source": "ImportYeti",
+      "evidence_url": "https://www.importyeti.com/company/vktry"
+    },
+    {
+      "supplier_names": ["Jones & Vining Vietnam Co Ltd"],
+      "supplier_countries": ["Vietnam"],
+      "shipment_date": "2021-07-02",
+      "product_description": "Electric motors..（海关分类噪音；J&V 为知名鞋楦/鞋底部件企业，实际品类存疑，共 2 票 2021 年）",
+      "hs_code": "Unknown",
+      "quantity": "64-69 ctn",
+      "weight": "766-883 kg",
+      "trade_value": "Unknown",
+      "bill_of_lading": "Unknown",
+      "evidence_source": "ImportYeti",
+      "evidence_url": "https://www.importyeti.com/company/vktry"
+    }
+  ],
+  "contacts": [
+    {
+      "contact_name": "Matthew Arciuolo",
+      "contact_title": "Founder / CTO",
+      "contact_department": "Executive / Engineering",
+      "business_email": "Unknown",
+      "email_verification_status": "Unknown",
+      "phone": "+1-844-468-5879",
+      "whatsapp": "Unknown",
+      "linkedin_profile": "Unknown",
+      "contact_page": "https://vktry.com/pages/faq",
+      "contact_source_url": "https://prospeo.io/c/vktry-gear",
+      "contact_priority": "high"
+    },
+    {
+      "contact_name": "Felicia Arciuolo",
+      "contact_title": "Co-Founder",
+      "contact_department": "Executive",
+      "business_email": "Unknown",
+      "email_verification_status": "Unknown",
+      "phone": "Unknown",
+      "whatsapp": "Unknown",
+      "linkedin_profile": "Unknown",
+      "contact_page": "https://vktry.com/pages/faq",
+      "contact_source_url": "https://prospeo.io/c/vktry-gear",
+      "contact_priority": "high"
+    },
+    {
+      "contact_name": "Travis Descoteaux",
+      "contact_title": "Director of Partnerships & Endorsements",
+      "contact_department": "Partnerships",
+      "business_email": "Unknown",
+      "email_verification_status": "Unknown",
+      "phone": "Unknown",
+      "whatsapp": "Unknown",
+      "linkedin_profile": "Unknown",
+      "contact_page": "https://vktry.com/pages/faq",
+      "contact_source_url": "https://prospeo.io/c/vktry-gear",
+      "contact_priority": "medium"
+    },
+    {
+      "contact_name": "Unknown (官方公开邮箱)",
+      "contact_title": "General Inquiry",
+      "contact_department": "Customer Service / Sales",
+      "business_email": "info@vktry.com",
+      "email_verification_status": "Unknown",
+      "phone": "Unknown",
+      "whatsapp": "Unknown",
+      "linkedin_profile": "Unknown",
+      "contact_page": "https://vktry.com/pages/faq",
+      "contact_source_url": "https://vktry.com/pages/faq",
+      "contact_priority": "high"
+    }
+  ],
+  "sourcing": {
+    "investigation_status": "completed",
+    "importer_aliases": ["VKTRY Performance Insoles", "VKTRY Gear", "VKTRY Insoles"],
+    "source_countries": [
+      {"country": "China", "supplier_count": 3, "shipment_count": 7, "main_products": "针织服装类/精密仪器类/塑料（海关大类，实际货品未披露）"},
+      {"country": "Vietnam", "supplier_count": 1, "shipment_count": 2, "main_products": "鞋楦/鞋底部件类（Jones & Vining）"},
+      {"country": "Portugal(存疑) / 其他", "supplier_count": 1, "shipment_count": 1, "main_products": "Dongguan 3Bu Technology（页面国家标注与公司名矛盾，未采信）"}
+    ],
+    "suppliers": [
+      {"name": "Valture Fashion Accessories Co Ltd", "country": "China (Zhong'an)", "products": "Apparel - knitted / 配件类（5 票全部为同一供应商）", "shipment_count": 5, "first_shipment": "2024-12-16", "last_shipment": "2026-06-09", "relationship_type": "core", "is_china_supplier": true},
+      {"name": "Jones & Vining Vietnam Co Ltd", "country": "Vietnam", "products": "鞋类部件（海关描述噪音，J&V 为鞋楦企业）", "shipment_count": 2, "first_shipment": "2021-05-25", "last_shipment": "2021-07-02", "relationship_type": "Unknown", "is_china_supplier": false},
+      {"name": "Dongguan Donnelley Printing Co Ltd", "country": "China (Dongguan)", "products": "Plastics（或含包装）", "shipment_count": 1, "first_shipment": "2026-01-22", "last_shipment": "2026-01-22", "relationship_type": "supporting", "is_china_supplier": true},
+      {"name": "Dongguan 3Bu Technology Co Ltd", "country": "Unknown", "products": "Other", "shipment_count": 1, "first_shipment": "2025-02-02", "last_shipment": "2025-02-02", "relationship_type": "Unknown", "is_china_supplier": true},
+      {"name": "Shanghai Shen Hong Unichain Co Ltd", "country": "China", "products": "Apparel - knitted", "shipment_count": 1, "first_shipment": "2023-08-22", "last_shipment": "2023-08-22", "relationship_type": "Unknown", "is_china_supplier": true}
+    ],
+    "products": [
+      {"category": "finished_goods", "descriptions": ["Apparel - knitted（或含鞋垫类织面成品）", "Other"], "hs_code": "Unknown", "notes": "提单货描均为海关大类，未见明确 carbon fiber insole 字样；VKTRY 宣称美国航天级碳纤维工艺，碳板可能本土生产，中国采购或为织面/包装/配件"},
+      {"category": "packaging", "descriptions": ["Plastics (Dongguan Donnelley Printing)"], "hs_code": "Unknown", "notes": "2026-01 大票 12.4 吨，疑似包装/印刷品"}
+    ],
+    "trends": {
+      "period_1y": "2026 年 3 票（3 月、6 月、1 月大票），主力供应商 Valture 稳定出货",
+      "period_3y": "2024-2026 年转向以 Valture（中国）为核心的稳定采购；2021 年曾从越南 J&V 采购",
+      "period_5y": "提单总量 10 票（2021-2026），年均约 2 票，小批量多批次",
+      "summary": "10 票海运提单，跨大西洋航线为主（9 票），中国供应商占 7 票；2026-05 被 Scholl's Wellness 收购后采购体系或并入 Dr. Scholl's 供应链（推测）",
+      "is_sample_only": true
+    },
+    "china_opportunities": [
+      {"type": "existing_china_supplier", "description": "Valture Fashion Accessories（中国）为其 2024-2026 主力供应商（5/10 票），存在直接合作深化机会；Dongguan Donnelley（包装）与 Dongguan 3Bu 亦为中国供应商", "evidence": "ImportYeti 公司报告供应商清单", "confidence": "B"},
+      {"type": "china_replacement", "description": "VKTRY 宣称美国本土碳纤维工艺，但碳纤维预浸料/碳布原料高度依赖亚洲供应链；中国碳纤维预浸料与鞋垫板工厂可争取成为其碳板/原料供应商", "evidence": "vktry.com 产品页（aerospace-grade carbon fiber）；ImportYeti 提单显示持续从中国进口", "confidence": "C"},
+      {"type": "oem_odm_entry", "description": "收购后 Scholl's/W Yellow Wood 可能扩大产量与低价 SKU（Gold $99 促销），需要更具成本优势的 OEM 产能", "evidence": "vktry.com 首页 Gold VKs $99 促销；Scholl's 收购公告", "confidence": "C"}
+    ],
+    "competitor_analysis": [
+      {"supplier": "Valture Fashion Accessories (中国)", "threat_level": "high", "reason": "当前核心供应商，直接占据配件/成品类订单"},
+      {"supplier": "Jones & Vining (越南)", "threat_level": "low", "reason": "2021 年后无新提单，关系可能已结束"},
+      {"supplier": "ARRIS Composites (美国)", "threat_level": "medium", "reason": "同为美国碳纤维鞋垫制造商（AURORRA 品牌），在本土碳板供应侧竞争"}
+    ],
+    "development_advice": {
+      "recommended_products": ["全掌/半掌碳纤维鞋垫板 OEM（对标 VKTRY Gold/Pro 规格）", "碳纤维预浸料/碳布原料", "针织鞋垫面层 + 包装配套"],
+      "target_titles": ["Founder/CTO (Matthew Arciuolo)", "Co-Founder", "Scholl's Wellness 采购/供应链负责人（收购后）", "Director of Partnerships"],
+      "selling_points": ["中国碳板产能的性价比与打样速度", "预浸料等级/公差一致性数据", "与 Valture 现有合作互补的碳板品类"],
+      "outreach_angle": "以收购后扩产窗口切入：Dr. Scholl's 渠道放量后需要第二碳板供应源；先提供 1-2 毫米厚度公差与弯曲刚度测试报告",
+      "pricing_strategy": "报价对标其 Gold 零售价 $99 的 BOM 成本结构，突出 FOB 单价与 MOQ 阶梯",
+      "follow_up_plan": "1) info@vktry.com 首轮触达并请转采购；2) LinkedIn 联系创始人；3) 关注 Scholl's Wellness 招标/供应商入驻信息",
+      "open_questions": ["碳板自产比例与外购需求", "收购后供应商体系是否重新招标", "Valture 供应的具体品类（成品鞋垫还是配件）"]
+    }
+  },
+  "assessment": {
+    "match_score": 90,
+    "customer_level": "A",
+    "match_reason": "纯碳纤维鞋垫品牌（目标商品 100% 匹配）+ 海关进口记录实锤（10 票，中国供应商占 7 票）+ 2026 年被 Dr. Scholl's 母公司收购带来扩产预期 + 联系人完整（创始人/CTO/合伙人总监 + 官网公开邮箱）。",
+    "potential_needs": "已验证：持续从中国进口配件/成品类货物（Valture 5 票）。推测：碳板原料预浸料外购、收购后 OEM 扩产需求。",
+    "recommended_sales_strategy": "双线触达：①VKTRY 原团队（创始人/CTO，强调碳板打样能力与刚度数据）；②收购方 Scholl's Wellness 供应链（强调规模化 OEM 产能）。首封信以碳板规格对标 VKTRY Gold 打动工程侧。",
+    "priority_rank": 2
+  },
+  "data_confidence": "C",
+  "missing_information": [
+    "提单货物描述均为海关大类（未见 carbon fiber/insole 明细货描）",
+    "HS Code: 平台未披露",
+    "trade_value: ImportYeti 免费版未披露（运输支出仅 10% 覆盖率）",
+    "联系人邮箱为 Prospeo 按邮箱格式规则推断（f.arciuolo@vktrygear.com 等），未经验证",
+    "Dongguan 3Bu Technology 的国家归属（ImportYeti 标注葡萄牙，公司名显示东莞）未核实"
+  ],
+  "sources": [
+    {"source": "ImportYeti", "url": "https://www.importyeti.com/company/vktry", "related_field": "import_records/sourcing.suppliers/trends", "confidence": "C"},
+    {"source": "Yahoo Finance / PRNewswire (收购公告)", "url": "https://finance.yahoo.com/sectors/healthcare/articles/scholls-wellness-company-enters-high-120000732.html", "related_field": "company（2026-05 被 Scholl's Wellness 收购）", "confidence": "A"},
+    {"source": "SGB Media", "url": "https://sgbonline.com?p=372326/", "related_field": "company（Arciuolo 家族 / Milford CT / 碳纤维专利技术）", "confidence": "B"},
+    {"source": "Prospeo", "url": "https://prospeo.io/c/vktry-gear", "related_field": "contacts（7 位联系人、邮箱格式、电话 +1-844-468-5879）", "confidence": "C"},
+    {"source": "VKTRY 官网 FAQ", "url": "https://vktry.com/pages/faq", "related_field": "contacts（info@vktry.com 公开邮箱）", "confidence": "D"},
+    {"source": "Dealroom", "url": "https://app.dealroom.co/companies/vktry_performance_insoles", "related_field": "company（成立 2015、被收购）", "confidence": "C"}
+  ]
+}

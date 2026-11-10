@@ -1,0 +1,91 @@
+{
+  "meta": {
+    "schema_version": "1.0",
+    "generated_at": "2026-11-10T16:30:00+08:00",
+    "product": "Carbon Fiber Insoles (碳纤维鞋垫)",
+    "target_country": "United States",
+    "product_keywords": ["Carbon Fiber Shoe Insoles", "Carbon Fiber Foot Orthotics", "Carbon Fiber Footplates", "Performance Insoles", "Rigid Orthotic Inserts"],
+    "hs_code": "6406.90.99",
+    "pipeline_version": "finder@importer-finder-contact-enricher + investigator@importer-sourcing-investigator"
+  },
+  "company": {
+    "company_name": "Remind Insoles",
+    "website": "https://remindinsoles.com",
+    "country": "United States",
+    "city": "Santa Ana, CA",
+    "company_type": "Importer / Brand Owner (D2C + Wholesale)",
+    "business_description": "美国滑板/单板滑雪/山地车圈层知名鞋垫品牌（2525 Pullman St, Santa Ana CA），主打缓震支撑鞋垫（Cush/Medic/Dash 等型号），DTC+ dealer 分销；42 票海运提单、3 个报关别名，HS 6406.90.99，最近提单 2026-09-05。",
+    "relevant_products": ["skate/snowboard insoles", "orthotic sport insoles", "EVA/PU 缓震鞋垫"],
+    "aliases": ["Remind Insoles LLC", "Remind Insoles Inc"]
+  },
+  "import_records": [
+    {"supplier_names": ["Ace World"], "supplier_countries": ["South Korea"], "shipment_date": "Unknown", "product_description": "鞋类/家具/针织服装等（第一大供应商，27 票）", "hs_code": "Unknown", "quantity": "Unknown", "weight": "Unknown", "trade_value": "Unknown", "bill_of_lading": "Unknown", "evidence_source": "ImportYeti", "evidence_url": "https://www.importyeti.com/company/remind-insoles"},
+    {"supplier_names": ["Heguan Shoe Marterial Co Ltd"], "supplier_countries": ["Vietnam"], "shipment_date": "2026-09-05", "product_description": "鞋材（6,118 kg / 526 ctn / 1 柜，Asia-US Pacific）", "hs_code": "6406.90.99", "quantity": "526 ctn", "weight": "6,118 kg", "trade_value": "Unknown", "bill_of_lading": "MCLMVILAX2608A25", "evidence_source": "ImportYeti", "evidence_url": "https://www.importyeti.com/company/remind-insoles"},
+    {"supplier_names": ["Heguan Hong Jian Feng Shoe Material（变体名）"], "supplier_countries": ["Vietnam"], "shipment_date": "Unknown", "product_description": "鞋材（合计 5 票）", "hs_code": "Unknown", "quantity": "Unknown", "weight": "Unknown", "trade_value": "Unknown", "bill_of_lading": "Unknown", "evidence_source": "ImportYeti", "evidence_url": "https://www.importyeti.com/company/remind-insoles"},
+    {"supplier_names": ["Summit Tech Consulting"], "supplier_countries": ["China"], "shipment_date": "Unknown", "product_description": "鞋类（东莞，1 票）", "hs_code": "Unknown", "quantity": "Unknown", "weight": "Unknown", "trade_value": "Unknown", "bill_of_lading": "Unknown", "evidence_source": "ImportYeti", "evidence_url": "https://www.importyeti.com/company/remind-insoles"}
+  ],
+  "contacts": [
+    {"contact_name": "Unknown (海关文件电话)", "contact_title": "Unknown", "contact_department": "Unknown", "business_email": "Unknown", "email_verification_status": "Unknown", "phone": "Unknown (尾号 413/354，已脱敏)", "whatsapp": "Unknown", "linkedin_profile": "Unknown", "contact_page": "https://remindinsoles.com/pages/contact", "contact_source_url": "https://www.importyeti.com/company/remind-insoles", "contact_priority": "low"}
+  ],
+  "sourcing": {
+    "investigation_status": "completed",
+    "importer_aliases": ["Remind Insoles LLC", "Remind Insoles Inc"],
+    "source_countries": [
+      {"country": "Vietnam", "supplier_count": 4, "shipment_count": 30, "main_products": "鞋材/鞋垫类（Heguan 系）"},
+      {"country": "South Korea", "supplier_count": 1, "shipment_count": 6, "main_products": "鞋类等（Ace World）"},
+      {"country": "China", "supplier_count": 2, "shipment_count": 5, "main_products": "鞋类（Summit Tech）、家具（Yc Furniture）"},
+      {"country": "France", "supplier_count": 1, "shipment_count": 1, "main_products": "Unknown"}
+    ],
+    "suppliers": [
+      {"name": "Ace World", "country": "South Korea (Busan-ri)", "products": "鞋类/杂项", "shipment_count": 27, "first_shipment": "Unknown", "last_shipment": "Unknown", "relationship_type": "core", "is_china_supplier": false},
+      {"name": "Heguan Hong Jian Feng Shoe Material（含变体名）", "country": "Vietnam", "products": "鞋材/鞋垫", "shipment_count": 5, "first_shipment": "Unknown", "last_shipment": "2026-09-05", "relationship_type": "core", "is_china_supplier": false},
+      {"name": "Summit Tech Consulting", "country": "China (Dongguan)", "products": "鞋类", "shipment_count": 1, "first_shipment": "Unknown", "last_shipment": "Unknown", "relationship_type": "Unknown", "is_china_supplier": true}
+    ],
+    "products": [
+      {"category": "finished_goods", "descriptions": ["鞋材/鞋类（HTS 6406.90.99）"], "hs_code": "6406.90.99", "notes": "鞋垫成品或半成品归类于鞋类零件"}
+    ],
+    "trends": {
+      "period_1y": "活跃：2026-09-05 越南 Heguan 1 柜；月度高峰 7 月/10 月，近 1 年提单 +1100%",
+      "period_3y": "韩国 Ace World 为主力，2026 年新增越南 Heguan 供货",
+      "period_5y": "42 票（2015-2026），月均 0.74 TEU，运输支出约 $96,394（88% 覆盖）",
+      "summary": "中韩越三线采购，近期越南占比上升；规模中等、增速快",
+      "is_sample_only": true
+    },
+    "china_opportunities": [
+      {"type": "china_replacement", "description": "主力供应商为韩国 Ace World 与越南 Heguan 鞋材厂；中国 EVA/PU 鞋垫厂（东莞/泉州）可对标切入", "evidence": "ImportYeti 供应商结构", "confidence": "C"},
+      {"type": "oem_odm_entry", "description": "其鞋垫型号矩阵（Cush/Medic/Dash）需要多硬度/多 SKU OEM；中国鞋垫厂 SKU 弹性强", "evidence": "remindinsoles.com 产品线", "confidence": "C"},
+      {"type": "new_product_line", "description": "滑板/滑雪人群对足弓疲劳敏感，碳纤维加强板鞋垫是其产品线的自然延伸（推测）", "evidence": "品牌定位", "confidence": "C"}
+    ],
+    "competitor_analysis": [
+      {"supplier": "Ace World (韩国)", "threat_level": "high", "reason": "第一大供应商（27 票），占据存量订单"},
+      {"supplier": "Heguan (越南)", "threat_level": "high", "reason": "2026 年新增主力，鞋材直供"}
+    ],
+    "development_advice": {
+      "recommended_products": ["EVA/PU 运动缓震鞋垫 OEM", "碳纤维加强板鞋垫（新品类提案）", "多硬度多 SKU 矩阵打样"],
+      "target_titles": ["Founder / Owner", "Operations / Supply Chain", "Product Manager"],
+      "selling_points": ["多硬度 EVA 发泡工艺", "碳纤维板可选升级件", "小柜快反匹配其 1 柜/票节奏"],
+      "outreach_angle": "以圈层运动（滑板/滑雪）专业鞋垫 OEM 切入，强调缓震+支撑双结构打样能力",
+      "pricing_strategy": "对标韩国/越南供应商 FOB，SKU 矩阵报价留阶梯",
+      "follow_up_plan": "1) 官网 contact 表单；2) Instagram/LinkedIn 找品牌运营人转介；3) 样包含其三款对标型号",
+      "open_questions": ["越南 Heguan 与韩国 Ace World 的分工", "是否自建模具", "碳纤维板接受度"]
+    }
+  },
+  "assessment": {
+    "match_score": 72,
+    "customer_level": "B",
+    "match_reason": "纯鞋垫品类品牌（100% 匹配鞋垫大类），42 票提单活跃（近 1 年 +1100%），HS 6406.90.99 实锤；扣分点：无碳纤维产品证据（EVA 缓震为主）、联系人未公开。",
+    "potential_needs": "已验证：鞋垫/鞋材进口（韩/越/中）。推测：多 SKU OEM 与碳纤维板新品类需求。",
+    "recommended_sales_strategy": "以多硬度 EVA OEM 进入，碳纤维板作为第二封信差异化提案；官网表单+社媒双触达。",
+    "priority_rank": 9
+  },
+  "data_confidence": "C",
+  "missing_information": [
+    "3 个报关别名清单未展开",
+    "近期各票货描/HS 明细需付费版",
+    "联系人未公开（海关电话已脱敏）"
+  ],
+  "sources": [
+    {"source": "ImportYeti", "url": "https://www.importyeti.com/company/remind-insoles", "related_field": "import_records/sourcing/trends（42 票、Ace World/Heguan/Summit Tech、HS 6406.90.99）", "confidence": "C"},
+    {"source": "ImportYeti 首页快照", "url": "https://www.importyeti.com/", "related_field": "company（地址、42 票、$96,394 运输支出）", "confidence": "C"}
+  ]
+}

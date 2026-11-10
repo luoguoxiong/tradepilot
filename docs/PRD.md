@@ -187,7 +187,7 @@ MVP 采用模块化工具调用 + 单一任务编排器，**不做多 Agent 协�
 
 1. **数据真实性**：Mock/演示数据必须显著标注 DEMO；伪造联系人、邮箱、海关记录伪装成真实数据 = 交付失败。
 2. **Adapter 模式**：Google Search、Apollo、海关数据全部封装在适配器后，业务代码零第三方调用逻辑；每个适配器都有无 Key 可用的 Mock 实现。
-3. **Key 管理**：API Key 只经环境变量，绝不硬编码。
+3. **Key 管理**：API Key 绝不硬编码；部署级默认走环境变量，用户级经 Settings 页写入 integrations 表（AES-256-GCM 加密存储、API 响应脱敏只返回尾 4 位）。
 4. **可运行优先**：每个阶段以可运行、可演示状态收尾，禁止一次性生成大批未验证代码。
 5. **邮件仅草稿**：MVP 无自动发送。
 6. **技术栈**：React 18 + TS + Vite + Tailwind + shadcn/ui + Zustand；Node.js + TS + NestJS/Fastify + PostgreSQL + Prisma/Drizzle + Redis + BullMQ；OpenAI 兼容 LLM + Tool Calling + 结构化 JSON + Prompt 模板管理。

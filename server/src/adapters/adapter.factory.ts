@@ -11,6 +11,7 @@ import { ApolloContactDiscoveryAdapter } from './contact-discovery/contact-disco
 import type { ContactDiscoveryInput } from './contact-discovery/contact-discovery.adapter';
 import { MockCustomsAdapter } from './customs/mock-customs.adapter';
 import { GenericCustomsApiAdapter } from './customs/customs.adapter';
+import { ImportYetiAdapter } from './customs/importyeti.adapter';
 import type { CustomsDataAdapter } from './customs/customs.adapter';
 import { AdapterError, type AdapterContext, type CompanySearchAdapter } from './types';
 
@@ -59,13 +60,20 @@ export class AdapterFactory {
     return new MockContactDiscoveryAdapter();
   }
 
-  /** 海关数据：Customs API（integrations 'customs'）→ Mock 降级 */
+  /** 海关数据：ImportYeti（provider='importyeti'，仅 Key）或通用 Customs API（Key+URL）→ Mock 降级 */
   async customs(ctx: AdapterContext): Promise<CustomsDataAdapter> {
     const dbConfig = await this.integrations.getConfig(ctx.userId, 'customs').catch(() => null);
     const apiKey = dbConfig?.apiKey ?? (getEnv().CUSTOMS_API_KEY || '');
     const baseUrl = dbConfig?.extra?.baseUrl ?? (getEnv().CUSTOMS_API_URL || '');
     const provider = dbConfig?.extra?.provider ?? (getEnv().CUSTOMS_API_PROVIDER || 'generic');
 
+    if (apiKey && provider === 'importyeti') {
+      const inner = new ImportYetiAdapter({
+        apiKey,
+        baseUrl: baseUrl || 'https://data.importyeti.com',
+      });
+      return withQuota(inner, this.quota, ctx.userId, 'customs');
+    }
     if (apiKey && baseUrl) {
       const inner = new GenericCustomsApiAdapter({ apiKey, baseUrl, provider });
       return withQuota(inner, this.quota, ctx.userId, 'customs');

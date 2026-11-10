@@ -293,6 +293,8 @@ interface CustomsDataAdapter {
 
 采购频率、首次/最近采购等**企业级聚合维度**由 customs 服务层基于记录列表计算，作为 AI 评分输入——不在单条记录上建模。
 
+Real 实现按 `CUSTOMS_API_PROVIDER`（或 integrations extra.provider）选择：`importyeti`（默认，美国 AMS 提单公开数据，仅 Key，端点 `GET {base}/v1.0/powerquery/us-import/bols`，ImportYeti 无数量字段故 `quantity` 留空）或 `generic`（通用 REST 约定，Key + URL）。无 Key 降级 Mock。
+
 ### 4.6 Real / Mock 实现约定
 
 | 约定 | Real 实现 | Mock 实现 |

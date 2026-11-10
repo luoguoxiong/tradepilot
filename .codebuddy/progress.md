@@ -4,8 +4,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 8/9（测试验证）
-- 状态：pending（待用户确认后开始）
+- 当前阶段：阶段 9/9（README + 部署 + 总验收）
+- 状态：in_progress（用户已授权"把整个计划做完"，阶段 8 完成后连续执行）
 - 最后更新：2026-11-10
 
 ## 阶段清单
@@ -19,7 +19,7 @@
 | 5 | 核心 API + 前端页面 | done | 2026-11-10 | 未登录 401 ✓；登录→建任务→异步搜索→7 家 DEMO 企业列表 ✓；集成测试 13/13（4 套件）；双端 tsc 零错误 | 见下 |
 | 6 | AI 分析 + 开发信生成 | done | 2026-11-10 | 两次评分波动 0 等级一致；六项输出齐全；无记录企业邮件无伪造采购；异常注入 503 结构化；22/22 测试通过 | 见下 |
 | 7 | CRM 业务闭环 | done | 2026-11-10 | 非法流转 400 ✓；跟进+汇总变化 ✓；CSV 往返无损 ✓；挖掘/海关 DEMO ✓；全闭环任务(4 步 DONE+自动入 CRM)；31/31 测试 | 见下 |
-| 8 | 测试验证 | pending | - | - | - |
+| 8 | 测试验证 | done | 2026-11-10 | 纯函数单测 38 用例（评分/去重/CSV/Adapter 映射）；npm test 69/69（7 套件）；双端 tsc 零错误；浏览器全链路 9 张截图留档 docs/screenshots/；console 0 error | 见下 |
 | 9 | README + 部署 + 验收 | pending | - | - | - |
 
 ## 各阶段记录
@@ -144,3 +144,20 @@
   - CSV 导出→改名称→导入→再导出，字段无损、CRM 状态不覆盖 ✓
   - npm test 31/31（6 套件）✓；双端 tsc 零错误 ✓
 - 遗留问题：无
+
+### 阶段 8：测试验证
+
+- 交付物：
+  - server/test/unit.spec.ts：38 用例关键纯函数单测——computeWeightedScore（权重 30/25/25/10/10 各维单独系数验证+四舍五入）、gradeOf（80/79/60/59/40/39 边界）、ruleBasedScoring（同输入同输出确定性、六项结构、关键词命中提升、无海关记录=25+注记、DEMO 注记、无联系人=30+建议）、domainFromWebsite（协议/www/大小写/裸域名/非法/localhost）、buildDedupeKey（域名优先、fp- 指纹回退、名称规范化稳定、确定性）、hashInt（范围/确定性）、CSV RFC4180（csvEscape 转义、toCsv BOM+CRLF、parseCsv 引号内逗号/换行/""转义、rowsToObjects 往返、缺列补空、空输入）、三个 Mock 适配器映射（确定性、source 恒 demo、limit 钳制 0→1/>30→30、联系人 1-3 与 emailVerified 枚举、海关 0-3 条由 hashInt 决定并枚举覆盖 0 与 >0）、SerperSearchAdapter fetch-mock 契约（title「 | Home」清洗、请求体组装 q/gl/num、429→RATE_LIMITED、organic 缺省→[]、非法 schema→BAD_RESPONSE、AbortError→TIMEOUT、AdapterError 透传）
+  - test/setup-env.cjs：LLM/SERPER/APOLLO/CUSTOMS_API_KEY 置空——测试套件强制走确定性 Mock 路径
+  - web/public/favicon.svg + index.html 引用：消除 favicon.ico 404 的 2 个 console error
+  - docs/screenshots/：9 张浏览器全链路截图
+- 决策与备注：
+  - **测试环境前提变化**：用户在 server/.env 并行配置真实 LLM_API_KEY（Serper/Apollo/Customs 同理），jest 继承后 ai.spec 走真 LLM 导致 3 用例失败（等级 B/A 波动、subject 无 LLC、含敏感词）——修复为 setup-env 置空 Key 强制 Mock；真实第三方路径仍由 fetch-mock 契约测试覆盖（不烧配额、可重复）
+  - **用户并行改动（ImportYeti）**：开发期间用户新增 ImportYetiAdapter（美国海关 AMS 提单，provider='importyeti' 仅 Key）接入 adapter.factory + .env.example + architecture.md——修复其 CustomsDataAdapter 类型导入（应从 ./customs.adapter 而非 ../types），一并验证提交
+  - 浏览器验收用 playwright-cli（chrome-devtools MCP 未配置）；截图/快照临时文件不入库（.gitignore 加 .playwright-cli/）
+- 验收证据：
+  - npm test 69/69（7 套件 = unit 38 + 集成 31）✓；双端 tsc 零错误 ✓
+  - 浏览器全链路（demo@tradepilot.dev）：登录 → Dashboard → Settings(产品+Key 管理) → Lead Discovery 建任务(Carbon Fiber Insoles/US/10 家) → 四步完成 → Companies(DEMO 徽章+CRM 状态) → 详情页(联系人 2/海关无记录/评分 65 B mock-rules-v1/开发信草稿生成含企业名与收件人) → CRM 流转 NEW→QUALIFIED(时间线) → 跟进+下次跟进 2026/11/17 → CRM 列表「已合格」Tab 筛选命中 → Email Studio 占位 → 登出 ✓（截图 01–09）
+  - console 全程 0 error（修复 favicon 后；仅 React Router v7 future flag warning 与浏览器 verbose 提示）✓
+- 遗留问题：Email Studio 为「待实现」占位页（PRD 中 P1，MVP 邮件草稿已在企业详情页完成）

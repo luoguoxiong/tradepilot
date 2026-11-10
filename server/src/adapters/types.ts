@@ -51,3 +51,24 @@ export interface CompanySearchAdapter {
   readonly name: 'CompanySearchAdapter';
   search(input: CompanySearchInput, ctx: AdapterContext): Promise<CompanySearchResult[]>;
 }
+
+// ---------- ContactDiscoveryAdapter（Apollo 联系人挖掘，契约见 architecture.md §4.4） ----------
+
+export interface ContactCandidate {
+  name: string;
+  title: string;
+  /** 缺失时前端引导手动补充；禁止编造 */
+  email?: string;
+  linkedinUrl?: string;
+  country?: string;
+  emailVerified: 'verified' | 'unverified' | 'unknown';
+  source: DataSource; // Mock 恒 'demo'
+}
+
+export interface ContactDiscoveryAdapter {
+  readonly name: 'ContactDiscoveryAdapter';
+  discover(input: {
+    company: { id: string; name: string; website?: string; country: string };
+    titles: string[];
+  }, ctx: AdapterContext): Promise<ContactCandidate[]>;
+}

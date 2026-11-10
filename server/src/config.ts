@@ -20,6 +20,10 @@ const EnvSchema = z.object({
   // 第三方 API（无 Key 时对应 Adapter 自动降级 Mock）
   GOOGLE_SEARCH_API_KEY: z.string().default(''),
   GOOGLE_SEARCH_CX: z.string().default(''),
+  APOLLO_API_KEY: z.string().default(''),
+  CUSTOMS_API_KEY: z.string().default(''),
+  CUSTOMS_API_URL: z.string().default(''),
+  CUSTOMS_API_PROVIDER: z.string().default('generic'),
   ADAPTER_DAILY_QUOTA_GOOGLE: z.coerce.number().int().default(100),
   ADAPTER_DAILY_QUOTA_APOLLO: z.coerce.number().int().default(100),
   ADAPTER_DAILY_QUOTA_CUSTOMS: z.coerce.number().int().default(100),

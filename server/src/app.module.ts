@@ -5,6 +5,9 @@ import { AdaptersModule } from './adapters/adapters.module';
 import { AiModule } from './ai/ai.module';
 import { AuthModule } from './auth/auth.module';
 import { CompaniesModule } from './companies/companies.module';
+import { ContactsModule } from './contacts/contacts.module';
+import { CrmModule } from './crm/crm.module';
+import { CustomsModule } from './customs/customs.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { HealthModule } from './health/health.module';
 import { IntegrationsModule } from './integrations/integrations.module';
@@ -20,6 +23,9 @@ import { TasksModule } from './tasks/tasks.module';
     AuthModule,
     ProductsModule,
     CompaniesModule,
+    ContactsModule,
+    CustomsModule,
+    CrmModule,
     IntegrationsModule,
     AdaptersModule,
     AiModule,

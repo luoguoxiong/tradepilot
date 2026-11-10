@@ -3,7 +3,7 @@ import { Inject, Injectable, NotFoundException, ServiceUnavailableException } fr
 import { PrismaService } from '../prisma/prisma.service';
 import { decryptConfig, encryptConfig, maskKey } from './crypto.util';
 
-export const INTEGRATION_PROVIDERS = ['google', 'apollo', 'customs'] as const;
+export const INTEGRATION_PROVIDERS = ['serper', 'apollo', 'customs'] as const;
 export type IntegrationProvider = (typeof INTEGRATION_PROVIDERS)[number];
 
 export interface IntegrationView {

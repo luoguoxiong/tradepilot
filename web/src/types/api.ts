@@ -30,6 +30,9 @@ export interface Company {
   searchedAt: string;
   createdAt: string;
   updatedAt: string;
+  /** CRM 列表/企业列表附加字段（服务端 include 后映射） */
+  latestScore?: { score: number | null; grade: string | null } | null;
+  latestActivity?: { content: string; createdAt: string } | null;
 }
 
 export interface Contact {
@@ -77,6 +80,16 @@ export interface SearchTask {
   error: string | null;
   createdAt: string;
   finishedAt: string | null;
+}
+
+export interface CrmActivity {
+  id: string;
+  companyId: string;
+  userId: string;
+  type: 'NOTE' | 'STATUS_CHANGE' | 'FOLLOW_UP';
+  content: string;
+  nextFollowUpAt: string | null;
+  createdAt: string;
 }
 
 export interface Pagination {

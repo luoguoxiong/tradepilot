@@ -4,7 +4,7 @@ import { getEnv } from '../config';
 import { logger } from '../logger';
 import { IntegrationsService } from '../integrations/integrations.service';
 import { QuotaService } from './quota.service';
-import { GoogleSearchAdapter } from './company-search/google-search.adapter';
+import { SerperSearchAdapter } from './company-search/serper-search.adapter';
 import { MockCompanySearchAdapter } from './company-search/mock-company-search.adapter';
 import { MockContactDiscoveryAdapter } from './contact-discovery/mock-contact-discovery.adapter';
 import { ApolloContactDiscoveryAdapter } from './contact-discovery/contact-discovery.adapter';
@@ -28,14 +28,13 @@ export class AdapterFactory {
   ) {}
 
   async companySearch(ctx: AdapterContext): Promise<CompanySearchAdapter> {
-    const dbConfig = await this.integrations.getConfig(ctx.userId, 'google').catch(() => null);
-    const apiKey = dbConfig?.apiKey ?? (getEnv().GOOGLE_SEARCH_API_KEY || '');
-    const cx = dbConfig?.extra?.cx ?? (getEnv().GOOGLE_SEARCH_CX || '');
+    const dbConfig = await this.integrations.getConfig(ctx.userId, 'serper').catch(() => null);
+    const apiKey = dbConfig?.apiKey ?? (getEnv().SERPER_API_KEY || '');
 
-    if (apiKey && cx) {
-      if (!dbConfig) logger.warn('Google Search 使用 env 级 Key（用户级未配置）');
+    if (apiKey) {
+      if (!dbConfig) logger.warn('Serper 使用 env 级 Key（用户级未配置）');
       return new QuotaWrappedCompanySearchAdapter(
-        new GoogleSearchAdapter({ apiKey, cx }),
+        new SerperSearchAdapter({ apiKey }),
         this.quota,
         ctx.userId,
       );
@@ -43,7 +42,7 @@ export class AdapterFactory {
 
     logger.warn(
       { userId: ctx.userId },
-      '无 Google Search API Key —— CompanySearchAdapter 降级为 Mock（DEMO 数据）',
+      '无 Serper API Key —— CompanySearchAdapter 降级为 Mock（DEMO 数据）',
     );
     return new MockCompanySearchAdapter();
   }
@@ -107,8 +106,8 @@ class QuotaWrappedCompanySearchAdapter implements CompanySearchAdapter {
   ) {}
 
   async search(input: Parameters<CompanySearchAdapter['search']>[0], ctx: AdapterContext) {
-    const calls = Math.ceil(input.limit / 10); // Google 每页 10 条
-    await this.quota.consume('google', this.userId, calls);
+    // Serper 单次请求即可返回全部结果（num ≤ 100），消耗 1 次配额
+    await this.quota.consume('serper', this.userId, 1);
     return this.inner.search(input, ctx);
   }
 }

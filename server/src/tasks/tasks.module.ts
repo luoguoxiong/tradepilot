@@ -2,6 +2,9 @@ import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 
 import { AdaptersModule } from '../adapters/adapters.module';
+import { AiModule } from '../ai/ai.module';
+import { ContactsModule } from '../contacts/contacts.module';
+import { CustomsModule } from '../customs/customs.module';
 import { IntegrationsModule } from '../integrations/integrations.module';
 import { getEnv } from '../config';
 import { LeadDiscoveryProcessor } from './processor/lead-discovery.processor';
@@ -33,6 +36,9 @@ function parseRedisUrl(url: string): { host: string; port: number; password?: st
     }),
     IntegrationsModule,
     AdaptersModule,
+    ContactsModule,
+    CustomsModule,
+    AiModule,
   ],
   controllers: [TasksController],
   providers: [TasksService, LeadDiscoveryProcessor],

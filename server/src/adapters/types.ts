@@ -4,7 +4,7 @@
  */
 
 /** 数据来源标记：真实 API 返回具体提供方，Mock 恒为 'demo' */
-export type DataSource = 'google' | 'apollo' | `customs:${string}` | `enrichment:${string}` | 'demo';
+export type DataSource = 'serper' | 'apollo' | `customs:${string}` | `enrichment:${string}` | 'demo';
 
 export interface AdapterContext {
   /** 调用方用户 ID（integrations 按用户取 Key） */

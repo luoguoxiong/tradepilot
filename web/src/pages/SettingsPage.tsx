@@ -15,7 +15,7 @@ const inputCls =
   'flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
 
 const PROVIDER_META: Record<string, { title: string; hint: string }> = {
-  google: { title: 'Google Search API', hint: 'Google Programmable Search 的 API Key 与 CX' },
+  serper: { title: 'Serper API', hint: '企业搜索（Google 检索结果），serper.dev 的 API Key' },
   apollo: { title: 'Apollo API', hint: '采购联系人挖掘（阶段 7 接入）' },
   customs: { title: '海关数据 API', hint: '第三方海关数据服务（阶段 7 接入）' },
 };
@@ -235,14 +235,6 @@ function IntegrationsSection() {
                   placeholder={view?.configured ? '输入新 Key 覆盖' : 'API Key'}
                   className={inputCls}
                 />
-                {provider === 'google' && (
-                  <input
-                    value={draft.extra}
-                    onChange={(e) => setDrafts((prev) => ({ ...prev, [provider]: { ...draft, extra: e.target.value } }))}
-                    placeholder="cx=搜索引擎ID"
-                    className={inputCls}
-                  />
-                )}
                 <div className="flex gap-2">
                   <Button size="sm" onClick={() => handleSave(provider)}>保存</Button>
                   {view?.configured && (

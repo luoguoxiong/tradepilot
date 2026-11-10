@@ -4,8 +4,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 7/9（CRM 闭环 + P1 补全）
-- 状态：in_progress
+- 当前阶段：阶段 8/9（测试验证）
+- 状态：pending（待用户确认后开始）
 - 最后更新：2026-11-10
 
 ## 阶段清单
@@ -18,7 +18,7 @@
 | 4 | 前后端工程 + Docker | done | 2026-11-10 | /api/health 200（db/redis up）；前端 200+IDE 预览导航正常；/api 代理通；前后端 tsc 零错误；web build 成功 | 见下 |
 | 5 | 核心 API + 前端页面 | done | 2026-11-10 | 未登录 401 ✓；登录→建任务→异步搜索→7 家 DEMO 企业列表 ✓；集成测试 13/13（4 套件）；双端 tsc 零错误 | 见下 |
 | 6 | AI 分析 + 开发信生成 | done | 2026-11-10 | 两次评分波动 0 等级一致；六项输出齐全；无记录企业邮件无伪造采购；异常注入 503 结构化；22/22 测试通过 | 见下 |
-| 7 | CRM 业务闭环 | in_progress | - | - | - |
+| 7 | CRM 业务闭环 | done | 2026-11-10 | 非法流转 400 ✓；跟进+汇总变化 ✓；CSV 往返无损 ✓；挖掘/海关 DEMO ✓；全闭环任务(4 步 DONE+自动入 CRM)；31/31 测试 | 见下 |
 | 8 | 测试验证 | pending | - | - | - |
 | 9 | README + 部署 + 验收 | pending | - | - | - |
 
@@ -122,3 +122,25 @@
   - 异常注入：非法 JSON → LlmOutputError → ServiceUnavailableException(code=LLM_OUTPUT_INVALID) → 过滤器 503 结构化（不 500）✓
   - npm test 22/22（5 套件）✓；双端 tsc 零错误 ✓；预览正常 ✓
 - 遗留问题：真实 DeepSeek 调用未实测（本机无 DEEPSEEK_API_KEY），客户端逻辑以契约测试覆盖；配置 Key 后走同一 LlmClient 接口
+
+### 阶段 7：CRM 完整业务闭环
+
+- 交付物：
+  - 联系人挖掘：Apollo Real（响应 zod 校验、不编造邮箱）+ Mock（确定性 1-3 人、验证状态混合、DEMO 标注）；挖掘去重（邮箱/名称+职位）；手动补充（isManual/source=manual）
+  - 海关数据：通用 Customs API Real + Mock（0-3 条确定性、DEMO 标注）；幂等落库；企业级聚合（recordCount/first/last/frequency/supplierCountries）
+  - CRM：状态机白名单（NEW→QUALIFIED→CONTACTED→REPLIED→NEGOTIATING→WON/LOST；LOST 可从 QUALIFIED+ 退出；WON 仅自 NEGOTIATING；终态拒绝）、非法跳转 400 INVALID_TRANSITION、每次流转写审计+STATUS_CHANGE 记录；跟进记录+nextFollowUpAt 同步 company；/api/crm/summary 汇总
+  - 任务编排升级为完整闭环：searching→enriching(逐企业逐子步,单企业失败容忍)→scoring(TASK_SCORE_LIMIT,超出 SKIPPED)→emailing(A/B/C 生成草稿+自动入 CRM NEW)；retry 支持四步（子步归并父步）
+  - CSV：RFC4180 序列化/解析（BOM/引号转义）；companies 按 dedupeKey upsert（CRM 状态不覆盖）、contacts 按 (companyId,email) upsert；审计落库
+  - 前端：CRM 列表页（状态 Tab/搜索/分页/CSV 导入导出）、CrmStatusPanel（流转按钮+跟进表单+时间线，详情页集成）、Dashboard（真实汇总+待跟进卡片+最近任务）
+  - 测试：crm.spec 9 用例（状态机合法/非法/终态、跟进同步、挖掘 DEMO、海关聚合、CSV 双向往返、整合视图、非 CRM 404）
+- 决策与备注：
+  - **用户并行改动（Serper 迁移）**：开发期间用户在 IDE 将企业搜索从 Google Custom Search 切换为 Serper.dev（新 serper-search.adapter、integrations providers=['serper','apollo','customs']、config SERPER_API_KEY、Data source 'serper'）——已兼容对齐（.env.example、集成测试改 serper provider），未覆盖用户改动
+  - **踩坑**：TasksModule 未导入新增的 Contacts/Customs/Ai 模块 → NestFactory.create 期间 DI 报错被静默吞掉（进程 exit 1 零输出）——用 Nest logger 开启 + 分步诊断脚本定位；教训记入排查流程（DI 变更后先 tsc 再起服务）
+  - Mock 确定性数据跨运行污染 → 测试 beforeAll 重置种子企业规范名/CRM 状态
+- 验收证据：
+  - 场景 1-7、11、12 可现场演示：登录✓ 产品✓ 搜索✓ 企业资料✓ 联系人(3 家 DEMO)✓ 海关+采购判断(quarterly)✓ 评分(73/B)✓ 邮件(含企业名)✓ CRM 保存(自动 NEW)✓ 跟进+时间(汇总 due=1)✓
+  - 全闭环 E2E：任务 4 步全 DONE、CRM 4→6（自动导入 2 家）、草稿/评分/联系人落库 ✓
+  - 非法流转 QUALIFIED→WON → 400 INVALID_TRANSITION ✓
+  - CSV 导出→改名称→导入→再导出，字段无损、CRM 状态不覆盖 ✓
+  - npm test 31/31（6 套件）✓；双端 tsc 零错误 ✓
+- 遗留问题：无

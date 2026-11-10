@@ -306,7 +306,7 @@ export function LeadDiscoveryPage() {
             <CardContent className="flex items-center gap-2 py-3">
               <Badge variant="demo">Demo</Badge>
               <span className="text-sm text-amber-800">
-                未配置 Google Search API Key 时，搜索结果为确定性生成的演示数据
+                未配置 Serper API Key 时，搜索结果为确定性生成的演示数据
               </span>
             </CardContent>
           </Card>

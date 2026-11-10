@@ -208,12 +208,12 @@ interface CompanySearchResult {
 
 interface CompanySearchAdapter {
   readonly name: 'CompanySearchAdapter';
-  /** 搜索潜在企业；Real 实现调 Google Search API；Mock 返回确定性生成的 DEMO 数据 */
+  /** 搜索潜在企业；Real 实现调 Serper（google.serper.dev，Google 检索结果）；Mock 返回确定性生成的 DEMO 数据 */
   search(input: CompanySearchInput, ctx: AdapterContext): Promise<CompanySearchResult[]>;
 }
 ```
 
-**字段可得性分工**：Google Search API 实际只返回标题/摘要/链接——Real 实现只填 `name/website/country/description/searchedAt/source`；`mainProducts/email/linkedinUrl` 等可选字段由 `enriching:enrich` 子步补齐，合法来源不可得时**留空**（前端显示"—"），禁止虚构。
+**字段可得性分工**：Serper 搜索 API 实际只返回标题/摘要/链接——Real 实现只填 `name/website/country/description/searchedAt/source`；`mainProducts/email/linkedinUrl` 等可选字段由 `enriching:enrich` 子步补齐，合法来源不可得时**留空**（前端显示"—"），禁止虚构。
 
 ### 4.3 CompanyEnrichmentAdapter（企业信息补充）
 

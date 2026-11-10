@@ -30,8 +30,8 @@ export class QuotaService {
   private limitFor(provider: string): number {
     const env = process.env;
     const raw =
-      provider === 'google'
-        ? env.ADAPTER_DAILY_QUOTA_GOOGLE
+      provider === 'serper'
+        ? env.ADAPTER_DAILY_QUOTA_SERPER
         : provider === 'apollo'
           ? env.ADAPTER_DAILY_QUOTA_APOLLO
           : env.ADAPTER_DAILY_QUOTA_CUSTOMS;

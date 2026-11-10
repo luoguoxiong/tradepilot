@@ -74,16 +74,14 @@ export class TasksService {
     return task;
   }
 
-  /** 从指定步骤重试（阶段 5 支持 searching 整步重跑；enriching 子步在阶段 6/7 接入） */
+  /** 从指定步骤重试（子步归并到父步：enriching:* → enriching）；已完成步骤产物幂等复用 */
   async retry(userId: string, id: string, input: RetryTaskInput) {
     const task = await this.get(userId, id);
-    if (input.fromStep !== 'searching') {
-      // 阶段 6/7 交付对应子步；当前明确拒绝而非假装成功
-      throw new NotFoundException({
-        code: 'STEP_NOT_IMPLEMENTED',
-        message: `步骤 ${input.fromStep} 将在后续阶段交付，当前仅支持 searching`,
-      });
-    }
+    const fromStep = (input.fromStep.startsWith('enriching:') ? 'enriching' : input.fromStep) as
+      | 'searching'
+      | 'enriching'
+      | 'scoring'
+      | 'emailing';
 
     await this.prisma.$transaction([
       this.prisma.searchTask.update({
@@ -91,19 +89,21 @@ export class TasksService {
         data: {
           status: 'PENDING',
           error: null,
-          processedCompanies: 0,
-          skippedCount: 0,
-          failedCount: 0,
           finishedAt: null,
+          // 从中段重跑时不清空已完成步骤的计数
+          ...(fromStep === 'searching'
+            ? { processedCompanies: 0, skippedCount: 0, failedCount: 0 }
+            : {}),
         },
       }),
-      this.prisma.taskStepLog.deleteMany({ where: { taskId: task.id, step: 'searching' } }),
+      this.prisma.taskStepLog.deleteMany({
+        where: { taskId: task.id, step: { startsWith: fromStep } },
+      }),
     ]);
 
-    // jobId 固定为 taskId：若旧 job 仍在队里会冲突，先清理再入队
-    await this.queue.removeJobScheduler?.(`repeat:${task.id}`).catch(() => undefined);
-    await this.queue
-      .add('lead-discovery', { taskId: task.id }, { jobId: `${task.id}:retry:${Date.now()}` });
+    await this.queue.add('lead-discovery', { taskId: task.id, fromStep }, {
+      jobId: `${task.id}:retry:${Date.now()}`,
+    } as { jobId: string } & Record<string, unknown>);
     return this.get(userId, task.id);
   }
 }

@@ -2,18 +2,20 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
 import { api, ApiError } from '@/lib/api';
-import type { Company, Contact, CustomsRecord, LeadScore } from '@/types/api';
+import type { Company, Contact, CrmActivity, CustomsRecord, LeadScore } from '@/types/api';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { DemoBadge } from './CompaniesPage';
 import { LeadScoreCard } from '@/components/company/LeadScoreCard';
 import { EmailDraftsCard } from '@/components/company/EmailDraftsCard';
+import { CrmStatusPanel } from '@/components/company/CrmStatusPanel';
 
 interface CompanyDetail extends Company {
   contacts: Contact[];
   customsRecords: CustomsRecord[];
   leadScores?: LeadScore[];
   latestScore: LeadScore | null;
+  activities?: CrmActivity[];
 }
 
 function InfoRow({ label, value }: { label: string; value?: string | null }) {
@@ -33,6 +35,11 @@ export function CompanyDetailPage() {
 
   async function loadDetail(companyId: string) {
     const detail = await api<CompanyDetail>(`/companies/${companyId}`);
+    // CRM 客户追加整合视图（跟进时间线等）；非 CRM 企业 404 忽略
+    if (detail.crmStatus) {
+      const crm = await api<CompanyDetail>(`/crm/customers/${companyId}`).catch(() => null);
+      if (crm) detail.activities = crm.activities;
+    }
     setCompany(detail);
   }
 
@@ -154,6 +161,16 @@ export function CompanyDetailPage() {
           onScored={() => void loadDetail(company.id)}
         />
       </div>
+
+      {company.crmStatus && company.activities && (
+        <CrmStatusPanel
+          companyId={company.id}
+          crmStatus={company.crmStatus}
+          nextFollowUpAt={company.nextFollowUpAt}
+          activities={company.activities}
+          onChanged={() => void loadDetail(company.id)}
+        />
+      )}
 
       <EmailDraftsCard
         companyId={company.id}

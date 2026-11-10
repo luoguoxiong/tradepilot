@@ -65,29 +65,28 @@ describe('Companies（收藏/批量导入 CRM）与 Integrations（Key 加密+�
   it('integrations：保存加密 → 列表只回掩码 → 清除', async () => {
     const { token } = await registerUser(app);
 
-    const saved = await authPatch(app, '/api/integrations/google', token, {
-      apiKey: 'GOOG-SECRET-VALUE-ABCD1234',
-      extra: { cx: 'search-engine-id' },
+    const saved = await authPatch(app, '/api/integrations/serper', token, {
+      apiKey: 'SERP-SECRET-VALUE-ABCD1234',
     });
     expect(saved.status).toBe(200);
     expect(saved.body.keyPreview).toBe('****1234');
-    expect(JSON.stringify(saved.body)).not.toContain('GOOG-SECRET-VALUE');
+    expect(JSON.stringify(saved.body)).not.toContain('SERP-SECRET-VALUE');
 
     const list = await authGet(app, '/api/integrations', token);
-    const google = (list.body as { provider: string; configured: boolean }[]).find(
-      (i) => i.provider === 'google',
+    const serper = (list.body as { provider: string; configured: boolean }[]).find(
+      (i) => i.provider === 'serper',
     );
-    expect(google?.configured).toBe(true);
-    expect(JSON.stringify(list.body)).not.toContain('GOOG-SECRET-VALUE');
+    expect(serper?.configured).toBe(true);
+    expect(JSON.stringify(list.body)).not.toContain('SERP-SECRET-VALUE');
 
     const removed = await request(app.getHttpServer())
-      .delete('/api/integrations/google')
+      .delete('/api/integrations/serper')
       .set('Authorization', `Bearer ${token}`);
     expect(removed.status).toBe(200);
 
     const after = await authGet(app, '/api/integrations', token);
     const cleared = (after.body as { provider: string; configured: boolean }[]).find(
-      (i) => i.provider === 'google',
+      (i) => i.provider === 'serper',
     );
     expect(cleared?.configured).toBe(false);
   });

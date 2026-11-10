@@ -1,0 +1,23 @@
+{
+  "name": "tradepilot-server",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "migrate": "prisma migrate dev",
+    "migrate:deploy": "prisma migrate deploy",
+    "generate": "prisma generate",
+    "seed": "tsx prisma/seed.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.16.2",
+    "bcryptjs": "^2.4.3"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^22.10.0",
+    "prisma": "^6.16.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

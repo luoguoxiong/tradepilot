@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tradepilot-postgres
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5435:5432" # 本机 5432/5433/5434 已被其他项目占用
+    environment:
+      POSTGRES_USER: tradepilot
+      POSTGRES_PASSWORD: tradepilot
+      POSTGRES_DB: tradepilot
+    volumes:
+      - tradepilot-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tradepilot -d tradepilot"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: tradepilot-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6393:6379" # 本机 6390/6391/6392 已被其他项目占用
+    volumes:
+      - tradepilot-redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  tradepilot-pgdata:
+  tradepilot-redisdata:

@@ -14,6 +14,14 @@ const EnvSchema = z.object({
   LLM_BASE_URL: z.string().default('https://api.deepseek.com/v1'),
   LLM_API_KEY: z.string().default(''),
   LLM_MODEL: z.string().default('deepseek-chat'),
+
+  // 第三方 API（无 Key 时对应 Adapter 自动降级 Mock）
+  GOOGLE_SEARCH_API_KEY: z.string().default(''),
+  GOOGLE_SEARCH_CX: z.string().default(''),
+  ADAPTER_DAILY_QUOTA_GOOGLE: z.coerce.number().int().default(100),
+  ADAPTER_DAILY_QUOTA_APOLLO: z.coerce.number().int().default(100),
+  ADAPTER_DAILY_QUOTA_CUSTOMS: z.coerce.number().int().default(100),
+  TASK_SCORE_LIMIT: z.coerce.number().int().default(10),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

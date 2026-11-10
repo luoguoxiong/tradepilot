@@ -1,13 +1,27 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
+import { AdaptersModule } from './adapters/adapters.module';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { HealthModule } from './health/health.module';
+import { IntegrationsModule } from './integrations/integrations.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { ProductsModule } from './products/products.module';
+import { RedisModule } from './redis/redis.module';
+import { TasksModule } from './tasks/tasks.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, HealthModule],
+  imports: [
+    PrismaModule,
+    RedisModule,
+    AuthModule,
+    ProductsModule,
+    IntegrationsModule,
+    AdaptersModule,
+    TasksModule,
+    HealthModule,
+  ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_GUARD, useClass: JwtAuthGuard }, // 全局鉴权：未标记 @Public 的一律 401

@@ -1,7 +1,7 @@
-import { Inject, Injectable, OnModuleDestroy } from '@nestjs/common';
-import Redis from 'ioredis';
-import { getEnv } from '../config';
+import { Inject, Injectable } from '@nestjs/common';
+
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 
 export interface HealthReport {
   status: 'ok' | 'degraded' | 'error';
@@ -11,17 +11,12 @@ export interface HealthReport {
 }
 
 @Injectable()
-export class HealthService implements OnModuleDestroy {
-  private readonly redis: Redis;
-
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {
-    // 注：tsx/esbuild 不支持 emitDecoratorMetadata，注入必须显式 @Inject(Token)
-    this.redis = new Redis(getEnv().REDIS_URL, {
-      lazyConnect: true,
-      maxRetriesPerRequest: 1,
-      enableOfflineQueue: false,
-    });
-  }
+export class HealthService {
+  constructor(
+    // 注：tsx/esbuild 不支持 emitDecoratorMetadata，注入必须显式 @Inject
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(RedisService) private readonly redis: RedisService,
+  ) {}
 
   async check(): Promise<HealthReport> {
     const db = await this.checkDb();
@@ -42,17 +37,11 @@ export class HealthService implements OnModuleDestroy {
 
   private async checkRedis(): Promise<'up' | 'down'> {
     try {
-      if (this.redis.status === 'wait' || this.redis.status === 'end' || this.redis.status === 'close') {
-        await this.redis.connect(); // lazyConnect：首次/断开后需显式建连
-      }
+      await this.redis.ensureConnected();
       const reply = await this.redis.ping();
       return reply === 'PONG' ? 'up' : 'down';
     } catch {
       return 'down';
     }
-  }
-
-  async onModuleDestroy(): Promise<void> {
-    this.redis.disconnect();
   }
 }

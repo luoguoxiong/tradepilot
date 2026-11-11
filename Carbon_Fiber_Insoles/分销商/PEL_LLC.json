@@ -1,0 +1,141 @@
+{
+  "meta": {
+    "schema_version": "1.0",
+    "generated_at": "2026-11-11T12:00:00+08:00",
+    "product": "Carbon Fiber Insoles",
+    "target_country": "United States",
+    "product_keywords": ["Carbon Fiber Shoe Insoles", "Carbon Fiber Foot Orthotics", "Performance Insoles", "Carbon Fiber Footplates"],
+    "hs_code": "Unknown",
+    "target_brands": ["VKTRY"],
+    "distributor_type": "Unknown",
+    "pipeline_version": "finder@distributor-finder-contact-enricher + investigator@importer-sourcing-investigator"
+  },
+  "company": {
+    "company_name": "PEL, LLC (PEL Supply Co)",
+    "website": "https://www.pelsupply.com/",
+    "country": "United States",
+    "city": "Cleveland, Ohio",
+    "company_type": "Distributor",
+    "business_description": "自 1959 年起分销 O&P（矫形器与假肢）用品的老牌家族分销商（由假肢师 Paul Leimkuehler 创立，现由其四位后代独立持有），面向 O&P 从业者、技师与装配师提供全球分销，在售 100,000+ 产品、来自 250+ 公司。",
+    "relevant_products": ["O&P components", "orthotic devices", "carbon composite AFO", "fabrication materials", "foot care"],
+    "aliases": ["PEL Supply Co", "Pel Supply", "PEL"]
+  },
+  "distribution": {
+    "distributor_role": "Distributor",
+    "authorized_status": "Authorized",
+    "brands_carried": ["Allard (ToeOFF 碳纤维 AFO)", "Lindhe Xtend", "SP", "Aspen Medical Products"],
+    "competitor_brands": ["Allard", "Lindhe Xtend"],
+    "china_brands_found": [],
+    "product_lines": ["orthotic & prosthetic components", "carbon composite AFO", "fabrication materials", "foot care"],
+    "coverage_area": ["United States（Cleveland 分销中心辐射全国）", "Worldwide（官网称 distributes world-wide）"],
+    "sales_channels": ["O&P 从业者/技师 B2B 分销", "在线订购 (pelsupply.com)", "展会渠道"],
+    "catalogue_url": "https://www.pelsupply.com/",
+    "onboarding_info": "面向 O&P practitioners 销售并全球分销；供应商入驻条件未公开（Unknown）",
+    "evidence_source": "PEL 官网 About 页 + Allard USA 官方分销商名录 + AllBiz 企业档案 + HealthManagement/LeadIQ 档案",
+    "evidence_url": "https://www.pelsupply.com/about"
+  },
+  "import_records": [],
+  "contacts": [
+    {
+      "contact_name": "Michael Sotak",
+      "contact_title": "President",
+      "contact_department": "Management",
+      "business_email": "Unknown",
+      "email_verification_status": "Unknown",
+      "phone": "+1 (800) 321-1264",
+      "whatsapp": "Unknown",
+      "linkedin_profile": "Unknown",
+      "contact_page": "https://www.pelsupply.com/",
+      "contact_source_url": "https://www.allbiz.com/business/pel-supply-co-800-321-1264",
+      "contact_priority": "high",
+      "note": "公开企业档案具名总裁（家族企业决策人）；推测信息，联系前需验证"
+    },
+    {
+      "contact_name": "Unknown",
+      "contact_title": "Sales",
+      "contact_department": "Sales",
+      "business_email": "sales@pelsupply.com",
+      "email_verification_status": "Unknown",
+      "phone": "+1 (800) 321-1264 / +1 (216) 267-5775",
+      "whatsapp": "Unknown",
+      "linkedin_profile": "Unknown",
+      "contact_page": "https://www.pelsupply.com/",
+      "contact_source_url": "https://www.allbiz.com/business/pel-supply-co-800-321-1264",
+      "contact_priority": "high",
+      "note": "企业档案公开销售邮箱；邮箱格式规律 FLast@pelsupply.com 可用于推测具名邮箱（未验证）"
+    }
+  ],
+  "sourcing": {
+    "investigation_status": "no_data",
+    "importer_aliases": ["PEL Supply Co", "PEL, LLC", "Pel Supply"],
+    "source_countries": [],
+    "suppliers": [],
+    "products": [],
+    "trends": {
+      "period_1y": "Unknown",
+      "period_3y": "Unknown",
+      "period_5y": "Unknown",
+      "summary": "公开海关平台未检索到 PEL 名下提单明细；其 250+ 供应商以欧美 O&P 组件品牌商为主，进口趋势无法量化",
+      "is_sample_only": true
+    },
+    "china_opportunities": [
+      {
+        "type": "oem_odm_entry",
+        "description": "PEL 全球分销的碳纤维 AFO 组件（Allard ToeOFF 等）为欧洲品牌，中国碳纤维鞋垫/足部矫形板工厂可作为 OEM 货源进入其 100,000 SKU 体系",
+        "evidence": "pelsupply.com/about 'over 100,000 products from more than 250 companies'；品牌线无中国品牌",
+        "confidence": "speculative"
+      },
+      {
+        "type": "new_product_line",
+        "description": "面向 O&P 技师与装配师，碳纤维预制矫形板/鞋垫是其 fabrication materials 线的自然延伸",
+        "evidence": "官网 About 提及服务 O&P practitioners, technicians and fitters",
+        "confidence": "speculative"
+      }
+    ],
+    "competitor_analysis": [
+      {
+        "supplier": "Allard",
+        "threat_level": "high",
+        "reason": "官方授权分销的碳纤维 AFO 品牌，占据高端碳复合材料心智"
+      },
+      {
+        "supplier": "Lindhe Xtend",
+        "threat_level": "medium",
+        "reason": "在售假肢/矫形技术品牌"
+      }
+    ],
+    "development_advice": {
+      "recommended_products": ["碳纤维矫形板（O&P 技师裁剪用半成品）", "碳纤维刚性鞋垫", "预制 AFO 板材"],
+      "target_titles": ["President (Michael Sotak)", "Purchasing/Category Manager", "Product Manager"],
+      "selling_points": ["1959 年家族企业，决策链短（President 直接决策）", "100,000 SKU 体系中 fabrication materials 类目可直接上架", "给技师提供可裁剪碳纤维板 + 成品鞋垫双形态"],
+      "outreach_angle": "以碳纤维 fabrication materials 供应商身份联系 sales@pelsupply.com 并请求转介采购；强调 250+ 供应商体系中的品类空缺（未见中国碳纤维鞋垫货源）",
+      "pricing_strategy": "技师渠道重性价比：提供中低位批发价 + 小批量灵活补货（100 双起）；备 FLast@pelsupply.com 格式推测具名邮箱（标注未验证）",
+      "follow_up_plan": "1) sales@pelsupply.com 首次触达；2) LinkedIn 检索 PEL 采购/品类岗；3) 提供样品包（全掌/3/4 掌各 2 双）",
+      "open_questions": ["是否有 minimum order", "是否接受直发（drop-ship）到 O&P 诊所", "fabrication materials 品类买手"]
+    }
+  },
+  "assessment": {
+    "match_score": 82,
+    "customer_level": "A",
+    "match_reason": "Allard USA 官方授权分销商（碳纤维 AFO ToeOFF）+ 100,000+ 产品全球分销能力 + 1959 年老牌家族企业决策链短；总裁 Michael Sotak 具名 + 销售邮箱公开，联系人完整度高；扣分项：进口提单证据缺失、无中国品牌在售、消费级运动鞋垫非其传统品类",
+    "potential_needs": "推测：fabrication materials 线需要碳纤维预制板/鞋垫类补充货源（推测，需验证）",
+    "recommended_sales_strategy": "从 'fabrication materials for O&P technicians' 角度切入而非消费零售角度；直连 President 或 sales@；小批量试单快速建立供货记录",
+    "priority_rank": 3
+  },
+  "data_confidence": "B",
+  "missing_information": [
+    "import_records: 公开海关平台未检索到提单明细（no_data）",
+    "business_email: Michael Sotak 个人邮箱未公开（仅有格式规律推测，未验证）",
+    "onboarding_info: 供应商入驻条件未公开",
+    "employees: LeadIQ 51-200 与 Crunchbase 11-50 口径冲突，未采信",
+    "founded_year: 官网 1959 与 AllBiz 1949 冲突，取官网 1959"
+  ],
+  "sources": [
+    {"source": "PEL 官网 About", "url": "https://www.pelsupply.com/about", "related_field": "company(business_description)/distribution(100,000+ products)", "confidence": "B"},
+    {"source": "Allard USA 官方分销商名录", "url": "http://allardusa.com/district-managers/distributors", "related_field": "distribution.authorized_status/address/phone", "confidence": "B"},
+    {"source": "AllBiz 企业档案", "url": "https://www.allbiz.com/business/pel-supply-co-800-321-1264", "related_field": "contacts(Michael Sotak/sales@pelsupply.com)", "confidence": "C"},
+    {"source": "HealthManagement 企业档案", "url": "https://healthmanagement.org/site/p/pel-supply-co", "related_field": "company(ownership)", "confidence": "C"},
+    {"source": "LeadIQ 企业档案", "url": "https://leadiq.com/c/pel/5a1da75c23000052009ade54", "related_field": "company(email format)", "confidence": "C"},
+    {"source": "SP 官网分销商名录", "url": "http://www.wearesp.com/distributors", "related_field": "distribution.brands_carried(SP)", "confidence": "B"}
+  ]
+}

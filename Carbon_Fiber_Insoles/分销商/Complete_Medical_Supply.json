@@ -1,0 +1,119 @@
+{
+  "meta": {
+    "schema_version": "1.0",
+    "generated_at": "2026-11-11T12:00:00+08:00",
+    "product": "Carbon Fiber Insoles",
+    "target_country": "United States",
+    "product_keywords": ["Carbon Fiber Shoe Insoles", "Carbon Fiber Foot Orthotics", "Performance Insoles", "Carbon Fiber Footplates"],
+    "hs_code": "Unknown",
+    "target_brands": ["VKTRY"],
+    "distributor_type": "Unknown",
+    "pipeline_version": "finder@distributor-finder-contact-enricher + investigator@importer-sourcing-investigator"
+  },
+  "company": {
+    "company_name": "Complete Medical Supply",
+    "website": "https://completemedsupply.com/",
+    "country": "United States",
+    "city": "Renton, Washington",
+    "company_type": "Distributor",
+    "business_description": "成立于 2020 年的医疗与骨科产品全服务分销商（隶属 Maqsumi Enterprises，关联家庭医疗机构），服务诊所、药房、家庭健康机构、康复中心与医疗用品零售商，8,000+ 产品、80+ 授权品牌、4 个分销中心、覆盖 48 州（2-4 天地面配送），具备代发货（drop-ship/盲发货）能力与 Net 30 账期，提供足部护理与矫形产品线（矫形鞋垫、足弓支撑、足跟垫、糖尿病足部护理）。",
+    "relevant_products": ["orthotic insoles", "arch support", "heel cushions", "diabetic foot care", "orthopedic braces"],
+    "aliases": ["Complete Medical Supply (Renton WA)", "Maqsumi Enterprises 分销部门"]
+  },
+  "distribution": {
+    "distributor_role": "Distributor",
+    "authorized_status": "Authorized",
+    "brands_carried": ["Spenco", "Aetrex", "Dr. Comfort", "Brace Direct", "Breg", "DeRoyal", "3M", "Dynarex", "Medline", "Hollister", "Drive Medical", "Biofreeze"],
+    "competitor_brands": ["Spenco", "Aetrex"],
+    "china_brands_found": [],
+    "product_lines": ["foot care & orthotics（矫形鞋垫/足弓支撑/足跟垫/糖尿病足护理）", "braces & orthopedic supports", "PPE", "wound care", "rehabilitation"],
+    "coverage_area": ["48 States（全美 48 州，2-4 天配送）", "4 个分销中心"],
+    "sales_channels": ["B2B 批发（诊所/药房/家庭健康/零售商）", "drop-ship 盲发货", "在线批发申请 (completemedsupply.com/account/create/)", "Net 30 账期"],
+    "catalogue_url": "https://completemedsupply.com/",
+    "onboarding_info": "批发计划要求：有效营业执照与 EIN、属医疗行业、遵守 MAP 定价政策、达到最低起订量（MOQ 值未公开）；供应商入驻条件未公开（Unknown）",
+    "evidence_source": "官网首页与 About 页（2025-11 抓取核实）+ 批发计划页",
+    "evidence_url": "https://completemedsupply.com/about"
+  },
+  "import_records": [],
+  "contacts": [
+    {
+      "contact_name": "Unknown",
+      "contact_title": "Sales / Wholesale",
+      "contact_department": "Sales",
+      "business_email": "sales@completemedsupply.com",
+      "email_verification_status": "Unknown",
+      "phone": "(800) 431-3954",
+      "whatsapp": "Unknown",
+      "linkedin_profile": "Unknown",
+      "contact_page": "https://completemedsupply.com/contact/",
+      "contact_source_url": "https://completemedsupply.com/",
+      "contact_priority": "high",
+      "note": "官网公开销售邮箱与免费电话；无具名联系人"
+    }
+  ],
+  "sourcing": {
+    "investigation_status": "no_data",
+    "importer_aliases": ["Complete Medical Supply", "Maqsumi Enterprises"],
+    "source_countries": [],
+    "suppliers": [],
+    "products": [],
+    "trends": {
+      "period_1y": "Unknown",
+      "period_3y": "Unknown",
+      "period_5y": "Unknown",
+      "summary": "公开海关平台未检索到提单明细；其货源以 80+ 授权品牌（美国品牌商直供）为主，2020 年成立且规模较小，进口趋势无法量化",
+      "is_sample_only": true
+    },
+    "china_opportunities": [
+      {
+        "type": "new_product_line",
+        "description": "其足部护理线以 Spenco/Aetrex 等美国品牌为主，碳纤维刚性鞋垫为空白品类，可作为差异化扩线（对标其在售 Spenco Total Support Max $49.99 价格带）",
+        "evidence": "官网产品页示例 Spenco Total Support Max MSRP $49.99；brands_carried 无碳纤维鞋垫品牌",
+        "confidence": "speculative"
+      }
+    ],
+    "competitor_analysis": [
+      {
+        "supplier": "Spenco",
+        "threat_level": "high",
+        "reason": "在售足护主力品牌（Implus 旗下），占据其鞋垫货架"
+      },
+      {
+        "supplier": "Aetrex",
+        "threat_level": "medium",
+        "reason": "矫形鞋垫/足部扫描生态品牌"
+      }
+    ],
+    "development_advice": {
+      "recommended_products": ["碳纤维刚性鞋垫（运动/足病双线）", "碳纤维 3/4 掌板", "糖尿病足减压垫（补充现有糖尿病足护理线）"],
+      "target_titles": ["Merchandising Manager", "Category Buyer (foot care)", "Founder/Managing Partner"],
+      "selling_points": ["填补其碳纤维品类空白（现有足护线以 EVA/凝胶为主）", "drop-ship 友好（可直发其诊所客户）", "价格带与 Spenco $49.99 形成 rigid 支撑高端互补"],
+      "outreach_angle": "通过 sales@completemedsupply.com 提交足部护理品类扩线提案：碳纤维刚性鞋垫作为 Spenco/Aetrex 之外的第三价格带；附 48 州 drop-ship 兼容方案",
+      "pricing_strategy": "零售参考价对标 $59-79（rigid 碳纤维支等级），批发价预留 MAP 与 Net 30 空间",
+      "follow_up_plan": "1) sales@ 首次触达附目录与样品申请；2) 通过 /account/create 走批发流程反向获取买手联系；3) LinkedIn 检索 Maqsumi/Complete Medical Supply 采购岗",
+      "open_questions": ["MOQ 具体数值", "是否接受直发（drop-ship）到诊所", "足护品类买手是谁"]
+    }
+  },
+  "assessment": {
+    "match_score": 73,
+    "customer_level": "B",
+    "match_reason": "官网直接核实的医疗/矫形批发分销商：足部护理与矫形产品线明确（Spenco/Aetrex/Dr. Comfort），48 州 4 仓 + drop-ship + Net 30，采购门槛清晰（EIN/MAP/MOQ）；扣分项：碳纤维鞋垫非现有品类（需新建品类对话）、2020 年新公司规模较小、无具名联系人、无进口证据",
+    "potential_needs": "推测：足部护理线需要 rigid/碳纤维支档差异化产品（其在售 Spenco Total Support Max 为热塑支撑型）",
+    "recommended_sales_strategy": "以品类扩线提案切入：碳纤维鞋垫补齐 Spenco/Aetrex 价格带之上的 rigid 档；强调 drop-ship 兼容以贴合其盲发货模式；先走批发开户流程获取买手",
+    "priority_rank": 5
+  },
+  "data_confidence": "B",
+  "missing_information": [
+    "import_records: 未检索到提单明细（no_data）",
+    "contacts: 无具名联系人",
+    "onboarding_info: MOQ 具体数值未公开；供应商入驻条件未公开",
+    "distribution.founded: 官网称 since 2020，与关联企业 Maqsumi 历史关系未核实",
+    "china_brands_found: 未发现经销中国品牌"
+  ],
+  "sources": [
+    {"source": "Complete Medical Supply 官网首页", "url": "https://completemedsupply.com/", "related_field": "company/distribution/contacts", "confidence": "B"},
+    {"source": "About 页", "url": "https://completemedsupply.com/about", "related_field": "company(business_description/since 2020)", "confidence": "B"},
+    {"source": "MAP Medical 之外的同品类参照（批发计划）", "url": "https://completemedsupply.com/", "related_field": "distribution.onboarding_info(EIN/MAP/MOQ)", "confidence": "B"},
+    {"source": "LinkedIn/官网交叉（搜索快照）", "url": "https://completemedsupply.com/about", "related_field": "distribution.brands_carried(Spenco/Aetrex/Dr. Comfort)", "confidence": "B"}
+  ]
+}

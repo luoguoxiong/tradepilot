@@ -1,0 +1,150 @@
+{
+  "meta": {
+    "schema_version": "1.0",
+    "generated_at": "2026-11-11T12:00:00+08:00",
+    "product": "Carbon Fiber Insoles",
+    "target_country": "United States",
+    "product_keywords": ["Carbon Fiber Shoe Insoles", "Carbon Fiber Foot Orthotics", "Performance Insoles", "Carbon Fiber Footplates"],
+    "hs_code": "Unknown",
+    "target_brands": ["VKTRY"],
+    "distributor_type": "Unknown",
+    "pipeline_version": "finder@distributor-finder-contact-enricher + investigator@importer-sourcing-investigator"
+  },
+  "company": {
+    "company_name": "Southern Prosthetic Supply, Inc. (SPS)",
+    "website": "https://www.spsco.com/",
+    "country": "United States",
+    "city": "Alpharetta, Georgia",
+    "company_type": "Distributor",
+    "business_description": "美国领先的 O&P（矫形器与假肢）产品分销商之一，成立于 1951 年，提供 40 万+ O&P 产品（假肢脚板、膝关节、衬套、矫形器件等），依托多个战略布局的分销中心可在 1-2 天内向数千家临床诊所供货。2013 年被 Hanger, Inc. 收购成为其产品分销板块；官网页脚现显示 SPS Co.，部分品牌官网称其已更名 Symbiont Logistics（电话与域名 spsco.com 保持不变）。",
+    "relevant_products": ["carbon composite AFO", "carbon fiber prosthetic feet", "orthotic devices", "foot care", "ankle-foot orthoses"],
+    "aliases": ["Southern Prosthetic Supply", "SPS", "SPS Co.", "Symbiont Logistics", "SPSCo"]
+  },
+  "distribution": {
+    "distributor_role": "Distributor",
+    "authorized_status": "Authorized",
+    "brands_carried": ["Trulife", "ALPS", "College Park", "EthnoCare", "Medi", "Nabtesco", "Fillauer", "Elevate", "Thuasne", "Steeper", "Allard (ToeOFF 系列)", "Aspen Medical Products", "Pro Armour", "Lindhe Xtend", "SP", "Ottobock (部分膝关节技术内容)"],
+    "competitor_brands": ["Trulife (U-Pace 碳纤维 AFO)", "Allard (ToeOFF/BlueROCKER 碳纤维 AFO)", "Ottobock"],
+    "china_brands_found": [],
+    "product_lines": ["carbon composite AFO (踝足矫形器)", "prosthetic feet (假肢脚板)", "prosthetic knees", "liners/gel cushion", "orthotic devices", "foot care"],
+    "coverage_area": ["United States (全国)", "多个战略布局的分销中心"],
+    "sales_channels": ["O&P 临床诊所 B2B 分销", "在线账户订购 (spsco.com)", "1-2 天快速配送"],
+    "catalogue_url": "https://www.spsco.com/",
+    "onboarding_info": "面向 O&P 临床诊所开户销售；供应商入驻与新品引进条件未公开，需联系客服获取（Unknown）",
+    "evidence_source": "官网 + Allard USA 官方分销商名录 + Aspen Medical Products/Pro Armour/Lindhe Xtend/SP 官网分销商名录 + Apollo/Buzzfile/Mergr 企业档案",
+    "evidence_url": "https://www.spsco.com/"
+  },
+  "import_records": [],
+  "contacts": [
+    {
+      "contact_name": "Thomas F Kirk",
+      "contact_title": "Chief Executive Officer",
+      "contact_department": "Management",
+      "business_email": "Unknown",
+      "email_verification_status": "Unknown",
+      "phone": "(678) 455-8888",
+      "whatsapp": "Unknown",
+      "linkedin_profile": "Unknown",
+      "contact_page": "https://www.spsco.com/",
+      "contact_source_url": "https://www.buzzfile.com/business/Southern-Prosthetic-Supply,-Inc.-678-455-8888",
+      "contact_priority": "high",
+      "note": "公开企业档案具名高管（管理岗），非品类/采购岗；推测信息，需进一步验证"
+    },
+    {
+      "contact_name": "Unknown",
+      "contact_title": "Customer Service",
+      "contact_department": "Sales / Customer Service",
+      "business_email": "customerservice@spsco.com",
+      "email_verification_status": "Unknown",
+      "phone": "+1 800-767-7776 (Ext. 3)",
+      "whatsapp": "Unknown",
+      "linkedin_profile": "Unknown",
+      "contact_page": "https://www.spsco.com/",
+      "contact_source_url": "https://www.lindhextend.com/us/distributors-us",
+      "contact_priority": "high",
+      "note": "官方分销名录公开的客服邮箱，多品牌官网交叉一致"
+    }
+  ],
+  "sourcing": {
+    "investigation_status": "no_data",
+    "importer_aliases": ["Southern Prosthetic Supply, Inc.", "SPS", "SPS Co.", "Symbiont Logistics"],
+    "source_countries": [],
+    "suppliers": [],
+    "products": [],
+    "trends": {
+      "period_1y": "Unknown",
+      "period_3y": "Unknown",
+      "period_5y": "Unknown",
+      "summary": "公开海关平台未检索到 SPS 名下的海运提单明细（O&P 分销商多通过空运/陆运或非公开渠道补货，或以品牌商直供为主），进口采购趋势无法量化",
+      "is_sample_only": true
+    },
+    "china_opportunities": [
+      {
+        "type": "oem_odm_entry",
+        "description": "SPS 经销的碳纤维 AFO/假肢脚板（Trulife、Allard 等）均为欧美品牌，碳纤维预制板材/鞋垫类刚性矫形件存在 OEM/ODM 代工切入空间",
+        "evidence": "spsco.com 博客推广 Trulife U-Pace 碳纤维后置式 AFO；经销品牌列表无中国品牌",
+        "confidence": "speculative"
+      },
+      {
+        "type": "new_product_line",
+        "description": "面向其数千家 O&P 诊所客户，碳纤维运动鞋垫/刚性足部矫形板可作为 'foot care' 线的补充新品类",
+        "evidence": "Prospeo/MedIndexer 档案显示其品类覆盖 foot care；官网产品线以 AFO/假肢组件为主，消费级鞋垫未见",
+        "confidence": "speculative"
+      }
+    ],
+    "competitor_analysis": [
+      {
+        "supplier": "Trulife",
+        "threat_level": "high",
+        "reason": "已在售的碳纤维 AFO 品牌（U-Pace），与碳纤维鞋垫共享材料与渠道"
+      },
+      {
+        "supplier": "Allard (ToeOFF)",
+        "threat_level": "high",
+        "reason": "SPS 为其官方授权分销商，碳复合材料 AFO 领域全球领先"
+      },
+      {
+        "supplier": "Fillauer (Hanger 旗下)",
+        "threat_level": "medium",
+        "reason": "同属 Hanger 体系的组件品牌，渠道内竞争"
+      }
+    ],
+    "development_advice": {
+      "recommended_products": ["碳纤维刚性鞋垫（全掌/3/4 掌）", "碳纤维足部矫形板", "碳复合 AFO 预制件 OEM"],
+      "target_titles": ["Category Manager", "Vendor Manager", "Merchandising Manager", "Purchasing Director"],
+      "selling_points": ["航空级碳纤维预浸料成型工艺", "MOQ 灵活 + 白牌/贴牌能力", "与在售碳纤维 AFO 形成价格带互补（消费级 vs 临床级）"],
+      "outreach_angle": "以 'carbon composite foot orthotics supplier' 身份切入其 foot care/orthotic devices 品类，提供与 Trulife U-Pace 同材料但消费级价格带的碳纤维鞋垫，帮助其覆盖运动康复/足病诊所客户",
+      "pricing_strategy": "参考其分销加价模式，给到 reseller 级批发价；提供阶梯 MOQ 报价（500/1000/5000 双）",
+      "follow_up_plan": "1) customerservice@spsco.com 首次触达申请 vendor onboarding；2) 同步 LinkedIn 检索 vendor/category 岗位；3) 提供 USD 报价单 + 碳纤维板材认证（T300/T700 级）+ 样品计划",
+      "open_questions": ["供应商入驻是否要求 FDA 注册/ISO 13485", "是否有独家区域条款", "foot care 线的品类买手是谁"]
+    }
+  },
+  "assessment": {
+    "match_score": 80,
+    "customer_level": "A",
+    "match_reason": "碳纤维矫形产品线深度匹配（经销 Trulife U-Pace 碳纤维 AFO 与碳复合假肢脚板），美国领先 O&P 分销商、多品牌官方授权身份明确（Allard/Aspen/Pro Armour/Lindhe Xtend/SP 分销名录交叉一致），全国多仓渠道 1-2 天达数千家诊所；扣分项：进口提单证据缺失、无中国品牌在售、消费级鞋垫非其现有品类（切入需新建品类对话）",
+    "potential_needs": "推测：需要碳纤维预制件/消费级碳纤维矫形鞋垫供应商，以补充其 foot care 线并承接运动康复诊所需求（推测，需验证）",
+    "recommended_sales_strategy": "以 OEM/ODM 碳纤维鞋垫+足部矫形板供应商身份申请成为 vendor；先寄样建立材料信任（对标其在售 Trulife/Allard 碳纤维产品的工艺），再谈 foot care 品类扩线；通过客服邮箱 + LinkedIn vendor manager 双路径触达",
+    "priority_rank": 2
+  },
+  "data_confidence": "B",
+  "missing_information": [
+    "import_records: 公开海关平台未检索到提单明细（no_data）",
+    "business_email: CEO 邮箱未公开",
+    "onboarding_info: 供应商入驻条件未公开",
+    "china_brands_found: 未发现经销中国品牌",
+    "employees/revenue: 第三方档案口径不一（190-201 人，营收 $11.4M 为 Apollo 单源），未采信"
+  ],
+  "sources": [
+    {"source": "SPS 官网", "url": "https://www.spsco.com/", "related_field": "company/distribution/brands_carried", "confidence": "B"},
+    {"source": "Allard USA 官方分销商名录", "url": "http://allardusa.com/district-managers/distributors", "related_field": "distribution.authorized_status/address", "confidence": "B"},
+    {"source": "Lindhe Xtend 北美分销商名录", "url": "https://www.lindhextend.com/us/distributors-us", "related_field": "contacts(customerservice@spsco.com)", "confidence": "B"},
+    {"source": "Pro Armour 官网分销商页", "url": "https://www.pro-armour.com/distributors/", "related_field": "contacts(customerservice@spsco.com)/address", "confidence": "B"},
+    {"source": "Aspen Medical Products Contact 页", "url": "https://aspenmp.com/pages/contact", "related_field": "distribution.brands_carried", "confidence": "B"},
+    {"source": "Buzzfile 企业档案", "url": "https://www.buzzfile.com/business/Southern-Prosthetic-Supply,-Inc.-678-455-8888", "related_field": "contacts(Thomas F Kirk)", "confidence": "C"},
+    {"source": "Apollo 公司档案", "url": "https://www.apollo.io/companies/SPS/5d335ef6a3ae613d273ce2d7", "related_field": "company(business_description/founded)", "confidence": "C"},
+    {"source": "ContactOut 公司档案", "url": "https://contactout.com/company/sps-6215175", "related_field": "company(business_description)", "confidence": "C"},
+    {"source": "Mergr 收购记录", "url": "https://mergr.com/company/southern-prosthetic-supply", "related_field": "company(aliases/ownership)", "confidence": "C"},
+    {"source": "SP 足护官网分销商名录（更名线索）", "url": "http://www.wearesp.com/distributors", "related_field": "company.aliases(Symbiont Logistics)", "confidence": "C"}
+  ]
+}

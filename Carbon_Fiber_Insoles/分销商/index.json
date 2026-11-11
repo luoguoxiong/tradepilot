@@ -1,0 +1,87 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-11-11T12:30:00+08:00",
+  "product": "Carbon Fiber Insoles",
+  "target_country": "United States",
+  "stats": {
+    "total_candidates": 15,
+    "investigated": 6,
+    "level_counts": {"A": 3, "B": 2, "C": 1, "D": 0},
+    "contacts_verified": 0,
+    "with_import_records": 1
+  },
+  "distributors": [
+    {
+      "company_name": "Cascade Orthopedic Supply, LP",
+      "distributor_slug": "Cascade_Orthopedic_Supply_LP",
+      "customer_level": "A",
+      "match_score": 85,
+      "authorized_status": "Authorized",
+      "investigation_status": "completed",
+      "contact_count": 2,
+      "china_supplier_found": false,
+      "json_file": "Cascade_Orthopedic_Supply_LP.json",
+      "md_file": "Cascade_Orthopedic_Supply_LP.md"
+    },
+    {
+      "company_name": "PEL, LLC (PEL Supply Co)",
+      "distributor_slug": "PEL_LLC",
+      "customer_level": "A",
+      "match_score": 82,
+      "authorized_status": "Authorized",
+      "investigation_status": "completed",
+      "contact_count": 2,
+      "china_supplier_found": false,
+      "json_file": "PEL_LLC.json",
+      "md_file": "PEL_LLC.md"
+    },
+    {
+      "company_name": "Southern Prosthetic Supply, Inc. (SPS)",
+      "distributor_slug": "Southern_Prosthetic_Supply",
+      "customer_level": "A",
+      "match_score": 80,
+      "authorized_status": "Authorized",
+      "investigation_status": "completed",
+      "contact_count": 2,
+      "china_supplier_found": false,
+      "json_file": "Southern_Prosthetic_Supply.json",
+      "md_file": "Southern_Prosthetic_Supply.md"
+    },
+    {
+      "company_name": "Complete Medical Supplies, Inc.",
+      "distributor_slug": "Complete_Medical_Supplies_Inc",
+      "customer_level": "B",
+      "match_score": 76,
+      "authorized_status": "Authorized",
+      "investigation_status": "completed",
+      "contact_count": 1,
+      "china_supplier_found": false,
+      "json_file": "Complete_Medical_Supplies_Inc.json",
+      "md_file": "Complete_Medical_Supplies_Inc.md"
+    },
+    {
+      "company_name": "Complete Medical Supply",
+      "distributor_slug": "Complete_Medical_Supply",
+      "customer_level": "B",
+      "match_score": 73,
+      "authorized_status": "Authorized",
+      "investigation_status": "completed",
+      "contact_count": 1,
+      "china_supplier_found": false,
+      "json_file": "Complete_Medical_Supply.json",
+      "md_file": "Complete_Medical_Supply.md"
+    },
+    {
+      "company_name": "Noble Rider LLC",
+      "distributor_slug": "Noble_Rider_LLC",
+      "customer_level": "C",
+      "match_score": 58,
+      "authorized_status": "Unknown",
+      "investigation_status": "completed",
+      "contact_count": 1,
+      "china_supplier_found": true,
+      "json_file": "Noble_Rider_LLC.json",
+      "md_file": "Noble_Rider_LLC.md"
+    }
+  ]
+}

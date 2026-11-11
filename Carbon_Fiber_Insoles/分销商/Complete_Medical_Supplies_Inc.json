@@ -1,0 +1,121 @@
+{
+  "meta": {
+    "schema_version": "1.0",
+    "generated_at": "2026-11-11T12:00:00+08:00",
+    "product": "Carbon Fiber Insoles",
+    "target_country": "United States",
+    "product_keywords": ["Carbon Fiber Shoe Insoles", "Carbon Fiber Foot Orthotics", "Performance Insoles", "Carbon Fiber Footplates"],
+    "hs_code": "Unknown",
+    "target_brands": ["VKTRY"],
+    "distributor_type": "Unknown",
+    "pipeline_version": "finder@distributor-finder-contact-enricher + investigator@importer-sourcing-investigator"
+  },
+  "company": {
+    "company_name": "Complete Medical Supplies, Inc.",
+    "website": "https://www.completemedical.com/",
+    "country": "United States",
+    "city": "Suffern, New York",
+    "company_type": "Wholesaler",
+    "business_description": "成立于 1988 年的医疗保健产品制造商、进口商、总批发商（master wholesaler）、出口商与产品采购专家，经营 14,000+ 医疗、家庭护理、人体工学与健康产品（LinkedIn 口径 12,000+ 产品、500 家供应商），拥有自有品牌 Blue Jay，80,000 平方英尺纽约仓库，仅向授权经销商（authorized resellers）销售，宣传 'no minimum' 与当日发货。",
+    "relevant_products": ["healthcare products", "homecare", "ergonomic products", "foot care", "general consumables"],
+    "aliases": ["Complete Medical", "Complete Medical Supplies Inc"]
+  },
+  "distribution": {
+    "distributor_role": "Wholesaler",
+    "authorized_status": "Authorized",
+    "brands_carried": ["Blue Jay (自有品牌)", "500 家供应商品牌（官网称 12,000+ 产品）"],
+    "competitor_brands": [],
+    "china_brands_found": [],
+    "product_lines": ["medical & homecare products", "foot care（目录含通用足部护理类）", "ergonomic products", "general consumables"],
+    "coverage_area": ["United States（全国授权经销商网络）", "Worldwide（出口业务）"],
+    "sales_channels": ["authorized resellers（授权经销商专属批发）", "Complete-Connect 在线订货系统", "当日发货仓配"],
+    "catalogue_url": "https://www.completemedical.com/",
+    "onboarding_info": "仅向授权经销商（authorized resellers）销售，需经销商资质；供应商入驻条件未公开（Unknown）",
+    "evidence_source": "官网 Company Overview + LinkedIn 公司页 + FirmsLedger/MedIndexer/Medicalsdir 企业档案",
+    "evidence_url": "https://www.completemedical.com/index.php?act=showCompanyOverview"
+  },
+  "import_records": [],
+  "contacts": [
+    {
+      "contact_name": "Unknown",
+      "contact_title": "Sales / Wholesale Account",
+      "contact_department": "Sales",
+      "business_email": "Unknown",
+      "email_verification_status": "Unknown",
+      "phone": "+1 800-242-2674",
+      "whatsapp": "Unknown",
+      "linkedin_profile": "Unknown",
+      "contact_page": "https://www.completemedical.com/",
+      "contact_source_url": "https://www.medicalsdir.com/listing/complete-medical-supplies-inc",
+      "contact_priority": "medium",
+      "note": "企业档案公开销售热线；无具名联系人，需通过总机转介 vendor/采购岗"
+    }
+  ],
+  "sourcing": {
+    "investigation_status": "no_data",
+    "importer_aliases": ["Complete Medical Supplies, Inc.", "Complete Medical"],
+    "source_countries": [],
+    "suppliers": [],
+    "products": [],
+    "trends": {
+      "period_1y": "Unknown",
+      "period_3y": "Unknown",
+      "period_5y": "Unknown",
+      "summary": "虽被第三方档案（FirmsLedger）明确标注为 importer，但公开海关平台未检索到其名下提单明细，进口来源无法量化（可能以空运/陆运或代理进口为主）",
+      "is_sample_only": true
+    },
+    "china_opportunities": [
+      {
+        "type": "oem_odm_entry",
+        "description": "该公司以自有品牌 Blue Jay 制造+贴牌模式运营，碳纤维鞋垫/足部矫形件可作为 Blue Jay 品类扩张的 OEM 项目",
+        "evidence": "FirmsLedger 档案 'manufactures its own Blue Jay brand'；官网 self-description 含 product source specialist",
+        "confidence": "speculative"
+      },
+      {
+        "type": "china_replacement",
+        "description": "其 500 供应商体系中补入中国碳纤维鞋垫直供源头，替代中间贸易商拿货",
+        "evidence": "LinkedIn '500 Vendors'；importer 身份明确",
+        "confidence": "speculative"
+      }
+    ],
+    "competitor_analysis": [
+      {
+        "supplier": "Blue Jay（自有品牌）",
+        "threat_level": "medium",
+        "reason": "自有品牌体系意味着倾向 OEM 贴牌而非代理第三方品牌"
+      }
+    ],
+    "development_advice": {
+      "recommended_products": ["碳纤维鞋垫（Blue Jay 贴牌）", "足部矫形垫", "人体工学足部产品"],
+      "target_titles": ["Vendor Manager", "Sourcing Manager", "Product Development Manager"],
+      "selling_points": ["OEM/ODM 贴牌能力契合 Blue Jay 自有品牌模式", "'no minimum' 零售端政策意味着其需要灵活 MOQ 供应商", "1988 年老牌总批发商，渠道复用价值高"],
+      "outreach_angle": "以 OEM 供应商身份提供碳纤维鞋垫贴牌方案（Blue Jay brand），通过 800 总机转介 sourcing/vendor 岗；强调 product source specialist 定位下的源头直供优势",
+      "pricing_strategy": "贴牌模式报 FOB 价 + 分级包装/私标服务费；其 authorized reseller 模式重视价盘保护（MAP），报价需预留渠道加价空间",
+      "follow_up_plan": "1) 800-242-2674 转采购/新品引进岗；2) LinkedIn 检索该公司 vendor/sourcing 岗位；3) 提交 Blue Jay 风格贴牌产品提案（含包装设计）",
+      "open_questions": ["Blue Jay 是否已有足部矫形线", "进口自采还是供应商直发仓", "新品引进决策流程"]
+    }
+  },
+  "assessment": {
+    "match_score": 76,
+    "customer_level": "B",
+    "match_reason": "1988 年老牌 master wholesaler/importer，14,000+ 产品 + 500 供应商 + 全国授权经销商网络 + worldwide 出口；自有品牌 Blue Jay 制造模式对 OEM 贴牌供应商友好（'no minimum' 政策）；扣分项：足部护理/碳纤维鞋垫非其核心品类（目录以通用医疗耗品为主）、无具名联系人、无提单明细",
+    "potential_needs": "推测：需要 OEM 贴牌货源扩充 Blue Jay 自有品牌线（推测，需验证）",
+    "recommended_sales_strategy": "走 OEM/贴牌路线而非品牌代理路线；以 'product source specialist' 的采购逻辑触达；小 MOQ + 当日发货要求需在产能侧预先匹配",
+    "priority_rank": 4
+  },
+  "data_confidence": "B",
+  "missing_information": [
+    "import_records: 未检索到提单明细（importer 身份为档案标注，无量化数据）",
+    "contacts: 无具名联系人（仅总机）",
+    "onboarding_info: 供应商入驻条件未公开",
+    "product_lines: 足部护理/鞋垫类具体 SKU 未核实（仅类别推断）",
+    "china_brands_found: 未发现经销中国品牌"
+  ],
+  "sources": [
+    {"source": "Complete Medical 官网 Company Overview", "url": "https://www.completemedical.com/index.php?act=showCompanyOverview", "related_field": "company/distribution", "confidence": "B"},
+    {"source": "LinkedIn 公司页", "url": "https://www.linkedin.com/company/complete-medical-supplies-inc-", "related_field": "company(12,000 products/500 vendors)", "confidence": "C"},
+    {"source": "FirmsLedger 企业档案", "url": "https://www.firmsledger.com/company/complete-medical-supply-inc", "related_field": "company(importer/Blue Jay)", "confidence": "C"},
+    {"source": "MedIndexer 企业目录", "url": "https://medindexer.com/directory/complete-medical-suppliesinc", "related_field": "company(80,000 sqft)", "confidence": "C"},
+    {"source": "Medicalsdir 企业档案", "url": "https://www.medicalsdir.com/listing/complete-medical-supplies-inc", "related_field": "contacts(phone)", "confidence": "C"}
+  ]
+}

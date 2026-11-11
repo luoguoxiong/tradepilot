@@ -1,0 +1,144 @@
+{
+  "meta": {
+    "schema_version": "1.0",
+    "generated_at": "2026-11-11T12:00:00+08:00",
+    "product": "Carbon Fiber Insoles",
+    "target_country": "United States",
+    "product_keywords": ["Carbon Fiber Shoe Insoles", "Carbon Fiber Foot Orthotics", "Performance Insoles", "Carbon Fiber Footplates"],
+    "hs_code": "Unknown",
+    "target_brands": ["VKTRY"],
+    "distributor_type": "Unknown",
+    "pipeline_version": "finder@distributor-finder-contact-enricher + investigator@importer-sourcing-investigator"
+  },
+  "company": {
+    "company_name": "Cascade Orthopedic Supply, LP",
+    "website": "https://www.cascade-usa.com/",
+    "country": "United States",
+    "city": "Chico, California",
+    "company_type": "Distributor",
+    "business_description": "北美最大的独立 O&P（矫形器与假肢）产品批发分销商，服务行业超过 50 年（1974 年成立口径与 'over 51 years' 口径并存），向北美矫形与假肢服务提供者供应 300+ 供应商的广泛产品线（矫形器、假肢、材料、设备、足部护理）。在美国设有 3 个战略布局的分销中心。",
+    "relevant_products": ["orthotics", "prosthetics", "foot care", "casting", "pediatrics", "fabrication tools"],
+    "aliases": ["Cascade Orthopedic Supply, Inc.", "Cascade"]
+  },
+  "distribution": {
+    "distributor_role": "Distributor",
+    "authorized_status": "Authorized",
+    "brands_carried": ["Allard (ToeOFF 碳纤维 AFO)", "Camp Healthcare", "Aspen Medical Products", "BioSkin", "Lindhe Xtend"],
+    "competitor_brands": ["Allard", "Aspen", "BioSkin"],
+    "china_brands_found": [],
+    "product_lines": ["orthotic & prosthetic components", "carbon composite AFO (ToeOFF)", "foot care", "casting supplies", "fabrication materials", "patient aids"],
+    "coverage_area": ["North America（美国全国 + 加拿大）", "3 个美国境内分销中心"],
+    "sales_channels": ["O&P 临床诊所/技师 B2B 分销", "展会渠道（AAOP 2025 参展）", "在线订购"],
+    "catalogue_url": "https://www.cascade-usa.com/",
+    "onboarding_info": "面向 O&P 社区批发销售；供应商入驻与新品引进条件未公开（Unknown）",
+    "evidence_source": "Allard USA 官方分销商名录 + Aspen Medical Products 官网 + The O&P EDGE（Camp 产品线分销公告）+ AAOP 2025 展会资料 + MedIndexer/Prospeo 企业档案",
+    "evidence_url": "http://allardusa.com/district-managers/distributors"
+  },
+  "import_records": [],
+  "contacts": [
+    {
+      "contact_name": "Bill Belser",
+      "contact_title": "Purchasing Director",
+      "contact_department": "Purchasing",
+      "business_email": "Unknown",
+      "email_verification_status": "Unknown",
+      "phone": "+1 800-888-0865",
+      "whatsapp": "Unknown",
+      "linkedin_profile": "Unknown",
+      "contact_page": "https://www.cascade-usa.com/",
+      "contact_source_url": "https://prospeo.io/c/cascade-orthopedic-supply",
+      "contact_priority": "high",
+      "note": "第三方联系人数据库（Prospeo）列出的采购总监，为最直接的引进新品决策岗；推测信息，联系前需验证"
+    },
+    {
+      "contact_name": "Unknown",
+      "contact_title": "Orders / Customer Service",
+      "contact_department": "Sales",
+      "business_email": "orders@cascade-usa.com",
+      "email_verification_status": "Unknown",
+      "phone": "+1 800-888-0865 / +1 (530) 879-1500",
+      "whatsapp": "Unknown",
+      "linkedin_profile": "Unknown",
+      "contact_page": "https://www.cascade-usa.com/",
+      "contact_source_url": "https://www.lindhextend.com/us/distributors-us",
+      "contact_priority": "medium",
+      "note": "品牌官网北美分销名录公开的订购邮箱"
+    }
+  ],
+  "sourcing": {
+    "investigation_status": "no_data",
+    "importer_aliases": ["Cascade Orthopedic Supply, LP", "Cascade Orthopedic Supply, Inc.", "Cascade"],
+    "source_countries": [],
+    "suppliers": [],
+    "products": [],
+    "trends": {
+      "period_1y": "Unknown",
+      "period_3y": "Unknown",
+      "period_5y": "Unknown",
+      "summary": "公开海关平台未检索到 Cascade 名下提单明细，进口采购趋势无法量化；其 300+ 供应商结构以 O&P 组件品牌商为主",
+      "is_sample_only": true
+    },
+    "china_opportunities": [
+      {
+        "type": "oem_odm_entry",
+        "description": "作为北美最大独立 O&P 分销商，其经销的碳纤维矫形组件（Allard ToeOFF 等）为欧洲品牌，碳纤维鞋垫/足部矫形板可由中国工厂 OEM 供货形成价格互补",
+        "evidence": "MedIndexer 档案 'largest independently owned O&P distributor in North America'；品牌线无中国品牌",
+        "confidence": "speculative"
+      },
+      {
+        "type": "new_product_line",
+        "description": "其 Foot Care 品类关键词已确认（Prospeo SIC 关键词含 Foot Care），碳纤维运动鞋垫可作为 foot care 线扩品",
+        "evidence": "Prospeo 档案 Keywords 含 Foot Care",
+        "confidence": "speculative"
+      }
+    ],
+    "competitor_analysis": [
+      {
+        "supplier": "Allard",
+        "threat_level": "high",
+        "reason": "官方授权分销的在售碳纤维 AFO 品牌（ToeOFF），与碳纤维鞋垫材料同源"
+      },
+      {
+        "supplier": "Aspen Medical Products",
+        "threat_level": "medium",
+        "reason": "在售矫形支具品牌，占据临床预算"
+      }
+    ],
+    "development_advice": {
+      "recommended_products": ["碳纤维刚性鞋垫", "碳纤维 3/4 掌矫形板", "足病诊所用预制碳纤维矫形件"],
+      "target_titles": ["Purchasing Director (Bill Belser)", "Vendor/Category Manager", "Product Manager"],
+      "selling_points": ["北美最大独立 O&P 分销商的补充货源", "碳纤维 T700 级预浸料成型 + 可裁剪尺寸体系", "比欧洲品牌（Allard/Trulife）更优的到岸价"],
+      "outreach_angle": "直接联系 Purchasing Director Bill Belser，以碳纤维 foot care 组件供应商身份报价，强调与其在售 ToeOFF 碳纤维 AFO 的材料同源性及消费级价格带互补",
+      "pricing_strategy": "给到低于欧洲品牌 30-40% 的 FOB/CIF 报价，300+ 供应商体系意味着其习惯比价采购；提供首单样品免板",
+      "follow_up_plan": "1) orders@cascade-usa.com 转介至采购；2) LinkedIn 验证 Bill Belser 现任状态；3) AAOP 2026 展会跟进",
+      "open_questions": ["新品类是否需要临床端背书（DPM/O&P 从业者推荐）", "是否只做授权分销（exclusive）", "foot care 线供应商构成"]
+    }
+  },
+  "assessment": {
+    "match_score": 85,
+    "customer_level": "A",
+    "match_reason": "北美最大独立 O&P 分销商 + Foot Care 品类关键词确认 + 碳纤维 AFO 官方授权分销（Allard ToeOFF）材料深度匹配；多品牌官方分销身份由 Allard/Aspen/O&P EDGE 三个独立来源交叉确认；并已具名采购总监 Bill Belser（Purchasing Director），联系人完整度为 6 家最高；扣分项：进口提单证据缺失、无中国品牌在售",
+    "potential_needs": "推测：需要 foot care/碳纤维矫形件的补充货源以扩大其 300+ 供应商产品线（推测，需验证）",
+    "recommended_sales_strategy": "以碳纤维 foot care 组件供应商身份直接触达采购总监；强调材料工艺对标 Allard ToeOFF + 价格带互补；先小批量试单进入其 3 个分销中心体系",
+    "priority_rank": 1
+  },
+  "data_confidence": "B",
+  "missing_information": [
+    "import_records: 公开海关平台未检索到提单明细（no_data）",
+    "business_email: Bill Belser 个人邮箱未公开",
+    "onboarding_info: 供应商入驻条件未公开",
+    "china_brands_found: 未发现经销中国品牌",
+    "founded_year: 1974（Prospeo）与 'over 51 years'（AAOP 2025）口径并存，取 1974 但标注存疑"
+  ],
+  "sources": [
+    {"source": "Allard USA 官方分销商名录", "url": "http://allardusa.com/district-managers/distributors", "related_field": "distribution.authorized_status/address/phone", "confidence": "B"},
+    {"source": "AAOP 2025 展会参展商资料", "url": "https://aaop2025.eventscribe.net/fsPopup.asp?BoothID=722976&mode=exhibitorInfo", "related_field": "company(business_description)/distribution(3 分销中心)", "confidence": "B"},
+    {"source": "MedIndexer 企业目录", "url": "https://medindexer.com/directory/cascade-orthopedic-supply-lp", "related_field": "company(largest independently owned)", "confidence": "C"},
+    {"source": "Prospeo 企业档案（含采购总监）", "url": "https://prospeo.io/c/cascade-orthopedic-supply", "related_field": "contacts(Bill Belser)/product_lines(Foot Care)", "confidence": "C"},
+    {"source": "Lindhe Xtend 北美分销商名录", "url": "https://www.lindhextend.com/us/distributors-us", "related_field": "contacts(orders@cascade-usa.com)/fax", "confidence": "B"},
+    {"source": "The O&P EDGE 产品分销公告", "url": "https://opedge.com/product_showcase/camp-orthotic-products-distributed-by-cascade", "related_field": "distribution.brands_carried(Camp/ToeOFF)", "confidence": "B"},
+    {"source": "Cascade OP Blog", "url": "https://cascadeopblog.com/2016/07/18/who-is-cascade/", "related_field": "company(300+ suppliers)", "confidence": "C"},
+    {"source": "Aspen Medical Products Contact 页", "url": "https://aspenmp.com/pages/contact", "related_field": "distribution.brands_carried", "confidence": "B"},
+    {"source": "MedicRegister 供应商档案", "url": "https://www.medicregister.com/Cascade_Orthopedic_Supply/Supplier/sid6592.htm", "related_field": "company(address/phone)", "confidence": "C"}
+  ]
+}

@@ -1,0 +1,211 @@
+{
+  "meta": {
+    "schema_version": "1.0",
+    "generated_at": "2026-11-11T12:00:00+08:00",
+    "product": "Carbon Fiber Insoles",
+    "target_country": "United States",
+    "product_keywords": ["Carbon Fiber Shoe Insoles", "Carbon Fiber Foot Orthotics", "Performance Insoles", "Carbon Fiber Footplates"],
+    "hs_code": "Unknown",
+    "target_brands": ["VKTRY"],
+    "distributor_type": "Unknown",
+    "pipeline_version": "finder@distributor-finder-contact-enricher + investigator@importer-sourcing-investigator"
+  },
+  "company": {
+    "company_name": "Noble Rider LLC",
+    "website": "Unknown",
+    "country": "United States",
+    "city": "Modesto, California",
+    "company_type": "Importer",
+    "business_description": "位于加州 Modesto 的进口买家（提单地址 4300 Spyres Way / 4335 North Star Way Building D），自 2006 年 11 月至 2026 年 10 月累计 1,658 票美国进口提单，10 个贸易伙伴，主要伙伴为渭南高新技术产业开发区明煌（Weinan Hi-tech District Minghuang），主要港口上海；近期持续从中国进口鞋垫类商品（MEN'S BEST DANG INSOLES GEL SUPPORT / COOL FLOW 凝胶支撑鞋垫），并从孟加拉、浙江等地进口其他品类。",
+    "relevant_products": ["gel support insoles", "cool flow insoles", "shoe insoles"],
+    "aliases": ["Noble Rider Llc", "NOBLE RIDER LLC"]
+  },
+  "distribution": {
+    "distributor_role": "Unknown",
+    "authorized_status": "Unknown",
+    "brands_carried": [],
+    "competitor_brands": [],
+    "china_brands_found": [],
+    "product_lines": ["insoles（凝胶支撑/ Cool Flow 鞋垫，自有规格 PO 采购）"],
+    "coverage_area": ["Unknown（销售渠道未公开）"],
+    "sales_channels": ["Unknown"],
+    "catalogue_url": "Unknown",
+    "onboarding_info": "Unknown",
+    "evidence_source": "海关提单数据（52wmb/Panjiva/ImportGenius 三平台交叉）",
+    "evidence_url": "https://www.importgenius.com/cn/importers/noble-rider-llc"
+  },
+  "import_records": [
+    {
+      "supplier_names": ["Urick Sports Equipment Co., Limited"],
+      "supplier_countries": ["China"],
+      "shipment_date": "2026-02-28",
+      "product_description": "MEN'S BEST DANG INSOLES GEL SUPPORT MEDIUM ARCH / HIGH ARCH（凝胶支撑鞋垫，高低足弓两版）",
+      "hs_code": "Unknown",
+      "quantity": "Unknown",
+      "weight": "5200 kg",
+      "trade_value": "Unknown",
+      "bill_of_lading": "OERT202715P00049",
+      "evidence_source": "52wmb（外贸邦）",
+      "evidence_url": "https://m.52wmb.com/supplier/87211110"
+    },
+    {
+      "supplier_names": ["Urick Sports Equipment Co., Limited"],
+      "supplier_countries": ["China"],
+      "shipment_date": "2025-06-16",
+      "product_description": "MEN'S BEST DANG INSOLES COOL FLOW PO# 008381",
+      "hs_code": "Unknown",
+      "quantity": "302 CTN",
+      "weight": "4430 kg",
+      "trade_value": "Unknown",
+      "bill_of_lading": "OERT202715Y00176",
+      "evidence_source": "ImportGenius",
+      "evidence_url": "https://www.importgenius.com/suppliers/urick-sports-equipment-co-ltd"
+    },
+    {
+      "supplier_names": ["Urick Sports Equipment Co., Limited"],
+      "supplier_countries": ["China"],
+      "shipment_date": "2025-05-20",
+      "product_description": "MEN'S BEST DANG INSOLES COOL FLOW PO# 008007",
+      "hs_code": "Unknown",
+      "quantity": "37 CTN",
+      "weight": "511 kg",
+      "trade_value": "Unknown",
+      "bill_of_lading": "OERT202715O00048",
+      "evidence_source": "ImportGenius",
+      "evidence_url": "https://www.importgenius.com/suppliers/urick-sports-equipment-co-ltd"
+    },
+    {
+      "supplier_names": ["Salim And Brothers Ltd"],
+      "supplier_countries": ["Bangladesh"],
+      "shipment_date": "Unknown",
+      "product_description": "自孟加拉吉大港经新加坡至美国的散货（16,449 kg / 993 CTN，品类待核）",
+      "hs_code": "Unknown",
+      "quantity": "993 CTN",
+      "weight": "16449 kg",
+      "trade_value": "Unknown",
+      "bill_of_lading": "Unknown",
+      "evidence_source": "Panjiva",
+      "evidence_url": "https://panjiva.com/Noble-Rider-Llc/44335960"
+    },
+    {
+      "supplier_names": ["Changzhou Heshunxing Safety And Industrial Supplies Manufacturing Co., Ltd."],
+      "supplier_countries": ["China"],
+      "shipment_date": "2025-08-12",
+      "product_description": "常州合兴兴安全工业用品（品类待核）",
+      "hs_code": "Unknown",
+      "quantity": "Unknown",
+      "weight": "Unknown",
+      "trade_value": "Unknown",
+      "bill_of_lading": "Unknown",
+      "evidence_source": "Panjiva",
+      "evidence_url": "https://panjiva.com/Adm-Europoort-B-V/1044214"
+    },
+    {
+      "supplier_names": ["Haining Joy Trading Co., Ltd."],
+      "supplier_countries": ["China"],
+      "shipment_date": "2025-10-29",
+      "product_description": "浙江海宁贸易货物（品类待核）",
+      "hs_code": "Unknown",
+      "quantity": "Unknown",
+      "weight": "Unknown",
+      "trade_value": "Unknown",
+      "bill_of_lading": "Unknown",
+      "evidence_source": "Panjiva",
+      "evidence_url": "https://cn.panjiva.com/Haining-Joy-Trading-Co-Ltd/44625316"
+    }
+  ],
+  "contacts": [
+    {
+      "contact_name": "Unknown",
+      "contact_title": "Unknown",
+      "contact_department": "Unknown",
+      "business_email": "Unknown",
+      "email_verification_status": "Unknown",
+      "phone": "Unknown",
+      "whatsapp": "Unknown",
+      "linkedin_profile": "Unknown",
+      "contact_page": "Unknown",
+      "contact_source_url": "https://www.importgenius.com/cn/importers/noble-rider-llc",
+      "contact_priority": "medium",
+      "note": "公开渠道未获取到任何联系人；地址 4300 Spyres Way, Modesto, CA 95356 可作信件触达；需 LinkedIn/官网补挖"
+    }
+  ],
+  "sourcing": {
+    "investigation_status": "completed",
+    "importer_aliases": ["Noble Rider LLC", "Noble Rider Llc"],
+    "source_countries": [
+      {"country": "China", "supplier_count": 3, "shipment_count": "Unknown（部分）", "main_products": "gel support insoles / cool flow insoles 及其他"},
+      {"country": "Bangladesh", "supplier_count": 1, "shipment_count": "Unknown", "main_products": "散货（待核）"}
+    ],
+    "suppliers": [
+      {"name": "Urick Sports Equipment Co., Limited", "country": "China", "products": ["gel support insoles", "cool flow insoles"], "shipment_count": ">=3", "first_shipment": "2025-05-20", "last_shipment": "2026-02-28", "relationship_type": "core", "is_china_supplier": true},
+      {"name": "Weinan Hi-tech District Minghuang (渭南明煌)", "country": "China", "products": ["Unknown（主要贸易伙伴）"], "shipment_count": "Unknown", "first_shipment": "Unknown", "last_shipment": "Unknown", "relationship_type": "core", "is_china_supplier": true},
+      {"name": "Salim And Brothers Ltd", "country": "Bangladesh", "products": ["Unknown"], "shipment_count": "Unknown", "first_shipment": "Unknown", "last_shipment": "Unknown", "relationship_type": "supporting", "is_china_supplier": false},
+      {"name": "Changzhou Heshunxing Safety And Industrial Supplies Manufacturing Co., Ltd.", "country": "China", "products": ["Unknown"], "shipment_count": "Unknown", "first_shipment": "Unknown", "last_shipment": "2025-08-12", "relationship_type": "alternative", "is_china_supplier": true},
+      {"name": "Haining Joy Trading Co., Ltd.", "country": "China", "products": ["Unknown"], "shipment_count": "Unknown", "first_shipment": "Unknown", "last_shipment": "2025-10-29", "relationship_type": "alternative", "is_china_supplier": true}
+    ],
+    "products": [
+      {"category": "finished_goods", "descriptions": ["MEN'S BEST DANG INSOLES GEL SUPPORT MEDIUM ARCH/HIGH ARCH", "MEN'S BEST DANG INSOLES COOL FLOW"], "hs_code": "Unknown", "notes": "男式凝胶支撑鞋垫，含 PO 编号体系，显示自有规格贴牌采购"}
+    ],
+    "trends": {
+      "period_1y": "鞋垫类 2025-05 至 2026-02 至少 3 票、累计 9+ 吨，采购连续且单票规模从 511kg 放大到 5200kg，呈增长趋势（样本口径，仅统计鞋垫关键词命中票）",
+      "period_3y": "Unknown",
+      "period_5y": "Unknown（2006-2026 全周期 1,658 票，但品类结构未全量核实）",
+      "summary": "鞋垫品类为活跃且增长的采购线：供应商固定为中国供应商（Urick Sports），PO 编号体系显示自有品牌贴牌模式；主要伙伴渭南明煌提示其他采购线；数据为关键词抽样，非全量",
+      "is_sample_only": true
+    },
+    "china_opportunities": [
+      {
+        "type": "existing_china_supplier",
+        "description": "已有中国鞋垫供应商（Urick Sports Equipment，盐田港出运）与主要贸易伙伴（渭南明煌），属现成中国供应链买家",
+        "evidence": "ImportGenius/52wmb 提单明细",
+        "confidence": "confirmed"
+      },
+      {
+        "type": "china_replacement",
+        "description": "其鞋垫为凝胶支撑型（非碳纤维），碳纤维鞋垫供应商可作为品类升级选项切入其 PO 采购体系",
+        "evidence": "提单货描均为 GEL SUPPORT/COOL FLOW，未见碳纤维（carbon/fiber plate）关键词",
+        "confidence": "probable"
+      }
+    ],
+    "competitor_analysis": [
+      {
+        "supplier": "Urick Sports Equipment Co., Limited",
+        "threat_level": "high",
+        "reason": "现任鞋垫核心供应商，连续供船且单票规模增长"
+      }
+    ],
+    "development_advice": {
+      "recommended_products": ["碳纤维鞋垫（对其凝胶产品线的升级替代）", "凝胶+碳纤维复合支撑鞋垫", "COOL FLOW 同款升级版"],
+      "target_titles": ["Owner / Import Manager / Buyer"],
+      "selling_points": ["碳纤维刚性支撑升级其现有凝胶线（功能差异化）", "同港出运（盐田/上海）物流路径一致", "MOQ 对标现有 37-302 CTN 单票规模"],
+      "outreach_angle": "Modesto 地址信函 + LinkedIn 检索 Noble Rider 员工；以'现有供应商升级方案'角度切入其 PO 贴牌体系",
+      "pricing_strategy": "对标其凝胶鞋垫采购成本上浮 30-50% 提供碳纤维升级版报价；按 CTN 规模阶梯报价",
+      "follow_up_plan": "1) LinkedIn 搜索 Noble Rider Modesto 员工；2) 查企业注册信息（CA Secretary of State）获取法人；3) 提供凝胶-碳纤维复合样品",
+      "open_questions": ["公司官网/品牌名（提单未见品牌）", "销售渠道（电商/批发/零售）", "渭南明煌供应的品类"]
+    }
+  },
+  "assessment": {
+    "match_score": 58,
+    "customer_level": "C",
+    "match_reason": "鞋垫品类真实活跃买家：1,658 票提单 + 鞋垫线 2025-05 起 3+ 票且规模增长 + 核心中国供应商明确，进口证据为 6 家中最强；但公司本身非分销商（无分销角色声明、官网/渠道不明），产品为凝胶鞋垫非碳纤维，联系人完全缺失",
+    "potential_needs": "已确认：鞋垫贴牌采购持续增长；推测：凝胶→碳纤维/复合升级需求（probable）",
+    "recommended_sales_strategy": "作为 Urick Sports 的替代/补充供应商切入：提供凝胶-碳纤维复合升级款；因无联系人，先从 CA 州注册信息与 LinkedIn 补挖决策人",
+    "priority_rank": 6
+  },
+  "data_confidence": "A",
+  "missing_information": [
+    "website: 未找到官网",
+    "contacts: 无任何公开联系人",
+    "distribution: 销售渠道与品牌不明",
+    "import_records: 1,658 票仅抽样核实鞋垫相关 3 票 + 关联 3 票，非全量",
+    "hs_code: 提单未披露有效 HS 编码"
+  ],
+  "sources": [
+    {"source": "ImportGenius 进口商档案", "url": "https://www.importgenius.com/cn/importers/noble-rider-llc", "related_field": "company/import_records(supplier_counts)", "confidence": "A"},
+    {"source": "52wmb 提单明细", "url": "https://m.52wmb.com/supplier/87211110", "related_field": "import_records(2026-02-28 gel insoles)", "confidence": "A"},
+    {"source": "ImportGenius 供应商页（Urick Sports）", "url": "https://www.importgenius.com/suppliers/urick-sports-equipment-co-ltd", "related_field": "import_records(2025 两票)", "confidence": "A"},
+    {"source": "Panjiva 提单记录", "url": "https://panjiva.com/Noble-Rider-Llc/44335960", "related_field": "company(address)/import_records(Bangladesh)", "confidence": "A"},
+    {"source": "Panjiva（常州供应商）", "url": "https://panjiva.com/Adm-Europoort-B-V/1044214", "related_field": "import_records", "confidence": "A"}
+  ]
+}
